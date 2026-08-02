@@ -273,7 +273,10 @@
   ];
 
   // 状态机环节枚举（与 chatState 对应）
-  const STAGE_ORDER = ["idle", "gathering", "confirming", "project_breakdown", "done"];
+  // 主线 4 环节：待命→收集→确认→完成（线性推进）
+  const STAGE_ORDER = ["idle", "gathering", "confirming", "done"];
+  // 分支环节：项目拆解（可从 idle 进入，完成后回到 confirming）
+  const STAGE_BRANCH = "project_breakdown";
 
   // 搜索 API 提供商预设
   const SEARCH_PROVIDERS = {
@@ -3172,16 +3175,18 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     const activeCat = cats.find((c) => c.id === activeId) || cats[0] || {};
     el.activeCategoryName.textContent = activeCat.name || "—";
 
-    // 渲染状态机环节列表
+    // 渲染状态机环节列表（主线 + 分支分组）
     const stageList = document.getElementById("stageList");
     if (stageList) {
       stageList.innerHTML = "";
+      const stageLabels = { idle: "① 待命", gathering: "② 收集", confirming: "③ 确认", project_breakdown: "🔗 分支", done: "④ 完成" };
+
+      // 主线环节（按顺序：待命→收集→确认→完成）
       STAGE_ORDER.forEach((stage) => {
         const cat = cats.find((c) => c.stage === stage);
         if (!cat) return;
         const item = document.createElement("div");
         item.className = "stage-item" + (cat.id === activeId ? " active" : "");
-        const stageLabels = { idle: "待命", gathering: "收集", confirming: "确认", project_breakdown: "拆解", done: "完成" };
         item.innerHTML = `
           <div class="stage-item-info">
             <div class="stage-item-name">${escapeHtml(cat.name)} <span class="stage-badge">${stageLabels[stage] || stage}</span></div>
@@ -3192,7 +3197,6 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
           </div>`;
         const editBtn = item.querySelector("[data-edit]");
         if (editBtn) editBtn.addEventListener("click", (e) => { e.stopPropagation(); openCategoryEditor(cat.id); });
-        // 点击环节项也激活（虽然状态切换时会自动激活，但允许手动预览）
         item.addEventListener("click", () => {
           state.settings.activePromptId = cat.id;
           save(SETTINGS_KEY, state.settings);
@@ -3201,6 +3205,35 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         });
         stageList.appendChild(item);
       });
+
+      // 分支环节（项目拆解，独立分组）
+      const branchCat = cats.find((c) => c.stage === STAGE_BRANCH);
+      if (branchCat) {
+        const divider = document.createElement("div");
+        divider.className = "stage-divider";
+        divider.innerHTML = '<span class="stage-divider-text">分支环节（可选）</span>';
+        stageList.appendChild(divider);
+
+        const item = document.createElement("div");
+        item.className = "stage-item branch-item" + (branchCat.id === activeId ? " active" : "");
+        item.innerHTML = `
+          <div class="stage-item-info">
+            <div class="stage-item-name">${escapeHtml(branchCat.name)} <span class="stage-badge branch">${stageLabels[STAGE_BRANCH] || STAGE_BRANCH}</span></div>
+            <div class="stage-item-desc">${escapeHtml(branchCat.desc || "")}</div>
+          </div>
+          <div class="stage-item-actions">
+            <button class="stage-item-btn" data-edit="${branchCat.id}" title="编辑">✏</button>
+          </div>`;
+        const editBtn = item.querySelector("[data-edit]");
+        if (editBtn) editBtn.addEventListener("click", (e) => { e.stopPropagation(); openCategoryEditor(branchCat.id); });
+        item.addEventListener("click", () => {
+          state.settings.activePromptId = branchCat.id;
+          save(SETTINGS_KEY, state.settings);
+          renderCategoryList();
+          renderChatBadges();
+        });
+        stageList.appendChild(item);
+      }
     }
 
     // 渲染附加提示词列表
@@ -3535,6 +3568,9 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   function renderStageProgress() {
     if (!el.stageProgress) return;
     const curStage = state.chatState || "idle";
+    const isBranch = curStage === STAGE_BRANCH;
+    // 分支环节时进度条映射回主线位置（拆解完成后回到 confirming）
+    const effectiveStage = isBranch ? "confirming" : curStage;
     // 仅在环节切换时触发闪烁动画与日志
     const isTransition = _lastRenderedStage !== null && _lastRenderedStage !== curStage;
 
@@ -3556,8 +3592,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       stageNodesBuilt = true;
     }
 
-    // 计算进度：当前环节在 STAGE_ORDER 中的位置
-    const idx = STAGE_ORDER.indexOf(curStage);
+    // 计算进度：当前环节在主线 STAGE_ORDER 中的位置
+    const idx = STAGE_ORDER.indexOf(effectiveStage);
     const total = STAGE_ORDER.length;
     // fill 宽度：到达当前节点中心
     const fillPercent = total > 1 ? (idx / (total - 1)) * 100 : 0;
@@ -3568,14 +3604,20 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     nodes.forEach((node) => {
       const st = node.dataset.stage;
       const nodeIdx = STAGE_ORDER.indexOf(st);
-      node.classList.remove("passed", "current");
+      node.classList.remove("passed", "current", "branch-active");
       if (nodeIdx < idx) node.classList.add("passed");
       else if (nodeIdx === idx) node.classList.add("current");
+      // 分支环节激活时，confirming 节点显示分支状态
+      if (isBranch && st === "confirming") {
+        node.classList.remove("current");
+        node.classList.add("branch-active");
+      }
     });
 
-    // 更新当前环节文字标签
+    // 更新当前环节文字标签（分支环节特殊标记）
     const cat = getStageCategory(curStage);
-    const labelText = cat ? cat.name : (STAGE_SHORT_NAMES[curStage] || curStage);
+    let labelText = cat ? cat.name : (STAGE_SHORT_NAMES[curStage] || curStage);
+    if (isBranch) labelText = "🔗 " + labelText;
     el.stageCurrentLabel.textContent = labelText;
 
     // 切换闪烁动画：移除再添加以重启动画

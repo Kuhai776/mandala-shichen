@@ -2134,6 +2134,55 @@ dialog::backdrop {
 }
 .stage-item-btn:active { background: var(--accent); color: white; }
 
+/* 分支环节分隔线 */
+.stage-divider {
+  margin: 10px 0 6px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.stage-divider::before,
+.stage-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.stage-divider-text {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* 分支环节标签特殊样式 */
+.stage-badge.branch {
+  background: rgba(251, 146, 60, 0.8);
+}
+.stage-item.branch-item {
+  border-left: 2px solid rgba(251, 146, 60, 0.4);
+}
+.stage-item.branch-item.active {
+  border-color: rgba(251, 146, 60, 0.5);
+  background: linear-gradient(135deg, rgba(251, 146, 60, 0.12), rgba(251, 146, 60, 0.04));
+}
+
+/* 分支激活时 confirming 节点的特殊样式 */
+.stage-node.branch-active .stage-node-dot {
+  background: rgba(251, 146, 60, 0.6);
+  border-color: rgba(251, 146, 60, 0.8);
+  animation: branchPulse 1.5s ease-in-out infinite;
+}
+.stage-node.branch-active .stage-node-label {
+  color: rgba(251, 146, 60, 0.9);
+  font-weight: 600;
+}
+@keyframes branchPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(251, 146, 60, 0.3); }
+  50% { transform: scale(1.2); box-shadow: 0 0 0 4px rgba(251, 146, 60, 0.1); }
+}
+
 /* 环节总结卡片 */
 .stage-summary-card {
   background: linear-gradient(135deg, rgba(124,92,255,0.08), rgba(74,222,128,0.05));
