@@ -23,9 +23,17 @@
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "1.9.3";
-  const APP_VERSION_DATE = "2026-07-29";
+  const APP_VERSION = "2.0.0";
+  const APP_VERSION_DATE = "2026-08-02";
   const APP_CHANGELOG = [
+    { v: "2.0.0", date: "2026-08-02", items: [
+      "新增：天·计划环节 4 个专业技能（晨间启动/日程编排/目标拆解/优先级矩阵）",
+      "新增：地·记录环节 3 个专业技能（时间审计/专注度评估/中断管理）",
+      "新增：人·复盘环节 3 个专业技能（GRAI复盘/效率洞察/改进闭环）",
+      "新增：跨环节综合 4 个专业技能（能量节律/习惯系统/周度战略/状态管理）",
+      "新增：全量 PROMPT_TEMPLATES 模板覆盖 16 个技能",
+      "新增：5 个状态机环节推荐技能更新（idle/gathering/confirming/breakdown/done）",
+    ]},
     { v: "1.9.3", date: "2026-07-29", items: [
       "新增：AI 发送按钮 loading 旋转动画 + 出射脉冲扩散",
       "新增：用户消息发送轨迹动画（从右下方滑入）、Bot 消息左侧滑入",
@@ -114,7 +122,10 @@
   const REVIEW_KEY = "mandala-reviews-v1";
 
   // ---------- 预设技能 ----------
+  // 技能体系按「天·计划 / 地·记录 / 人·复盘 / 跨环节综合」四大维度组织
+  // 每个技能包含：方法论框架 + 曼陀罗时辰映射规则 + 具体执行指令
   const PRESET_SKILLS = [
+    // ========== 天 · 计划环节技能 ==========
     { id: "gtd", name: "GTD", desc: "收集→处理→组织→回顾→执行，把任务拆成可执行的下一步行动",
       prompt: "采用 GTD 方法论：把用户任务拆解为明确的「下一步行动」，区分项目/任务/日历项，确保每格任务是单一可执行动作。" },
     { id: "eisenhower", name: "艾森豪威尔", desc: "按重要/紧急四象限分配，重要任务放高能时段",
@@ -127,6 +138,52 @@
       prompt: "采用时间块法：把同类任务集中安排在连续时段，减少上下文切换。例如所有会议放同一时辰，所有写作任务连续安排。" },
     { id: "deepwork", name: "深度工作", desc: "保留 2-4 小时无干扰深度时段",
       prompt: "保留深度工作时段：每天安排至少 1-2 个连续时辰（2-4小时）的深度工作，不被会议/沟通打断，处理最重要的任务。" },
+
+    // --- 天·计划：精细化专业技能 ---
+    { id: "morning_boot", name: "晨间启动", desc: "仪式化晨间规划，结合生物钟预测当日能量曲线，生成分层启动方案",
+      prompt: "【晨间启动规划法】\n你是晨间仪式设计专家。按以下框架规划：\n\n1. 能量预测：根据用户睡眠时长（询问）、昨日强度、季节光线，预测今日能量曲线（高/中/低三档映射到 9 时辰）\n2. 晨间仪式（第1时辰 5:00-7:00）：安排 3 格启动序列——\n   - 格0-1：唤醒过渡（拉伸/冥想/喝水，轻量活动）\n   - 格2-3：意图设定（写今日 3 个 MIT 最重要任务 + 一句正能量宣言）\n   - 格4-5：信息摄取（阅读 13 分钟 / 听播客 / 查看日程）\n   - 格6-8：第一个深度任务（趁皮质醇高峰，做最难的事）\n3. 能量映射规则：\n   - 高能时段（第1-3辰）：深度创作/学习/决策\n   - 中能时段（第4-6辰）：协作/会议/沟通\n   - 低能时段（第7-9辰）：整理/复盘/轻量阅读\n4. 缓冲设计：每时辰最后 1-2 格留空作为弹性缓冲，吸收超时\n5. 输出要求：每个任务标注预估能量消耗（高/中/低），确保高能任务不超过总高能时段的 70%" },
+
+    { id: "schedule_orchestration", name: "日程编排", desc: "基于任务依赖关系、认知负荷、缓冲区的多约束日程编排算法",
+      prompt: "【多约束日程编排法】\n你是日程编排算法专家。按以下约束体系编排任务到曼陀罗格子：\n\n1. 依赖约束：识别任务间的依赖链（A 必须在 B 之前完成），按拓扑排序排列\n2. 认知负荷约束：\n   - 高负荷任务（写作/编程/数学）不连续超过 4 格（约 53 分钟），之后必须插入低负荷任务\n   - 同类型高负荷任务不背靠背安排，中间插入切换过渡（1 格轻量活动）\n3. 缓冲区设计：\n   - 每时辰预留最后 1 格作为「弹性缓冲」（处理超时/意外）\n   - 高密度日程（6 格以上有任务）在中间时辰强制插入 2 格休息\n4. 上下文切换最小化：\n   - 同项目/同工具的任务集中到同一时辰\n   - 不同上下文的切换至少间隔 1 格过渡\n5. 截止时间倒推：有 deadline 的任务从截止时间倒推，预留 20% 安全裕度\n6. 输出格式：每个任务标注 [负荷:高/中/低] [依赖:无/前置任务名] [缓冲:是/否]" },
+
+    { id: "goal_decomposition", name: "目标拆解", desc: "OKR 驱动的目标拆解：从季度目标到可执行的 13 分钟动作单元",
+      prompt: "【OKR 驱动目标拆解法】\n你是目标管理专家。按以下层级拆解用户目标：\n\n1. 目标层（Objective）：确认用户的周期目标（如「本周掌握 React Hooks」），1 句话定性描述\n2. 关键结果层（Key Results）：拆出 2-4 个可量化的关键结果（如「独立完成 3 个 Hooks 组件」「通过单元测试」），每个 KR 标注完成标准\n3. 里程碑层：每个 KR 拆为 2-3 个里程碑节点，标注预计完成日期\n4. 行动层（今日可执行）：\n   - 每个里程碑拆为可在 1-4 格内完成的行动单元\n   - 每个行动单元以动词开头，明确输入→处理→输出\n   - 标注预估格数和所属 KR\n5. 依赖排序：\n   - 基础概念类行动排在前面\n   - 实践类行动紧跟理论\n   - 综合应用排在最后\n6. 验证点：每个里程碑设置一个「检验动作」（如「不看教程手写一遍」），安排在里程碑末尾\n7. 输出要求：每个任务标注 [KR编号] [里程碑] [预估格数] [检验:是/否]" },
+
+    { id: "priority_matrix", name: "优先级矩阵", desc: "加权评分 + 艾森豪威尔双维分析，量化每个任务的优先级分数",
+      prompt: "【加权优先级评分法】\n你是优先级决策分析专家。对每个任务进行多维度量化评分：\n\n1. 评分维度（每项 1-5 分）：\n   - 影响值：完成此任务对目标的推进程度\n   - 紧迫值：距 deadline 的剩余时间倒数（<1天=5分，1-3天=4分，3-7天=3分，>7天=2分，无截止=1分）\n   - 依赖值：被多少后续任务依赖（0=1分，1-2=3分，3+=5分）\n   - 能量匹配值：任务所需能量与安排时段能量曲线的匹配度\n   - 努力值（反向）：完成任务所需时间/精力（5分=轻松，1分=很重）\n2. 加权公式：优先级分数 = 影响值×0.30 + 紧迫值×0.25 + 依赖值×0.20 + 能量匹配×0.15 + 努力值×0.10\n3. 分档规则：\n   - 分数 ≥4.0 → 高优先级（priority:high），安排在每日前 1/3 时辰\n   - 分数 2.5-3.9 → 中优先级（priority:medium），安排在中段时辰\n   - 分数 <2.5 → 低优先级（priority:low），安排在末段或删除\n4. 艾森豪威尔交叉验证：对高分数任务再判断重要/紧急象限，重要不紧急的优先保护深度时段\n5. 输出要求：summary 中列出 TOP 3 任务及其分数明细，tasks 数组中每个任务标注 priority 和分数" },
+
+    // ========== 地 · 记录环节技能 ==========
+    { id: "time_audit", name: "时间审计", desc: "精确追踪时间去向，按任务类型/项目/能量消耗分类统计",
+      prompt: "【时间审计分析法】\n你是时间审计专家。指导用户进行精确的时间去向追踪：\n\n1. 记录规范：每格记录必须包含三要素——\n   - actual：实际做了什么（动词开头，如「写了报告第三章」）\n   - spent：实际花费时间（精确到分钟，如「25min」）\n   - note：附加信息（中断次数/分心原因/合作者）\n2. 分类标签体系（tag 字段）：\n   - [深度] 创作类：写作/编程/设计/学习\n   - [协作] 沟通类：会议/电话/邮件/即时消息\n   - [事务] 琐事类：整理/报销/审批/通勤\n   - [恢复] 休息类：午休/散步/冥想\n   - [消耗] 被动类：刷手机/无意义等待\n3. 偏差分析：对比计划与实际记录——\n   - 计划做A实际做了B → 标记「任务漂移」\n   - 计划 30min 实际 60min → 标记「时间膨胀」\n   - 计划有任务实际空格 → 标记「任务遗漏」\n4. 审计输出：在复盘环节生成时间审计报告——\n   - 各类别时间占比（饼图数据）\n   - 深度工作总时长 vs 协作总时长比值\n   - 被动消耗时间占比（目标 <10%）\n   - 任务漂移率（目标 <20%）\n5. 改进建议：针对最大偏差类别给出 1 条具体改进动作" },
+
+    { id: "focus_assessment", name: "专注度评估", desc: "评估每段时间的专注深度，识别心流状态与分心模式",
+      prompt: "【专注度深度评估法】\n你是专注力分析专家。对用户的每段记录进行专注度量化：\n\n1. 专注度分级（每格评定）：\n   - L4 心流：完全沉浸，忘时间，产出高质量（标记 🟢）\n   - L3 专注：注意力集中，偶有走神但快速拉回（标记 🔵）\n   - L2 浅层：能完成任务但频繁看手机/走神（标记 🟡）\n   - L1 分散：多任务切换，碎片化处理（标记 🟠）\n   - L0 无效：名义在做但实际刷手机/发呆（标记 🔴）\n2. 评估信号（从记录中推断）：\n   - spent 时间与任务复杂度匹配 → 可能高专注\n   - note 中提到「被XX打断」→ 专注被中断\n   - actual 是简单任务但 spent 很长 → 可能低专注\n   - 连续多格同类任务 → 可能进入心流\n3. 分心模式识别：\n   - 频繁中断型：记录中多次出现「被打断」\n   - 任务跳跃型：相邻格子任务类型频繁切换\n   - 拖延型：困难任务被推迟到末段时辰\n   - 过度准备型：大量时间花在「准备」而非「执行」\n4. 心流条件分析：统计出现 L4 心流的格子，分析共性条件（时段/任务类型/前置活动）\n5. 输出建议：在复盘中给出「心流触发公式」（如「上午第2辰 + 编程类 + 前1格冥想 → 80%概率心流」）" },
+
+    { id: "interruption_mgmt", name: "中断管理", desc: "记录中断来源与恢复成本，建立中断防护策略",
+      prompt: "【中断管理分析法】\n你是中断管理专家。帮助用户追踪和分析工作中断：\n\n1. 中断记录格式（在 note 字段）：\n   - 来源标记：[P]人物中断 [M]消息中断 [E]外部事件 [I]内部冲动\n   - 恢复成本：记录从中断到重新专注的时间（如「恢复5min」）\n   - 示例：「[P]同事问问题，恢复8min」\n2. 中断分类统计：\n   - 可避免中断：社交媒体通知、无预约闲聊 → 应主动消除\n   - 不可避免中断：上级紧急需求、系统故障 → 应建立快速恢复机制\n   - 自发中断：突然想起其他事、习惯性看手机 → 应训练注意力\n3. 影响量化：\n   - 每次中断平均恢复成本 ≈ 15-23 分钟（根据 Gloria Mark 研究）\n   - 计算当日中断总成本 = 中断次数 × 平均恢复时间\n   - 与总可用时间对比，算出「中断损耗率」\n4. 防护策略建议：\n   - 高中断时段识别后，在下一日将深度任务避开该时段\n   - 设置「免打扰时辰」（连续 2 格不开消息通知）\n   - 建立中断缓冲：快速记录中断内容，5分钟内不处理，集中到低能时段批量回复\n5. 输出要求：在复盘中生成「中断热力图」——标注哪些时辰中断最多，给出针对性防护建议" },
+
+    // ========== 人 · 复盘环节技能 ==========
+    { id: "grai_review", name: "GRAI复盘", desc: "Goal-Result-Analysis-Insight 四步深度复盘法",
+      prompt: "【GRAI 深度复盘法】\n你是复盘教练。按 GRAI 框架对今日数据进行四层递进分析：\n\n1. G - Goal 回顾目标：\n   - 提取今日计划中的 TOP 3 任务\n   - 列出每个任务的原始目标（完成标准/预期产出）\n   - 标注哪些是 MIT（最重要任务）\n\n2. R - Result 评估结果：\n   - 逐项对比「计划 vs 实际记录」\n   - 量化完成度：已完成格数/计划总格数 = 完成率\n   - 标注三类结果：✓ 达成  △ 部分达成  ✗ 未达成\n   - 对未达成的任务，从记录中找「时间去哪了」\n\n3. A - Analysis 分析原因：\n   - 成功因素：哪些条件促成了高效完成？（时段/顺序/前置准备/无中断）\n   - 失败因素：用 5-Why 追问法分析根因——\n     Why1: 为什么没完成A？→ 时间被B占了\n     Why2: 为什么B花了更多时间？→ 低估了B的复杂度\n     Why3: 为什么低估？→ 没有提前拆解B的步骤\n     → 根因：规划阶段缺少任务复杂度评估\n   - 偶然 vs 必然：区分哪些是偶发因素（临时会议），哪些是系统性问题（总是低估）\n\n4. I - Insight 提炼洞察：\n   - 1 条「成功公式」：今日最高效的时段+任务+条件组合\n   - 1 条「改进杠杆」：投入最小但效果最大的改进点\n   - 1 条「认知更新」：今天发现的关于自己工作模式的新认知\n   - 明日建议：基于以上洞察，给出明日 2-3 条具体调整建议\n\n5. 输出格式：按 GRAI 四段式输出，每段用数据支撑，避免空泛" },
+
+    { id: "efficiency_insight", name: "效率洞察", desc: "趋势分析与模式识别，发现个人效率周期律",
+      prompt: "【效率趋势洞察法】\n你是数据分析专家。基于多日曼陀罗数据，识别用户的个人效率模式：\n\n1. 时段效率曲线：\n   - 统计每个时辰（9个）的近 7 日平均完成率\n   - 识别「黄金时段」（完成率 >80% 的时辰）\n   - 识别「低谷时段」（完成率 <40% 的时辰）\n   - 生成效率曲线描述（如「双峰型：上午第2-3辰峰值，下午第6辰回升」）\n\n2. 任务类型效率：\n   - 按 tag 分类统计各类任务的完成率\n   - 找出「最容易完成的任务类型」和「最容易拖延的任务类型」\n   - 分析高完成率任务的共性条件\n\n3. 效率周期识别：\n   - 周内规律：周一到周日的效率波动模式\n   - 能量周期：连续高效日后的效率衰减拐点\n   - 恢复模式：低效日后需要多少天恢复到高效\n\n4. 偏差模式库：\n   - 时间膨胀 TOP3：哪些任务类型最容易被低估时间\n   - 任务漂移 TOP3：哪些计划任务最容易被其他事情挤占\n   - 空格集中区：哪些时辰最容易空置无记录\n\n5. 洞察输出：\n   - 「你的效率画像」：一句话总结用户的工作风格（如「晨间型深度工作者，午后需要结构化安排防止涣散」）\n   - 「最大效率杠杆」：改变哪个变量能最大化提升整体效率\n   - 「效率陷阱」：最需要警惕的效率杀手\n   - 输出格式为结构化 JSON，包含 efficiency_curve、task_analysis、patterns、recommendations 四个字段" },
+
+    { id: "improvement_loop", name: "改进闭环", desc: "PDCA 循环改进：从复盘洞察到明日行动的闭环转化",
+      prompt: "【PDCA 改进闭环法】\n你是持续改进专家。将复盘洞察转化为可执行的明日改进方案：\n\n1. P - Plan 改进计划：\n   - 从今日复盘中提取 1-3 个具体改进点（不是「提高效率」而是「上午第2辰开始前先关掉微信通知」）\n   - 每个改进点设计可验证的成功标准（如「今日第2辰零中断」）\n   - 将改进点嵌入明日曼陀罗格子（在对应时段前置 1 格作为「改进准备」）\n\n2. D - Do 执行追踪：\n   - 在记录环节特别标注改进点的执行情况\n   - note 字段用 [改进] 前缀标记与改进相关的记录\n   - 追踪改进动作的执行率（计划改进 3 个，实际执行了几个）\n\n3. C - Check 检查验证：\n   - 对比「执行改进日」vs「未执行日」的效率数据\n   - 量化改进效果：完成率提升多少、中断减少多少、心流增加多少\n   - 判断改进是否有效，区分「真改进」和「安慰剂改进」\n\n4. A - Act 标准化固化：\n   - 有效的改进 → 固化为每日标准流程（写入对应时辰的固定任务）\n   - 无效的改进 → 废弃或重新设计\n   - 部分有效的改进 → 微调参数后继续试验\n   - 形成「个人最佳实践库」，每个有效改进用一句话记录\n\n5. 闭环输出：\n   - 今日改进执行率：X/Y\n   - 有效改进数：N 个（列出具体内容）\n   - 明日新改进：M 个（每个附验证标准）\n   - 已固化最佳实践：K 条（累计）\n   - 改进成熟度评级：探索期/验证期/固化期/优化期" },
+
+    // ========== 跨环节综合技能 ==========
+    { id: "energy_rhythm", name: "能量节律", desc: "基于超昼夜节律（90分钟周期）匹配任务类型与能量波峰",
+      prompt: "【超昼夜节律能量管理法】\n你是生理节律与任务匹配专家。基于超昼夜节律（Ultradian Rhythm）规划任务：\n\n1. 节律映射：\n   - 人体自然节律为 90 分钟高能 + 20 分钟低谷的循环\n   - 曼陀罗每时辰 = 120 分钟 ≈ 1 个完整节律周期 + 30 分钟过渡\n   - 时辰内格 0-5（前 80 分钟）≈ 高能期 → 安排深度任务\n   - 时辰内格 6-8（后 40 分钟）≈ 低谷过渡期 → 安排轻量/休息\n\n2. 能量分级与任务匹配：\n   - T1 超高能（晨起后第1-2辰，皮质醇峰值）：战略思考/创意发散/最难任务\n   - T2 高能（上午第3-4辰）：深度执行/编程/写作\n   - T3 中能（午后第5-6辰）：协作沟通/会议/审查\n   - T4 低能（傍晚第7-8辰）：整理归档/轻量阅读/事务处理\n   - T5 恢复期（晚间第9辰）：复盘冥想/放松/社交\n\n3. 能量保护策略：\n   - 高能时段不安排会议/电话/回复消息\n   - 低能时段不安排重要决策\n   - 连续 2 个高能时辰后强制插入 1 格恢复（散步/冥想/小睡）\n   - 午后第5辰前 3 格安排为「重启仪式」（午餐+散步+咖啡）\n\n4. 个性化校准：\n   - 询问用户的晨型/夜型偏好（MEQ 量表简化版）\n   - 夜型人将 T1/T2 时段后移 1 个时辰\n   - 根据记录数据持续校准个人能量曲线\n\n5. 输出要求：每个任务标注 [能量需求:T1-T5] [节律位置:高能期/低谷期/过渡期]，确保高能任务不安排在低谷期" },
+
+    { id: "habit_system", name: "习惯系统", desc: "基于行为设计学的习惯养成系统：触发-行动-奖励-追踪闭环",
+      prompt: "【行为设计习惯系统】\n你是行为设计学（BJ Fogg 模型）专家。帮助用户设计和追踪习惯养成：\n\n1. 习惯设计框架（MAP 模型）：\n   - Motivation 动机：确认习惯的内在驱动力（不是「要运动」而是「想要精力充沛地工作」）\n   - Ability 能力：将习惯拆到极小（不是「健身1小时」而是「穿上跑鞋出门走5分钟」）\n   - Prompt 触发：绑定到已有锚点行为（如「刷牙后→冥想3分钟」）\n\n2. 曼陀罗习惯排布：\n   - 晨间习惯栈（第1时辰格0-3）：触发=起床 → 拉伸(1格)→喝水(1格)→冥想(1格)→写日记(1格)\n   - 工作启动习惯（第2时辰格0-1）：触发=坐到工位 → 清理桌面→查看MIT\n   - 午后重启习惯（第5时辰格0-2）：触发=午休结束 → 散步→深呼吸→设定下午目标\n   - 晚间复盘习惯（第9时辰格0-2）：触发=结束工作 → 回顾今日→规划明日→感恩记录\n\n3. 习惯追踪机制：\n   - 每个习惯任务用 tag 字段标记 [习惯]\n   - 连续打卡天数 = 连续有记录的天数\n   - 习惯强度 = 最近 7 天执行率\n   - 里程碑：7天→萌芽期 / 21天→巩固期 / 66天→稳定期 / 90天→自动化期\n\n4. 奖励设计：\n   - 即时奖励：完成习惯后立刻给予微奖励（听一首歌/伸展一下）\n   - 里程碑奖励：7天/21天/66天设定不同层级的自我奖励\n   - 在格子记录中用 note 标记 [奖励已领取]\n\n5. 习惯堆叠进阶：\n   - 已稳定的习惯（>21天）可以叠加新习惯（如「冥想后→读1页书」）\n   - 每次只叠加 1 个新习惯，避免过载\n   - 失败的习惯 → 降级到更小版本重新开始\n\n6. 输出要求：习惯任务标注 [习惯] [阶段:萌芽/巩固/稳定] [连续天数]，在复盘中生成习惯追踪仪表盘" },
+
+    { id: "weekly_strategy", name: "周度战略", desc: "周维度规划与回顾：主题日设计 + 周目标拆解 + 周复盘仪式",
+      prompt: "【周度战略规划法】\n你是战略规划教练。以周为单位进行高层规划与回顾：\n\n1. 周一规划仪式（周一首时辰）：\n   - 回顾上周：完成率/未完成项/最大收获/最大教训\n   - 设定本周主题：用 1-3 个关键词概括本周重心（如「深度输出周」「关系建设周」）\n   - 确定本周 3 个 O（Objective）和每个 O 的 1-2 个 KR\n   - 将周目标拆解到 7 天的曼陀罗格子中\n\n2. 主题日设计（Theme Days）：\n   - 周一：规划+启动（深度任务）\n   - 周二：执行+产出（最高强度深度工作）\n   - 周三：协作+沟通（集中会议/1on1）\n   - 周四：执行+产出（第二深度日）\n   - 周五：收尾+复盘（完成遗留+周复盘）\n   - 周六：探索+学习（兴趣驱动的学习/尝试）\n   - 周日：恢复+规划（充分休息+轻量规划）\n   - 根据用户实际工作节奏调整主题日\n\n3. 周中检查点（周三晚间第8时辰）：\n   - 检查周目标进度：已完成/进行中/未开始\n   - 调整后半周计划：未启动的任务是否需要降级或委托\n   - 识别风险：哪些任务可能延期，提前应对\n\n4. 周五复盘仪式（周五末时辰）：\n   - 数据汇总：本周总完成率/深度工作总时长/中断总成本\n   - 目标达成评估：每个 O 和 KR 的完成度\n   - 精力回顾：哪天最高效/哪天最低效/原因分析\n   - 经验提炼：本周学到的 1 条工作方法改进\n   - 下周预告：下周的主题和核心目标方向\n\n5. 月度趋势（每月最后一周复盘时）：\n   - 4 周效率趋势曲线\n   - 习惯追踪月度总结\n   - 月度目标达成率\n   - 下月战略方向调整\n\n6. 输出要求：周规划生成 7 天概览，每天标注主题和核心任务数；周复盘生成结构化报告含数据/评估/洞察/调整" },
+
+    { id: "state_management", name: "状态管理", desc: "情绪与心理状态管理：压力监测 + 心理能量补给 + 心流触发",
+      prompt: "【心理状态与能量管理法】\n你是心理状态管理教练。关注用户的心理能量和情绪状态对效率的影响：\n\n1. 心理能量模型（Ego Depletion 理论）：\n   - 心理能量（意志力）是有限资源，每做一次决策/抵抗诱惑都消耗\n   - 高消耗活动：抗拒诱惑/控制情绪/复杂决策/社交表演\n   - 补给活动：独处/冥想/自然散步/兴趣爱好/深度睡眠\n   - 在格子中标注每个任务的心理消耗值（高/中/低）\n\n2. 压力监测信号：\n   - 从记录中识别压力信号——\n     · 任务密度突然增加（单时辰 8+ 格有任务）\n     · 连续多日无休息格\n     · note 中出现「累」「烦」「不想做」等情绪词\n     · 深度任务完成率下降趋势\n   - 压力分级：绿色（正常）/黄色（偏高）/红色（过载）\n\n3. 心理能量补给策略：\n   - 微补给（1格≈13分钟）：冥想/深呼吸/听音乐/看窗外\n   - 中补给（2-3格）：散步/小睡/聊天/茶歇\n   - 深度补给（1个时辰）：运动/兴趣时间/自然接触\n   - 补给时机：心理能量低于 30% 时强制插入补给格\n\n4. 心流触发设计（Flow State）：\n   - 心流前置条件：明确目标 + 即时反馈 + 挑战与技能匹配\n   - 触发仪式：固定前置动作（如清理桌面→倒水→戴耳机→开始）\n   - 在格子中设计「心流触发序列」：前1格做触发仪式→后4-6格做深度任务\n   - 挑战度匹配：任务难度略高于当前技能水平（约 4% 超出）\n\n5. 情绪管理策略：\n   - 低落时：安排低难度高完成感的任务（整理/回复邮件/简单执行）\n   - 焦虑时：安排结构化任务（有明确步骤的执行类）\n   - 高昂时：安排创意类/挑战类任务（趁势突破）\n   - 拖延时：拆分任务到极小（1格即可完成的最小动作）\n\n6. 输出要求：\n   - 每个任务标注 [心理消耗:高/中/低] [情绪适配:低落/焦虑/高昂/平稳]\n   - 复盘中增加「心理状态评估」段落\n   - 高压力日自动建议插入补给格\n   - 生成「个人心流档案」：记录心流出现的条件组合" },
   ];
 
   const PROMPT_TEMPLATES = {
@@ -134,6 +191,20 @@
     eisenhower: "你是艾森豪威尔矩阵专家。评估每个任务的重要性和紧急性：重要紧急立即做（上午）；重要不紧急计划做（深度时段）；紧急不重要委托/批量（午后）；不重要不紧急删除或放晚上。",
     pomodoro: "你是番茄工作法教练。每 2 格约 26 分钟≈1 个番茄钟。深度任务连续安排番茄钟，每 4 个番茄钟安排 15-30 分钟长休息。休息也要安排进格子。",
     energy: "你是能量管理专家。按生理节律：晨型任务（运动/学习）放第1-2辰；深度工作放第2-4辰；沟通/会议放第4-6辰；创意/复盘放第6-8辰；放松/睡眠准备放第9辰。",
+    morning_boot: "你是晨间仪式设计专家。先询问用户昨晚睡眠时长和今日首要目标，然后按晨间启动法生成分层方案：唤醒过渡→意图设定→信息摄取→第一个深度任务。每时辰最后 1-2 格留缓冲。",
+    schedule_orchestration: "你是日程编排算法专家。识别任务依赖链做拓扑排序，控制认知负荷（高负荷不连续超 4 格），每时辰预留缓冲格，最小化上下文切换，有 deadline 的任务倒推预留 20% 裕度。每个任务标注 [负荷] [依赖] [缓冲]。",
+    goal_decomposition: "你是 OKR 目标管理专家。将用户目标按 Objective→KR→里程碑→行动单元四层拆解。每个行动单元以动词开头，可在 1-4 格内完成。按依赖排序，里程碑末尾设检验动作。标注 [KR编号] [里程碑] [预估格数]。",
+    priority_matrix: "你是优先级决策分析专家。对每个任务按影响值(0.30)+紧迫值(0.25)+依赖值(0.20)+能量匹配(0.15)+努力值(0.10)加权评分。≥4.0 高优先级安排前 1/3 时辰，2.5-3.9 中优先级中段，<2.5 低优先级末段或删除。",
+    time_audit: "你是时间审计专家。指导用户每格记录 actual+spent+note 三要素，按 [深度]/[协作]/[事务]/[恢复]/[消耗] 五类标签分类。对比计划与实际，标记任务漂移/时间膨胀/任务遗漏，在复盘中生成审计报告。",
+    focus_assessment: "你是专注力分析专家。对每格记录按 L0-L4 五级评定专注度（L4心流→L0无效）。从记录推断评估信号，识别分心模式（频繁中断/任务跳跃/拖延/过度准备），统计心流条件组合，输出心流触发公式。",
+    interruption_mgmt: "你是中断管理专家。指导用户用 [P][M][E][I] 标记中断来源，记录恢复成本。统计中断总成本和损耗率，区分可避免/不可避免/自发中断，在复盘中生成中断热力图并给出防护策略。",
+    grai_review: "你是 GRAI 复盘教练。按 Goal(回顾目标)→Result(评估结果)→Analysis(5Why分析根因)→Insight(提炼成功公式+改进杠杆+认知更新)四步进行深度复盘。每段用数据支撑，输出明日 2-3 条调整建议。",
+    efficiency_insight: "你是效率数据分析专家。统计各时辰近 7 日完成率，识别黄金/低谷时段。按任务类型分析完成率，识别效率周期（周内规律/能量衰减拐点/恢复模式），输出效率画像和最大效率杠杆。",
+    improvement_loop: "你是 PDCA 改进专家。将复盘洞察转化为可验证的改进计划(Plan)→执行追踪(Do)→效果验证(Check)→标准化固化(Act)。每个改进点附成功标准，追踪执行率，形成个人最佳实践库。",
+    energy_rhythm: "你是超昼夜节律专家。按 90 分钟高能+20 分钟低谷的循环，将曼陀罗每时辰分为高能期(格0-5)和低谷期(格6-8)。任务按 T1-T5 能量分级匹配，高能时段禁排会议，连续 2 高能时辰后强制插入恢复格。",
+    habit_system: "你是行为设计学(BJ Fogg)专家。按 MAP 模型(动机-能力-触发)设计习惯，拆到极小动作，绑定锚点行为。在曼陀罗格子中排布晨间/工作启动/午后/晚间四个习惯栈，追踪连续天数和习惯强度(7/21/66/90天里程碑)。",
+    weekly_strategy: "你是战略规划教练。以周为单位：周一设定主题和 OKR，设计主题日(周一规划→周二深度→周三协作→周四深度→周五收尾→周六探索→周日恢复)，周三周中检查，周五周复盘，月末月度趋势分析。",
+    state_management: "你是心理状态管理教练。基于 Ego Depletion 理论追踪心理能量消耗，从记录识别压力信号(任务密度突增/连续无休息/情绪词)，设计微/中/深度三级补给策略，建立心流触发序列，按情绪状态匹配任务类型。",
   };
 
   // 预设提示词分类（按状态机环节绑定）
@@ -144,7 +215,7 @@
       stage: "idle",
       name: "待命·首次接单",
       desc: "用户刚描述任务，复述理解并询问背景",
-      recommendedSkills: ["gtd", "energy"],
+      recommendedSkills: ["gtd", "energy", "morning_boot", "state_management"],
       isSystem: true,
       content: "你正在【待命】环节。用户刚描述了任务。\n请做两件事：\n1. 简短复述你对任务的理解（一句话）\n2. 提出 2-4 个背景问题，帮助更好地分配到曼陀罗时辰：\n   - 预计时长 / 优先级 / 截止时间 / 当前能量状态\n不要直接给方案。设置 action=\"clarify\"。",
       summaryTemplate: "已确认任务：{{任务}}；关键背景：{{要点}}。进入方案生成环节。",
@@ -154,7 +225,7 @@
       stage: "gathering",
       name: "收集背景→生成方案",
       desc: "用户已补充背景，生成完整方案并询问确认",
-      recommendedSkills: ["timeblock", "energy"],
+      recommendedSkills: ["timeblock", "energy", "schedule_orchestration", "energy_rhythm"],
       isSystem: true,
       content: "你正在【收集背景→生成方案】环节。用户已补充背景细节。\n请生成完整方案：\n1. 按时辰（5:00-23:00，共9时辰）分组列出任务清单\n2. 每个任务标注：时辰、格子序号、预计时长、优先级\n3. 询问\"是否按此安排？如有调整请说明\"\n设置 action=\"confirm\" 和 tasks 数组。\n可给出 1-2 个备选方案（alternatives 字段）。",
       summaryTemplate: "方案已生成：共 {{任务数}} 个任务，分布 {{时辰数}} 个时辰。进入确认环节。",
@@ -164,7 +235,7 @@
       stage: "confirming",
       name: "确认方案",
       desc: "用户提出调整意见，重新生成方案",
-      recommendedSkills: ["eisenhower", "gtd"],
+      recommendedSkills: ["eisenhower", "gtd", "priority_matrix", "schedule_orchestration"],
       isSystem: true,
       content: "你正在【确认方案】环节。用户对方案提出了调整意见。\n请重新生成方案，并标注本次调整的点。\n再次询问\"是否按此安排？\"。\n设置 action=\"confirm\" 和 tasks 数组。\n若用户明确同意（\"是\"\"可以\"\"同意\"），改设 action=\"execute\"。",
       summaryTemplate: "方案已确认：{{任务数}} 个任务将填入格子。进入执行环节。",
@@ -174,7 +245,7 @@
       stage: "project_breakdown",
       name: "项目拆解",
       desc: "递归拆解项目为可执行学习单元",
-      recommendedSkills: ["deepwork", "gtd", "timeblock"],
+      recommendedSkills: ["deepwork", "gtd", "timeblock", "goal_decomposition", "habit_system"],
       isSystem: true,
       content: "你正在【项目拆解】环节。用户给出项目目标（如\"学习嵌入式开发\"）。\n按 6 步推进，每轮只推进一步：\n1. 识别主要模块（如 C语言、STM32、焊锡、单片机...）\n2. 询问用户模块清单是否完整/优先级\n3. 对每个模块继续细分（C语言→指针/结构体/内存管理...）\n4. 对细分点「组块压缩」——合并为可在 13 分钟格子内完成的单元\n5. 对每个组块「深度剖析」——学习目标/关键概念/实践练习/检验方式\n6. 按依赖关系和难度分配到格子\n设置 action=\"breakdown\"，返回 breakdown 树结构和下一轮问题。\n全部拆解完成且用户确认后，设 action=\"confirm\" 并把 leaf 任务放入 tasks。",
       summaryTemplate: "项目拆解完成：{{模块数}} 个模块，{{任务数}} 个可执行单元。进入确认环节。",
@@ -184,7 +255,7 @@
       stage: "done",
       name: "已完成",
       desc: "任务已填入格子，给出执行建议",
-      recommendedSkills: ["pomodoro", "energy"],
+      recommendedSkills: ["pomodoro", "energy", "focus_assessment", "time_audit", "interruption_mgmt"],
       isSystem: true,
       content: "你正在【已完成】环节。任务已填入曼陀罗格子。\n请：\n1. 简要总结今日安排（2-3 句）\n2. 提示关键时间节点（如\"11:00 有重要任务，建议提前准备\"）\n3. 询问是否需要进一步调整或开始执行\n若用户要调整，回到 confirming；若要新任务，回到 idle。",
       summaryTemplate: "今日安排已就绪：{{任务数}} 个任务。开始执行。",
@@ -786,16 +857,33 @@
   }
 
   // ---------- Toast ----------
-  function toast(msg, type) {
+  function toast(msg, type, duration) {
     const container = document.getElementById("toastContainer");
     const el = document.createElement("div");
     el.className = `toast ${type || ""}`;
     el.textContent = msg;
-    container.appendChild(el);
-    setTimeout(() => {
+    el.addEventListener("click", () => {
       el.classList.add("hide");
       setTimeout(() => el.remove(), 300);
-    }, 2400);
+    });
+    container.appendChild(el);
+    setTimeout(() => {
+      if (el.parentNode) {
+        el.classList.add("hide");
+        setTimeout(() => el.remove(), 300);
+      }
+    }, duration || 2400);
+  }
+
+  // ---------- 快捷键视觉浮层 ----------
+  function showKeyHint(key, label) {
+    const existing = document.querySelector(".key-hint-overlay");
+    if (existing) existing.remove();
+    const el = document.createElement("div");
+    el.className = "key-hint-overlay";
+    el.innerHTML = `<div class="kh-key">${escapeHtml(key)}</div><div class="kh-label">${escapeHtml(label)}</div>`;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 800);
   }
 
   // ---------- DOM ----------
@@ -1405,11 +1493,11 @@
       timeEl.className = "cell-time";
       timeEl.textContent = `${secondsToHHMM(cellRange.start)} - ${secondsToHHMM(cellRange.end)}`;
 
-      // 多任务列表
+      // 多任务列表（全部展示，格子内滚动）
       const contentEl = document.createElement("div");
       if (tasks.length) {
         contentEl.className = "cell-content-list";
-        tasks.slice(0, 3).forEach((t) => {
+        tasks.forEach((t) => {
           const item = document.createElement("div");
           item.className = "cell-content-item";
           // 优先级小圆点
@@ -1421,12 +1509,6 @@
           item.appendChild(span);
           contentEl.appendChild(item);
         });
-        if (tasks.length > 3) {
-          const more = document.createElement("div");
-          more.className = "cell-more";
-          more.textContent = `+${tasks.length - 3} 更多`;
-          contentEl.appendChild(more);
-        }
         // 属性 meta 行
         const first = tasks[0];
         const metaParts = [];
@@ -2260,16 +2342,17 @@
     if (!el.aiReviewBtn) return;
     const date = state.currentDate;
 
-    // 显示加载
-    el.reviewBody.innerHTML = `
-      <div class="review-loading">
-        <div class="review-spinner"></div>
-        <div>正在结合计划与记录生成复盘…</div>
-      </div>
-    `;
+    try {
+      // 显示加载
+      el.reviewBody.innerHTML = `
+        <div class="review-loading">
+          <div class="review-spinner"></div>
+          <div>正在结合计划与记录生成复盘…</div>
+        </div>
+      `;
 
-    // 收集今日数据
-    const dayTasks = state.tasks[date] || {};
+      // 收集今日数据
+      const dayTasks = state.tasks[date] || {};
     const dayDone = state.done[date] || {};
     const dayRecords = state.records[date] || {};
 
@@ -2351,6 +2434,11 @@ ${recordItems.join("\n") || "（无）"}
       setDayReview(date, parsed);
       renderReview();
       toast("AI 失败，已用本地逻辑生成: " + (err.message || ""), "info");
+    }
+    } catch (outerErr) {
+      // 外层兜底：数据收集或渲染异常
+      el.reviewBody.innerHTML = `<div class="review-empty">复盘生成失败：${escapeHtml(outerErr.message || "未知错误")}。请检查数据后重试。</div>`;
+      toast("复盘生成异常，已恢复", "error");
     }
   }
 
@@ -3892,18 +3980,19 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
 
   // 本地模式打字机效果
   async function typewriterEffect(el, html) {
+    if (!el || !el.innerHTML) return;
     el.innerHTML = "";
     // 简单逐字显示：把 HTML 解析后逐字追加
     const temp = document.createElement("div");
     temp.innerHTML = html;
     const fullText = temp.textContent || "";
+    if (!fullText) { el.innerHTML = html; return; }
     const chunks = [];
     for (let i = 0; i < fullText.length; i += 2) {
       chunks.push(fullText.slice(0, i + 2));
     }
     for (const chunk of chunks) {
       el.textContent = chunk;
-      el.chatMessages && (el.chatMessages.scrollTop = el.chatMessages.scrollHeight);
       // 滚动父容器
       const parent = el.closest(".chat-messages");
       if (parent) parent.scrollTop = parent.scrollHeight;
@@ -4526,23 +4615,28 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   }
 
   async function webSearch(query) {
-    const { searchProvider, searchApiKey } = state.settings;
-    const provider = SEARCH_PROVIDERS[searchProvider];
-    if (!provider) return [];
-    // 免费源（needsKey=false）不需要 API Key
-    if (provider.needsKey && !searchApiKey) return [];
-    // 优先使用 buildUrl（免费源用 GET），否则用 endpoint + body（付费源用 POST）
-    const url = provider.buildUrl ? provider.buildUrl(query) : provider.endpoint;
-    const headers = provider.buildHeaders(searchApiKey || "");
-    const body = provider.buildBody ? provider.buildBody(searchApiKey, query) : null;
-    const resp = await fetch(url, {
-      method: body ? "POST" : "GET",
-      headers,
-      body,
-    });
-    if (!resp.ok) throw new Error(`搜索 API ${resp.status}`);
-    const data = await resp.json();
-    return provider.parse(data);
+    try {
+      const { searchProvider, searchApiKey } = state.settings;
+      const provider = SEARCH_PROVIDERS[searchProvider];
+      if (!provider) return [];
+      // 免费源（needsKey=false）不需要 API Key
+      if (provider.needsKey && !searchApiKey) return [];
+      // 优先使用 buildUrl（免费源用 GET），否则用 endpoint + body（付费源用 POST）
+      const url = provider.buildUrl ? provider.buildUrl(query) : provider.endpoint;
+      const headers = provider.buildHeaders(searchApiKey || "");
+      const body = provider.buildBody ? provider.buildBody(searchApiKey, query) : null;
+      const resp = await fetch(url, {
+        method: body ? "POST" : "GET",
+        headers,
+        body,
+      });
+      if (!resp.ok) throw new Error(`搜索 API ${resp.status}`);
+      const data = await resp.json();
+      return provider.parse(data);
+    } catch (e) {
+      console.warn("webSearch 失败:", e);
+      return []; // 静默恢复，不抛异常
+    }
   }
 
   async function testSearch() {
@@ -5180,6 +5274,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     const q = el.searchInput.value.trim().toLowerCase();
     if (!q) { el.searchResults.innerHTML = '<p class="panel-desc">输入关键词开始搜索…</p>'; return; }
     const results = [];
+    // 搜索计划任务
     Object.keys(state.tasks).sort().reverse().forEach((date) => {
       const day = state.tasks[date];
       Object.keys(day).forEach((k) => {
@@ -5189,33 +5284,68 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
           const text = taskText(t).toLowerCase();
           if (text.includes(q)) {
             const [period, cell] = k.split("-").map(Number);
-            results.push({ date, period, cell, idx, task: normalizeTask(t), text: taskText(t) });
+            results.push({ date, period, cell, idx, task: normalizeTask(t), text: taskText(t), type: "plan", label: "计划" });
           }
         });
       });
     });
+    // 搜索执行记录
+    if (state.records) {
+      Object.keys(state.records).sort().reverse().forEach((date) => {
+        const day = state.records[date];
+        if (!day) return;
+        Object.keys(day).forEach((k) => {
+          const rec = day[k];
+          if (!rec) return;
+          const searchText = ((rec.actual || "") + " " + (rec.spent || "") + " " + (rec.note || "")).toLowerCase();
+          if (searchText.includes(q)) {
+            const [period, cell] = k.split("-").map(Number);
+            const text = [rec.actual && `实际:${rec.actual}`, rec.spent && `花费:${rec.spent}`, rec.note && `备注:${rec.note}`].filter(Boolean).join(" · ");
+            results.push({ date, period, cell, idx: 0, text, type: "record", label: "记录" });
+          }
+        });
+      });
+    }
+    // 搜索复盘内容
+    if (state.reviews) {
+      Object.keys(state.reviews).sort().reverse().forEach((date) => {
+        const review = state.reviews[date];
+        if (!review) return;
+        const searchText = ((review.summary || "") + " " + (review.userNotes || "") + " " + (review.insights || []).join(" ") + " " + (review.suggestions || []).join(" ")).toLowerCase();
+        if (searchText.includes(q)) {
+          const snippet = (review.summary || "").slice(0, 80);
+          results.push({ date, period: 0, cell: 0, idx: 0, text: snippet, type: "review", label: "复盘" });
+        }
+      });
+    }
+    // 按日期排序
+    results.sort((a, b) => b.date.localeCompare(a.date) || a.period - b.period);
     if (!results.length) {
-      el.searchResults.innerHTML = '<p class="panel-desc">未找到匹配任务</p>';
+      el.searchResults.innerHTML = '<p class="panel-desc">未找到匹配结果</p>';
       return;
     }
-    el.searchResults.innerHTML = `<p class="panel-desc">找到 ${results.length} 个结果</p>`;
+    el.searchResults.innerHTML = `<p class="panel-desc">找到 ${results.length} 个结果（计划${results.filter(r=>r.type==="plan").length} · 记录${results.filter(r=>r.type==="record").length} · 复盘${results.filter(r=>r.type==="review").length}）</p>`;
     results.slice(0, 50).forEach((r) => {
       const div = document.createElement("div");
       div.className = "search-result";
       const range = getCellRange(r.period, r.cell);
+      const typeColor = r.type === "plan" ? "var(--realm-plan)" : r.type === "record" ? "var(--realm-record)" : "var(--realm-review)";
       const highlighted = escapeHtml(r.text).replace(new RegExp(escapeHtml(el.searchInput.value.trim()), "gi"), (m) => `<mark>${m}</mark>`);
-      const meta = [];
-      if (r.task.tag) meta.push("🏷 " + escapeHtml(r.task.tag));
-      if (r.task.priority === "high") meta.push("🔴 高优先");
+      const timeLabel = r.type !== "review" ? ` · ${secondsToHHMM(range.start)}` : "";
       div.innerHTML = `
-        <div class="search-result-date">${formatDateLabel(r.date)} · 第${r.period + 1}辰 ${secondsToHHMM(range.start)}</div>
-        <div class="search-result-text">${highlighted}</div>
-        ${meta.length ? `<div class="search-result-meta">${meta.join(" · ")}</div>` : ""}`;
+        <div class="search-result-date">
+          <span style="display:inline-block;padding:0 6px;border-radius:4px;font-size:10px;background:${typeColor}22;color:${typeColor};">${r.label}</span>
+          ${formatDateLabel(r.date)} · 第${r.period + 1}辰${timeLabel}
+        </div>
+        <div class="search-result-text">${highlighted}</div>`;
       div.addEventListener("click", () => {
         state.currentDate = r.date;
         state.activePeriod = r.period;
         el.searchDialog.close();
         renderAll();
+        if (r.type === "review") setRealm("review");
+        else if (r.type === "record") setRealm("record");
+        else setRealm("plan");
         toast("已跳转", "info");
       });
       el.searchResults.appendChild(div);
@@ -5397,6 +5527,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         : (idx >= 2 ? order[0] : order[idx + 1]);
       const reverse = e.shiftKey;
       e.preventDefault();
+      showKeyHint(e.shiftKey ? "⇧+Tab" : "Tab", `切换 → ${next === "plan" ? "天 · 计划" : next === "record" ? "地 · 记录" : "人 · 复盘"}`);
       setRealm(next, reverse);
       toast(`切换到 ${next === "plan" ? "天 · 计划" : next === "record" ? "地 · 记录" : "人 · 复盘"}`, "info");
       return;
@@ -5430,11 +5561,11 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         e.preventDefault(); setRealm("review"); break;
       // 助记快捷键：P=Plan L=Record(地) R=Review
       case "p": case "P":
-        e.preventDefault(); setRealm("plan"); toast("天 · 计划", "info"); break;
+        e.preventDefault(); showKeyHint("P", "天 · 计划"); setRealm("plan"); break;
       case "l": case "L":
-        e.preventDefault(); setRealm("record"); toast("地 · 记录", "info"); break;
+        e.preventDefault(); showKeyHint("L", "地 · 记录"); setRealm("record"); break;
       case "r": case "R":
-        e.preventDefault(); setRealm("review"); toast("人 · 复盘", "info"); break;
+        e.preventDefault(); showKeyHint("R", "人 · 复盘"); setRealm("review"); break;
     }
   });
 

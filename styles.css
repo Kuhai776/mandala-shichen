@@ -32,6 +32,27 @@
   --border-active: rgba(124, 92, 255, 0.6);
   --overlay: rgba(0, 0, 0, 0.6);
   --theme-icon: "🌙";
+  --realm-plan: #9d85ff;
+  --realm-record: #f87171;
+  --realm-review: #60a5fa;
+  --realm-plan-bg: rgba(124, 92, 255, 0.15);
+  --realm-record-bg: rgba(239, 68, 68, 0.12);
+  --realm-review-bg: rgba(59, 130, 246, 0.12);
+  --input-bg: #252544;
+  --input-border: rgba(255, 255, 255, 0.1);
+  --input-focus: rgba(124, 92, 255, 0.4);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.12);
+  --scrollbar-track: rgba(255, 255, 255, 0.03);
+  --btn-primary-bg: var(--accent);
+  --btn-primary-text: #fff;
+  --btn-default-bg: var(--bg-tertiary);
+  --btn-default-text: var(--text-secondary);
+  --chip-bg: var(--bg-hover);
+  --chip-border: var(--border);
+  --chip-text: var(--text-secondary);
+  --tooltip-bg: #2a2a4a;
+  --tooltip-text: var(--text-primary);
+  --skeleton: linear-gradient(90deg, var(--bg-tertiary) 25%, rgba(255,255,255,0.04) 50%, var(--bg-tertiary) 75%);
 }
 
 /* 亮色 */
@@ -55,6 +76,27 @@
   --overlay: rgba(0, 0, 0, 0.4);
   --theme-icon: "☀";
   --shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  --realm-plan: #6b46ff;
+  --realm-record: #dc2626;
+  --realm-review: #2563eb;
+  --realm-plan-bg: rgba(107, 70, 255, 0.1);
+  --realm-record-bg: rgba(220, 38, 38, 0.08);
+  --realm-review-bg: rgba(37, 99, 235, 0.08);
+  --input-bg: #ffffff;
+  --input-border: rgba(0, 0, 0, 0.12);
+  --input-focus: rgba(107, 70, 255, 0.3);
+  --scrollbar-thumb: rgba(0, 0, 0, 0.12);
+  --scrollbar-track: rgba(0, 0, 0, 0.03);
+  --btn-primary-bg: var(--accent);
+  --btn-primary-text: #fff;
+  --btn-default-bg: var(--bg-tertiary);
+  --btn-default-text: var(--text-secondary);
+  --chip-bg: var(--bg-hover);
+  --chip-border: var(--border);
+  --chip-text: var(--text-secondary);
+  --tooltip-bg: #ffffff;
+  --tooltip-text: var(--text-primary);
+  --skeleton: linear-gradient(90deg, var(--bg-tertiary) 25%, rgba(0,0,0,0.03) 50%, var(--bg-tertiary) 75%);
 }
 
 /* ---------- 重置 ---------- */
@@ -553,6 +595,7 @@ textarea, input, select {
   color: var(--text-primary);
   line-height: 1.35;
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .record-grid .cell .record-empty {
@@ -1168,12 +1211,11 @@ body:has(.pomodoro-bar[style*="display: block"]) .realm-fab {
   font-size: 12px;
   color: var(--text-primary);
   flex: 1;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
+  overflow-y: auto;
+  overflow-x: hidden;
   line-height: 1.35;
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .cell-empty {
@@ -2644,7 +2686,8 @@ dialog::backdrop {
 
 .cell-content-list {
   flex: 1;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -2660,9 +2703,8 @@ dialog::backdrop {
   border-left: 2px solid var(--accent-light);
   border-radius: 3px;
   word-break: break-word;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .cell-content-item:last-child {
@@ -2670,7 +2712,22 @@ dialog::backdrop {
 }
 
 .cell.has-task.multi .cell-content-item:nth-child(n+4) {
-  display: none;
+  display: flex;
+}
+
+/* 格子内容滚动条（细线样式） */
+.cell-content::-webkit-scrollbar,
+.cell-content-list::-webkit-scrollbar {
+  width: 3px;
+}
+.cell-content::-webkit-scrollbar-track,
+.cell-content-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.cell-content::-webkit-scrollbar-thumb,
+.cell-content-list::-webkit-scrollbar-thumb {
+  background: rgba(124, 92, 255, 0.3);
+  border-radius: 2px;
 }
 
 /* ---------- 引导式按钮（虚线框） ---------- */
@@ -3965,6 +4022,101 @@ kbd {
   color: var(--accent-light);
 }
 
+/* ---------- 骨架屏 ---------- */
+.skeleton {
+  background: var(--skeleton);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.5s ease-in-out infinite;
+  border-radius: 6px;
+}
+@keyframes skeletonShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.skeleton-line {
+  height: 14px;
+  margin-bottom: 10px;
+  width: 100%;
+}
+.skeleton-line:nth-child(2) { width: 85%; }
+.skeleton-line:nth-child(3) { width: 70%; }
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 12px;
+}
+.skeleton-grid .skeleton { aspect-ratio: 1; }
+
+/* ---------- 快捷键视觉浮层 ---------- */
+.key-hint-overlay {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 9999;
+  background: var(--tooltip-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 28px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  animation: keyHintIn 0.2s ease, keyHintOut 0.25s ease 0.5s forwards;
+}
+.key-hint-overlay .kh-key {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--accent-light);
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 18px;
+  min-width: 48px;
+  text-align: center;
+}
+.key-hint-overlay .kh-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+@keyframes keyHintIn {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.85); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+@keyframes keyHintOut {
+  from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  to { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+}
+
+/* ---------- 统一空状态 ---------- */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  text-align: center;
+  gap: 8px;
+}
+.empty-state .empty-icon {
+  font-size: 36px;
+  opacity: 0.5;
+  margin-bottom: 4px;
+}
+.empty-state .empty-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.empty-state .empty-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  max-width: 240px;
+}
+
 /* ---------- 动画 ---------- */
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(8px); }
@@ -3984,6 +4136,32 @@ kbd {
 @keyframes toastOut {
   from { opacity: 1; transform: translateY(0); }
   to { opacity: 0; transform: translateY(-10px); }
+}
+
+/* ---------- 弹窗动画 ---------- */
+dialog[open] {
+  animation: dialogEnter 0.25s ease;
+}
+@keyframes dialogEnter {
+  from { opacity: 0; transform: scale(0.92) translateY(-12px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+dialog.closing {
+  animation: dialogExit 0.2s ease forwards;
+  pointer-events: none;
+}
+@keyframes dialogExit {
+  from { opacity: 1; transform: scale(1) translateY(0); }
+  to { opacity: 0; transform: scale(0.95) translateY(-8px); }
+}
+/* 弹窗遮罩（dialog::backdrop） */
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+  animation: backdropIn 0.25s ease;
+}
+@keyframes backdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes pulse {
@@ -4027,8 +4205,44 @@ kbd {
 
 /* ---------- 大屏桌面 ---------- */
 @media (min-width: 1100px) {
+  .app-main {
+    grid-template-columns: 1.2fr 1fr;
+    max-width: 1400px;
+    margin: 0 auto;
+    gap: 24px;
+  }
   .mandala-grid { max-width: 520px; }
   .cell-content { font-size: 14px; }
+  .cell { padding: 12px; border-radius: 10px; }
+  .mandala-section, .chat-section { padding: 24px; border-radius: 14px; }
+  .chat-messages { max-height: 55vh; }
+  .toolbar { overflow-x: auto; }
+  .header-left { flex: 1; }
+  .app-title { font-size: 24px; }
+  .clock { font-size: 24px; }
+  .stat-grid { grid-template-columns: repeat(4, 1fr); }
+  .overview-grid { gap: 10px; }
+  .review-body { max-height: 55vh; overflow-y: auto; }
+}
+
+/* 超宽屏 1440px+ */
+@media (min-width: 1440px) {
+  .app-main {
+    grid-template-columns: 1.3fr 0.9fr;
+    max-width: 1600px;
+    gap: 32px;
+    padding: 28px;
+  }
+  .mandala-grid { max-width: 580px; gap: 8px; }
+  .cell { padding: 14px; }
+  .cell-content { font-size: 15px; }
+  .cell-time { font-size: 12px; }
+  .chat-section { min-height: 520px; }
+  .chat-messages { max-height: 60vh; }
+  .review-body { max-height: 60vh; }
+  .overview-grid { gap: 12px; }
+  .stat-grid { gap: 16px; }
+  .stat-card { padding: 18px; }
 }
 
 /* ---------- 极小屏 ---------- */
@@ -4053,4 +4267,36 @@ kbd {
   }
   .chat-section { min-height: 240px; }
   .mandala-grid { max-width: 320px; }
+}
+
+/* ---------- 打印样式 ---------- */
+@media print {
+  body { background: #fff; color: #000; font-size: 12pt; }
+  .toolbar, .realm-fab, .fab, .chat-input-area, .quick-actions, .chat-input-meta,
+  .chat-badges, .clear-btn, .plan-jump, .record-toolbar, .review-actions,
+  .pomodoro-bar, .app-header .icon-btn, .settings-btn, .notify-btn,
+  #themeBtn, #shortcutBtn { display: none !important; }
+  .app-header { border-bottom: 1px solid #ccc; }
+  .app-main { display: block; }
+  .mandala-section, .chat-section { break-inside: avoid; page-break-inside: avoid; }
+  .cell { border: 1px solid #ccc; background: #fafafa !important; color: #000 !important; }
+  .cell-done { opacity: 0.6; }
+  .cell-done::after { content: " ✓"; color: #16a34a; }
+  .realm-page { display: block !important; }
+  .chat-messages { max-height: none; overflow: visible; }
+  .message-content { max-width: 100%; }
+  .review-body { max-height: none; overflow: visible; }
+  .overview-section { break-inside: avoid; }
+  dialog { display: none !important; }
+  @page { margin: 1.5cm; }
+}
+
+/* ---------- 性能优化：will-change 提示 ---------- */
+.cell, .cell-done, .message, .toast, .realm-fab, .fab {
+  will-change: transform, opacity;
+}
+/* 动画元素硬件加速 */
+.ripple, .cell-fill-anim, .heatmap-cell.hot, .stat-card,
+.realm-indicator {
+  will-change: transform;
 }
