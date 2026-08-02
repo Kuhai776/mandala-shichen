@@ -23,9 +23,18 @@
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.0.0";
+  const APP_VERSION = "2.1.0";
   const APP_VERSION_DATE = "2026-08-02";
   const APP_CHANGELOG = [
+    { v: "2.1.0", date: "2026-08-02", items: [
+      "优化：三才切换动画改为 opacity+transform 过渡，彻底避免闪现",
+      "优化：搜索定位增强——点击结果后高亮闪烁目标格子 + 自动滚动到可视区域",
+      "新增：首次使用引导流程（三步上手 + 快捷键提示）",
+      "优化：统计图表 hover 交互增强（圆点放大 + 阴影 + 亮度变化）",
+      "新增：年度热力图点击可跳转到对应日期搜索",
+      "优化：底部安全区适配（batch-toolbar + pomodoro-bar 增加 safe-bottom）",
+      "优化：极小屏适配（realm-container 高度自适应）",
+    ]},
     { v: "2.0.0", date: "2026-08-02", items: [
       "新增：天·计划环节 4 个专业技能（晨间启动/日程编排/目标拆解/优先级矩阵）",
       "新增：地·记录环节 3 个专业技能（时间审计/专注度评估/中断管理）",
@@ -1471,6 +1480,8 @@
 
       const cellEl = document.createElement("div");
       cellEl.className = "cell";
+      cellEl.dataset.cell = cell;
+      cellEl.dataset.period = period;
       if (tasks.length) cellEl.classList.add("has-task");
       if (tasks.length > 1) cellEl.classList.add("multi");
       if (isDone) cellEl.classList.add("done");
@@ -1729,17 +1740,33 @@
   // 天地人三才翻页系统
   // ============================================================
 
-  // 切换 realm（带翻页方向）
+  // 切换 realm（带翻页方向，平滑过渡）
   function setRealm(realm, reverse) {
     if (!["plan", "record", "review"].includes(realm)) return;
     if (state.realm === realm) return;
+    const oldRealm = state.realm;
     state.realm = realm;
+
+    // 让旧页执行离开动画
     if (el.realmContainer) {
-      el.realmContainer.classList.toggle("reverse", !!reverse);
-      el.realmContainer.dataset.realm = realm;
-      // 触发重排以重启动画
-      void el.realmContainer.offsetWidth;
+      const oldPage = el.realmContainer.querySelector(`.realm-page[data-realm="${oldRealm}"]`);
+      if (oldPage) {
+        oldPage.classList.add("leaving");
+        // 设置方向标记
+        el.realmContainer.classList.toggle("reverse", !!reverse);
+      }
+
+      // 延迟后切换（等待离开动画完成）
+      setTimeout(() => {
+        // 移除旧页的 leaving 类
+        if (oldPage) oldPage.classList.remove("leaving");
+        // 更新容器属性触发新页进入
+        el.realmContainer.dataset.realm = realm;
+        // 触发重排确保新页的初始状态被应用
+        void el.realmContainer.offsetWidth;
+      }, 150); // 离开动画约 150ms，足够平滑
     }
+
     if (el.realmSwitcher) {
       el.realmSwitcher.dataset.active = realm;
       el.realmSwitcher.querySelectorAll(".realm-tab").forEach((tab) => {
@@ -1826,6 +1853,8 @@
 
       const cellEl = document.createElement("div");
       cellEl.className = "cell";
+      cellEl.dataset.cell = cell;
+      cellEl.dataset.period = period;
       if (record && (record.actual || record.spent)) cellEl.classList.add("has-record");
       if (globalCellIndex === currentGlobalCell && isToday(state.currentDate)) cellEl.classList.add("current-cell");
       // 对照徽章：有计划且完成记录→✓；有计划无记录→△
@@ -1921,11 +1950,11 @@
       </div>
       ${planHint}
       <div style="margin-bottom:10px;">
-        <label style="font-size:12px;color:var(--text-secondary);">实际花费时间</label>
+        <label style="font-size:12px;color:var(--text-secondary);">实际花费时间 <span style="font-size:10px;color:var(--text-muted);">(Enter 保存)</span></label>
         <input type="text" id="recSpent" value="${escapeHtml(existing.spent || "")}" placeholder="如 30分钟 / 1小时" style="width:100%;padding:8px;margin-top:4px;border-radius:6px;border:1px solid var(--border);" />
       </div>
       <div style="margin-bottom:10px;">
-        <label style="font-size:12px;color:var(--text-secondary);">实际做了什么</label>
+        <label style="font-size:12px;color:var(--text-secondary);">实际做了什么 <span style="font-size:10px;color:var(--text-muted);">(Ctrl+Enter 保存)</span></label>
         <textarea id="recActual" rows="3" placeholder="描述实际发生的事…" style="width:100%;padding:8px;margin-top:4px;border-radius:6px;border:1px solid var(--border);resize:vertical;">${escapeHtml(existing.actual || "")}</textarea>
       </div>
       <div style="margin-bottom:12px;">
@@ -1935,13 +1964,24 @@
       <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
         <button id="recAskAi" style="padding:8px 14px;border-radius:6px;background:rgba(124,92,255,0.15);color:#9d85ff;font-size:12px;border:1px solid rgba(124,92,255,0.3);">🤖 AI 追问</button>
         <button id="recDel" style="padding:8px 14px;border-radius:6px;background:var(--bg-tertiary);color:var(--danger);font-size:12px;">删除</button>
-        <button id="recCancel" style="padding:8px 14px;border-radius:6px;background:var(--bg-tertiary);color:var(--text-secondary);font-size:12px;">取消</button>
+        <button id="recCancel" style="padding:8px 14px;border-radius:6px;background:var(--bg-tertiary);color:var(--text-secondary);font-size:12px;">取消 <span style="font-size:10px;opacity:0.6;">(Esc)</span></button>
         <button id="recSave" style="padding:8px 16px;border-radius:6px;background:linear-gradient(135deg,#ef4444,#f87171);color:#fff;font-weight:600;font-size:12px;">保存</button>
       </div>
     `;
     overlay.appendChild(dialog);
     document.body.appendChild(overlay);
 
+    const save = () => {
+      const rec = {
+        spent: dialog.querySelector("#recSpent").value.trim(),
+        actual: dialog.querySelector("#recActual").value.trim(),
+        note: dialog.querySelector("#recNote").value.trim(),
+      };
+      setCellRecord(period, cell, rec);
+      renderRecord();
+      toast("记录已保存", "success");
+      overlay.remove();
+    };
     const close = () => overlay.remove();
     dialog.querySelector("#recCancel").addEventListener("click", close);
     overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
@@ -1951,18 +1991,20 @@
       toast("已删除记录", "info");
       close();
     });
-    dialog.querySelector("#recSave").addEventListener("click", () => {
-      const rec = {
-        spent: dialog.querySelector("#recSpent").value.trim(),
-        actual: dialog.querySelector("#recActual").value.trim(),
-        note: dialog.querySelector("#recNote").value.trim(),
-      };
-      setCellRecord(period, cell, rec);
-      renderRecord();
-      toast("记录已保存", "success");
-      close();
+    dialog.querySelector("#recSave").addEventListener("click", save);
+
+    // 键盘快捷键：Esc 关闭，Enter 保存
+    dialog.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { close(); return; }
+      if (e.key === "Enter" && !e.shiftKey && e.target.id !== "recActual") {
+        e.preventDefault(); save(); return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        if (e.target.id === "recActual") { e.preventDefault(); save(); return; }
+      }
     });
-    // AI 追问：基于该格计划+记录发起对话
+
+    // AI 追问：基于该格计划+记录发起对话（增强上下文：带当前时辰前后3格）
     dialog.querySelector("#recAskAi").addEventListener("click", () => {
       const rec = {
         spent: dialog.querySelector("#recSpent").value.trim(),
@@ -1971,19 +2013,28 @@
       };
       if (rec.actual || rec.spent) setCellRecord(period, cell, rec);
       close();
-      // 切到计划页（AI 对话区在所有页共用），并填充上下文
       setRealm("plan");
       const range = getCellRange(period, cell);
       const time = `${secondsToHHMM(range.start)}-${secondsToHHMM(range.end)}`;
       const planText = planTasks.length ? planTasks.map((t) => taskText(t)).join("; ") : "（无计划）";
       const recText = `实际:${rec.actual || "（无）"} 花费:${rec.spent || "（无）"}${rec.note ? " 备注:" + rec.note : ""}`;
-      const prompt = `针对第${period + 1}时辰 [${time}] 的执行情况进行追问分析：\n计划：${planText}\n记录：${recText}\n请帮我分析执行偏差原因、是否需要调整后续安排，或给出优化建议。`;
+      // 收集当前时辰前后3格数据作为上下文
+      const nearby = [];
+      for (let c = Math.max(0, cell - 3); c <= Math.min(CELLS_PER_PERIOD - 1, cell + 3); c++) {
+        if (c === cell) continue;
+        const n = getCellRecord(period, c);
+        const p = getCellTasks(period, c);
+        if (n || p.length) {
+          const r = getCellRange(period, c);
+          nearby.push(`[格${c} ${secondsToHHMM(r.start)}-${secondsToHHMM(r.end)}] 计划:${p.map((t) => taskText(t)).join(";") || "无"} 记录:${n ? n.actual || "无" : "无"}`);
+        }
+      }
+      const nearbyText = nearby.length ? "\n邻近时段:\n" + nearby.join("\n") : "";
+      const prompt = `针对第${period + 1}时辰 [${time}] 格${cell}的执行情况进行追问分析：\n计划：${planText}\n记录：${recText}${nearbyText}\n请帮我分析执行偏差原因、是否需要调整后续安排，或给出优化建议。`;
       fillInput(prompt);
-      toast("已填入 AI 对话框，点击发送即可追问", "info");
-      // 滚动到 AI 对话区
+      toast("已填入 AI 对话框（含邻近时段上下文），点击发送即可追问", "info");
       const chatSection = document.querySelector(".chat-section");
       if (chatSection) chatSection.scrollIntoView({ behavior: "smooth", block: "center" });
-      // 等动画后聚焦
       setTimeout(() => { if (el.chatInput) el.chatInput.focus(); }, 400);
     });
     setTimeout(() => dialog.querySelector("#recSpent").focus(), 50);
@@ -5388,7 +5439,22 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         if (r.type === "review") setRealm("review");
         else if (r.type === "record") setRealm("record");
         else setRealm("plan");
-        toast("已跳转", "info");
+        // 高亮目标格子
+        setTimeout(() => {
+          let grid = r.type === "record" ? el.recordGrid : el.mandalaGrid;
+          if (!grid) grid = document.querySelector(".mandala-grid");
+          if (grid) {
+            const targetCell = grid.querySelector(`.cell[data-cell="${r.cell}"][data-period="${r.period}"]`)
+              || grid.children[r.cell];
+            if (targetCell) {
+              targetCell.classList.remove("search-highlight");
+              void targetCell.offsetWidth;
+              targetCell.classList.add("search-highlight");
+              targetCell.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
+          }
+        }, 350);
+        toast("已跳转并高亮定位", "info");
       });
       el.searchResults.appendChild(div);
     });
@@ -6092,7 +6158,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     let html = '<h4 style="font-size:13px;color:var(--text-secondary);margin:16px 0 6px;">🔥 年度完成热力图</h4>';
     html += '<div class="heatmap">';
     cells.forEach((c) => {
-      html += `<div class="heatmap-cell ${c.level ? 'l' + c.level : ''}" title="${c.ds}: ${c.doneCount} 项完成"></div>`;
+      html += `<div class="heatmap-cell clickable ${c.level ? 'l' + c.level : ''}" title="${c.ds}: ${c.doneCount} 项完成" data-date="${c.ds}" onclick="document.getElementById('searchInput')&&(document.getElementById('searchInput').value='${c.ds}',document.getElementById('searchBtn').click())"></div>`;
     });
     html += '</div>';
     html += '<div class="heatmap-legend"><span>少</span>';
@@ -6342,6 +6408,66 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     }
   }
 
+  // ---------- 首次使用引导 ----------
+  function showOnboarding() {
+    const key = "mandala-onboarding-v1";
+    if (localStorage.getItem(key)) return;
+    const overlay = document.createElement("div");
+    overlay.className = "onboarding-overlay";
+    overlay.innerHTML = `
+      <div class="onboarding-card">
+        <h2>曼陀罗时辰</h2>
+        <p class="onboarding-subtitle">AI 对话式日程规划 · 三步上手</p>
+        <div class="onboarding-steps">
+          <div class="onboarding-step">
+            <div class="onboarding-step-icon chat">💬</div>
+            <div class="onboarding-step-text">
+              <div class="onboarding-step-title">1. 告诉 AI 你的任务</div>
+              <div class="onboarding-step-desc">在对话区描述今天要做的事，AI 会自动拆解并安排到合适时辰</div>
+            </div>
+          </div>
+          <div class="onboarding-step">
+            <div class="onboarding-step-icon plan">天</div>
+            <div class="onboarding-step-text">
+              <div class="onboarding-step-title">2. 天·计划 & 地·记录</div>
+              <div class="onboarding-step-desc">在「计划」页查看安排，切换到「记录」页追踪实际执行</div>
+            </div>
+          </div>
+          <div class="onboarding-step">
+            <div class="onboarding-step-icon review">人</div>
+            <div class="onboarding-step-text">
+              <div class="onboarding-step-title">3. 人·复盘总结</div>
+              <div class="onboarding-step-desc">AI 自动生成复盘分析，帮你持续改进时间管理</div>
+            </div>
+          </div>
+          <div class="onboarding-step">
+            <div class="onboarding-step-icon chat">⌨</div>
+            <div class="onboarding-step-text">
+              <div class="onboarding-step-title">快捷键 & 手势</div>
+              <div class="onboarding-step-desc">按 <kbd style="font-size:10px;padding:1px 5px;">?</kbd> 查看全部快捷键，<kbd style="font-size:10px;padding:1px 5px;">1</kbd><kbd style="font-size:10px;padding:1px 5px;">2</kbd><kbd style="font-size:10px;padding:1px 5px;">3</kbd> 切换三才</div>
+            </div>
+          </div>
+        </div>
+        <button class="onboarding-dismiss">开始使用</button>
+        <button class="onboarding-skip">不再显示</button>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector(".onboarding-dismiss").addEventListener("click", () => {
+      overlay.remove();
+      localStorage.setItem(key, "1");
+    });
+    overlay.querySelector(".onboarding-skip").addEventListener("click", () => {
+      overlay.remove();
+      localStorage.setItem(key, "1");
+    });
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+        localStorage.setItem(key, "1");
+      }
+    });
+  }
+
   // ---------- 启动 ----------
   function init() {
     migrateOldData();
@@ -6355,6 +6481,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     renderDraftBanner();
     loadPomoState();
     checkUrlSync();
+    // 首次使用引导（延迟展示，等渲染完成）
+    setTimeout(showOnboarding, 600);
     setInterval(renderClock, 1000);
     setInterval(() => {
       renderPeriodTabs();

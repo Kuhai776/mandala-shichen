@@ -507,56 +507,69 @@ textarea, input, select {
 .realm-container {
   position: relative;
   perspective: 1600px;
-  min-height: 460px;
+  min-height: 520px;
+  overflow: hidden;
+  /* 响应式高度 */
+}
+@media (max-width: 480px) {
+  .realm-container { min-height: 440px; }
+}
+@media (max-width: 360px) {
+  .realm-container { min-height: 380px; }
 }
 
 .realm-page {
+  position: absolute;
+  inset: 0;
   background: var(--bg-card);
   border-radius: var(--radius);
   padding: 16px;
   border: 1px solid var(--border);
-  animation: fadeUp 0.3s ease;
   transform-origin: center center;
   backface-visibility: hidden;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.45s cubic-bezier(0.4, 0, 0.2, 1), filter 0.35s ease, visibility 0s 0.45s;
+  z-index: 1;
 }
 
-/* 三页的统一隐藏/显示控制（用 display + 翻页动画） */
-.realm-page[data-realm] { display: none; }
+/* 当前页：显示在前 */
 .realm-container[data-realm="plan"] .realm-page[data-realm="plan"],
 .realm-container[data-realm="record"] .realm-page[data-realm="record"],
 .realm-container[data-realm="review"] .realm-page[data-realm="review"] {
-  display: block;
-  animation: realmFlipIn 0.55s cubic-bezier(0.4, 0, 0.2, 1);
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  z-index: 2;
+  transform: rotateY(0) translateX(0) scale(1);
+  filter: blur(0);
+  transition: opacity 0.3s ease, transform 0.5s cubic-bezier(0.4, 0, 0.2, 1), filter 0.3s ease, visibility 0s 0s;
 }
 
-@keyframes realmFlipIn {
-  0% {
-    opacity: 0;
-    transform: rotateY(35deg) translateX(40px) scale(0.94);
-    filter: blur(4px);
-  }
-  60% {
-    opacity: 1;
-    filter: blur(0);
-  }
-  100% {
-    opacity: 1;
-    transform: rotateY(0) translateX(0) scale(1);
-    filter: blur(0);
-  }
+/* 正向翻页进入动画 */
+.realm-container:not(.reverse) .realm-page[data-realm]:not([style*="opacity: 1"]) {
+  transform: rotateY(35deg) translateX(40px) scale(0.94);
+  filter: blur(4px);
 }
 
-/* 反向翻页（从右往左切回） */
-.realm-container.reverse .realm-page[data-realm] { animation-name: realmFlipInReverse; }
+/* 反向翻页进入动画 */
+.realm-container.reverse .realm-page[data-realm]:not([style*="opacity: 1"]) {
+  transform: rotateY(-35deg) translateX(-40px) scale(0.94);
+  filter: blur(4px);
+}
 
-@keyframes realmFlipInReverse {
-  0% {
-    opacity: 0;
-    transform: rotateY(-35deg) translateX(-40px) scale(0.94);
-    filter: blur(4px);
-  }
-  60% { opacity: 1; filter: blur(0); }
-  100% { opacity: 1; transform: rotateY(0) translateX(0) scale(1); filter: blur(0); }
+/* 离开页面的动画：当前页切换到隐藏状态时 */
+.realm-page.leaving {
+  opacity: 0 !important;
+  transform: rotateY(-20deg) translateX(-20px) scale(0.96) !important;
+  filter: blur(2px) !important;
+  transition: opacity 0.25s ease, transform 0.35s cubic-bezier(0.4, 0, 0.2, 1), filter 0.25s ease !important;
+  z-index: 3 !important;
+}
+
+.realm-container.reverse .realm-page.leaving {
+  transform: rotateY(20deg) translateX(20px) scale(0.96) !important;
 }
 
 /* 三才页面色调微调（仅作用于当前页，避免污染全局） */
@@ -1172,6 +1185,19 @@ body:has(.pomodoro-bar[style*="display: block"]) .realm-fab {
 /* 填格动画：新任务进入时格子高亮闪动 */
 .cell.cell-fill-anim {
   animation: cellFillFlash 0.85s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* 搜索定位高亮：搜索结果点击后闪烁提示 */
+.cell.search-highlight {
+  animation: searchHighlight 1.2s ease-out;
+  z-index: 5;
+  position: relative;
+}
+@keyframes searchHighlight {
+  0% { box-shadow: 0 0 0 0 var(--accent), 0 0 0 0 rgba(124, 92, 255, 0.5); transform: scale(1); }
+  20% { box-shadow: 0 0 0 4px var(--accent), 0 0 20px rgba(124, 92, 255, 0.6); transform: scale(1.08); }
+  40% { box-shadow: 0 0 0 3px var(--accent), 0 0 16px rgba(124, 92, 255, 0.4); transform: scale(1.03); }
+  100% { box-shadow: 0 0 0 0 transparent, 0 0 0 0 transparent; transform: scale(1); }
 }
 @keyframes cellFillFlash {
   0% { transform: scale(0.85); box-shadow: 0 0 0 0 rgba(124, 92, 255, 0.6); }
@@ -3535,15 +3561,21 @@ kbd {
   bottom: 90px;
   left: 50%;
   transform: translateX(-50%);
-  background: var(--bg-elevated);
+  background: var(--bg-elevated, var(--bg-card));
   border: 1px solid var(--border-active);
   border-radius: 24px;
   padding: 8px 16px;
+  padding-bottom: calc(8px + var(--safe-bottom));
   display: flex;
   gap: 8px;
   align-items: center;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   z-index: 60;
+}
+
+/* 番茄钟也让位安全区 */
+.pomodoro-bar {
+  padding-bottom: calc(8px + var(--safe-bottom, 0px));
 }
 
 .batch-toolbar button {
@@ -3629,13 +3661,34 @@ kbd {
 .chart-dot {
   fill: var(--accent);
   cursor: pointer;
+  transition: r 0.15s, fill 0.15s;
+}
+
+.chart-dot:hover {
+  r: 5;
+  fill: var(--accent-light);
+  filter: drop-shadow(0 0 4px var(--accent-glow));
 }
 
 .chart-dot.done { fill: var(--success); }
+.chart-dot.done:hover { fill: #6ee7a8; filter: drop-shadow(0 0 4px rgba(74, 222, 128, 0.5)); }
 
 .chart-tooltip {
   fill: var(--text-primary);
   font-size: 10px;
+}
+
+/* 热力图格子hover增强 */
+.heatmap-cell:hover {
+  transform: scale(1.15);
+  z-index: 2;
+  position: relative;
+  filter: brightness(1.2);
+}
+
+/* 热力图点击可跳转到对应日期 */
+.heatmap-cell.clickable {
+  cursor: pointer;
 }
 
 .heatmap {
@@ -4145,6 +4198,148 @@ kbd {
   from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   to { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
 }
+
+/* ---------- 首次使用引导 ---------- */
+.onboarding-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: fadeIn 0.4s ease;
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.onboarding-card {
+  background: var(--bg-card, #1e1e38);
+  border: 1px solid var(--border-active, rgba(124, 92, 255, 0.6));
+  border-radius: 20px;
+  padding: 32px 28px 24px;
+  max-width: 420px;
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  animation: onboardingSlideUp 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes onboardingSlideUp {
+  from { opacity: 0; transform: translateY(30px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.onboarding-card h2 {
+  font-size: 20px;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--accent-light, #9d85ff), #c4b5ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 6px;
+  text-align: center;
+}
+
+.onboarding-subtitle {
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-secondary, #a0a0c0);
+  margin-bottom: 20px;
+}
+
+.onboarding-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.onboarding-step {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 14px;
+  background: var(--bg-tertiary, #252544);
+  border-radius: 12px;
+  border: 1px solid var(--border, rgba(255,255,255,0.08));
+  transition: transform 0.2s;
+}
+
+.onboarding-step:hover {
+  transform: translateX(4px);
+}
+
+.onboarding-step-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.onboarding-step-icon.plan { background: rgba(124, 92, 255, 0.2); }
+.onboarding-step-icon.record { background: rgba(239, 68, 68, 0.2); }
+.onboarding-step-icon.review { background: rgba(59, 130, 246, 0.2); }
+.onboarding-step-icon.chat { background: rgba(74, 222, 128, 0.2); }
+
+.onboarding-step-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.onboarding-step-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #f0f0ff);
+  margin-bottom: 2px;
+}
+
+.onboarding-step-desc {
+  font-size: 11px;
+  color: var(--text-muted, #6a6a8a);
+  line-height: 1.4;
+}
+
+.onboarding-dismiss {
+  width: 100%;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--accent, #7c5cff);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+
+.onboarding-dismiss:active {
+  transform: scale(0.96);
+  background: var(--accent-light, #9d85ff);
+}
+
+.onboarding-skip {
+  display: block;
+  text-align: center;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-muted, #6a6a8a);
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 4px 8px;
+  width: 100%;
+}
+
+.onboarding-skip:active { color: var(--text-secondary, #a0a0c0); }
 
 /* ---------- 统一空状态 ---------- */
 .empty-state {
