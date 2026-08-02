@@ -749,6 +749,8 @@ textarea, input, select {
 
 .review-body {
   min-height: 300px;
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
 }
 
 .review-empty {
@@ -783,6 +785,7 @@ textarea, input, select {
   line-height: 1.7;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .review-section-body ul { padding-left: 18px; margin: 6px 0; }
@@ -976,6 +979,9 @@ textarea, input, select {
   font-size: 12px;
   color: var(--text-primary);
   word-break: break-word;
+  overflow-wrap: anywhere;
+  flex: 1;
+  min-width: 0;
 }
 
 .tomorrow-apply-btn:active,
@@ -4253,9 +4259,19 @@ dialog::backdrop {
   .cell { padding: 6px; }
   .cell-time { font-size: 9px; }
   .cell-content { font-size: 11px; }
+  .cell-content-item { font-size: 10px; padding: 2px 4px; }
   .mandala-grid { gap: 4px; }
   .toolbar { padding: 6px 10px; }
   .tool-btn { padding: 5px 10px; font-size: 11px; }
+  .heatmap-grid { grid-template-columns: repeat(9, 1fr); gap: 2px; }
+  .heatmap-cell { min-height: 40px; padding: 4px 1px; }
+  .heatmap-name { font-size: 10px; }
+  .heatmap-time { font-size: 8px; }
+  .heatmap-count { font-size: 11px; }
+  .review-section { padding: 10px; }
+  .review-section-body { font-size: 12px; line-height: 1.6; }
+  .tomorrow-time { min-width: 60px; font-size: 10px; }
+  .tomorrow-content { font-size: 11px; }
 }
 
 /* ---------- 横屏适配 ---------- */
