@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
   <title>曼陀罗时辰 · AI 日程规划</title>
-  <link rel="stylesheet" href="styles.css?v=20260729f" />
+  <link rel="stylesheet" href="styles.css?v=20260803a" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
 </head>
@@ -15,7 +15,7 @@
   <!-- 顶部状态栏 -->
   <header class="app-header">
     <div class="header-left">
-      <h1 class="app-title">曼陀罗时辰 <span class="version-badge" id="versionBadge" title="点击查看更新日志">v2.1.0</span></h1>
+      <h1 class="app-title">曼陀罗时辰 <span class="version-badge" id="versionBadge" title="点击查看更新日志">v2.2.0</span></h1>
       <p class="app-subtitle" id="dateLabel">AI 对话式日程规划</p>
     </div>
     <div class="header-right">
@@ -33,6 +33,7 @@
     <button class="tool-btn" id="calendarBtn">📆 日历</button>
     <button class="tool-btn" id="statBtn">📊 统计</button>
     <button class="tool-btn" id="searchBtn">🔍 搜索</button>
+    <button class="tool-btn" id="inboxBtn" title="待办收集箱">📥 收集箱</button>
     <button class="tool-btn" id="batchBtn">☑ 批量</button>
     <button class="tool-btn" id="templateBtn">📋 模板</button>
     <button class="tool-btn" id="undoBtn" title="撤销上次填入 (Ctrl+Z)">↶ 撤销</button>
@@ -79,6 +80,8 @@
         </div>
         <div class="mandala-grid" id="mandalaGrid"></div>
         <p class="mandala-hint">每格约 13 分 20 秒，点击格子可编辑（支持多任务），长按可标记完成</p>
+        <!-- 过去时辰快览（点击跳转） -->
+        <div class="review-period-nav" id="planPeriodNav"></div>
         <div class="plan-jump">
           <button class="plan-jump-btn go-record" id="goRecordFromPlan" title="跳转到记录页">📝 去记录</button>
           <button class="plan-jump-btn go-review" id="goReviewFromPlan" title="跳转到复盘页">📊 去复盘</button>
@@ -99,6 +102,8 @@
           <button class="tool-btn record-tool-btn" id="clearDayRecordBtn" title="清空今日所有记录">🗑 清全日</button>
           <button class="tool-btn record-tool-btn go-review-btn" id="goReviewFromRecord" title="跳转到复盘页">📊 去复盘</button>
         </div>
+        <!-- 过去时辰快览（点击跳转） -->
+        <div class="review-period-nav" id="recordPeriodNav"></div>
         <div class="mandala-grid record-grid" id="recordGrid"></div>
         <p class="mandala-hint">记录实际花费时间与做的事，可与计划对照。点击格子开始记录 · 双击快速同步计划</p>
       </section>
@@ -113,6 +118,10 @@
             <button class="tool-btn" id="clearReviewBtn">🧹 清空</button>
           </div>
         </div>
+        <!-- 时辰总汇总 -->
+        <div class="review-summary" id="reviewSummary"></div>
+        <!-- 过去时辰快览（点击跳转） -->
+        <div class="review-period-nav" id="reviewPeriodNav"></div>
         <div class="review-body" id="reviewBody">
           <div class="review-empty">尚无复盘内容。点击「AI 智能复盘」结合计划与记录生成总结</div>
         </div>
@@ -182,14 +191,25 @@
       <div class="chat-suggestions" id="chatSuggestions"></div>
 
       <div class="quick-actions">
+        <!-- ① 输入 -->
+        <span class="qa-group-label">① 输入</span>
         <button class="chip" data-action="example">示例任务</button>
-        <button class="chip" data-action="project">拆解项目</button>
         <button class="chip" data-action="conv-tpl">💬 对话模板</button>
-        <button class="chip" data-action="search">🔍 联网搜索</button>
+        <!-- ② 填充 -->
+        <span class="qa-group-label">② 填充</span>
         <button class="chip" data-action="auto">自动填充今日</button>
         <button class="chip" data-action="clear-tasks">清空任务</button>
+        <!-- ③ 分支（可选） -->
+        <span class="qa-group-label qa-branch-label">③ 分支</span>
+        <button class="chip chip-branch" data-action="project">🔗 拆解项目</button>
+        <button class="chip chip-branch-return" data-action="return-main" style="display:none">↩ 返回主线</button>
+        <!-- ④ 跳转 -->
+        <span class="qa-group-label">④ 跳转</span>
         <button class="chip realm-chip record-chip" data-action="go-record">📝 去记录</button>
         <button class="chip realm-chip review-chip" data-action="go-review">📊 去复盘</button>
+        <!-- 工具 -->
+        <span class="qa-group-label">工具</span>
+        <button class="chip" data-action="search">🔍 联网搜索</button>
       </div>
     </section>
   </main>
@@ -739,6 +759,38 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=20260729m" defer></script>
+  <!-- 待办收集箱（全屏） -->
+  <dialog class="inbox-dialog-fullscreen" id="inboxDialog">
+    <div class="inbox-fullscreen-content">
+      <div class="inbox-fullscreen-header">
+        <h3>📥 待办收集箱</h3>
+        <button class="icon-btn" id="closeInbox" aria-label="关闭">✕</button>
+      </div>
+      <div class="inbox-fullscreen-body">
+        <!-- 输入区 -->
+        <div class="inbox-input-area">
+          <input type="text" id="inboxInput" placeholder="想到什么先记下来…" maxlength="200" />
+          <input type="text" id="inboxCategory" placeholder="标签" maxlength="10" list="inboxTagList" style="width:80px;" />
+          <datalist id="inboxTagList"></datalist>
+          <button class="tool-btn" id="inboxAddBtn" style="background:var(--accent);color:#fff;">＋ 添加</button>
+        </div>
+        <!-- 筛选区 -->
+        <div class="inbox-filter-row">
+          <div class="inbox-filter" id="inboxFilter"></div>
+          <select id="inboxTimeFilter" style="padding:4px 8px;background:var(--input-bg);border:1px solid var(--input-border);border-radius:8px;color:var(--text-primary);font-size:11px;">
+            <option value="all">全部时间</option>
+            <option value="today">今天</option>
+            <option value="week">本周</option>
+            <option value="undone">仅未完成</option>
+            <option value="done">仅已完成</option>
+          </select>
+        </div>
+        <!-- 列表 -->
+        <div class="inbox-list" id="inboxList"></div>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="app.js?v=20260803a" defer></script>
 </body>
 </html>

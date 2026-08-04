@@ -23,9 +23,19 @@
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.1.0";
+  const APP_VERSION = "2.2.0";
   const APP_VERSION_DATE = "2026-08-02";
   const APP_CHANGELOG = [
+    { v: "2.2.0", date: "2026-08-02", items: [
+      "新增：待办收集箱（Inbox）—— 想到什么先记下，支持分类标签 + 日期显示",
+      "新增：复盘页时辰总汇总（总任务/已完成/未完成/完成率）",
+      "新增：复盘页过去时辰快览导航，点击跳转到对应时辰记录页",
+      "新增：任务条状 UI + 单条复选框打钩 + 删除线",
+      "新增：未完成任务自动继承到下一格子",
+      "新增：单条任务拖拽到指定格子",
+      "修复：三才切换彻底移除 blur 滤镜，格子不再模糊",
+      "优化：三才切换动画简化为纯 opacity 过渡",
+    ]},
     { v: "2.1.0", date: "2026-08-02", items: [
       "优化：三才切换动画改为 opacity+transform 过渡，彻底避免闪现",
       "优化：搜索定位增强——点击结果后高亮闪烁目标格子 + 自动滚动到可视区域",
@@ -575,14 +585,15 @@
   // ---------- 旧数据迁移 ----------
   // 任务对象标准化：字符串/对象 → 对象 {text, priority, tag, estimate, deadline}
   function normalizeTask(t) {
-    if (typeof t === "string") return { text: t, priority: "medium", tag: "", estimate: "", deadline: "" };
-    if (!t || typeof t !== "object") return { text: "", priority: "medium", tag: "", estimate: "", deadline: "" };
+    if (typeof t === "string") return { text: t, priority: "medium", tag: "", estimate: "", deadline: "", done: false };
+    if (!t || typeof t !== "object") return { text: "", priority: "medium", tag: "", estimate: "", deadline: "", done: false };
     return {
       text: t.text || String(t.text || ""),
       priority: t.priority || "medium",
       tag: t.tag || "",
       estimate: t.estimate || "",
       deadline: t.deadline || "",
+      done: !!t.done,
     };
   }
 
@@ -1066,6 +1077,22 @@
     searchInput: document.getElementById("searchInput"),
     searchResults: document.getElementById("searchResults"),
     closeSearch: document.getElementById("closeSearch"),
+    // 收集箱
+    inboxBtn: document.getElementById("inboxBtn"),
+    inboxDialog: document.getElementById("inboxDialog"),
+    closeInbox: document.getElementById("closeInbox"),
+    inboxInput: document.getElementById("inboxInput"),
+    inboxCategory: document.getElementById("inboxCategory"),
+    inboxAddBtn: document.getElementById("inboxAddBtn"),
+    inboxList: document.getElementById("inboxList"),
+    inboxFilter: document.getElementById("inboxFilter"),
+    inboxTimeFilter: document.getElementById("inboxTimeFilter"),
+    inboxTagList: document.getElementById("inboxTagList"),
+    // 复盘汇总
+    reviewSummary: document.getElementById("reviewSummary"),
+    reviewPeriodNav: document.getElementById("reviewPeriodNav"),
+    recordPeriodNav: document.getElementById("recordPeriodNav"),
+    planPeriodNav: document.getElementById("planPeriodNav"),
   };
 
   // ---------- 主题 ----------
@@ -1467,6 +1494,8 @@
     const range = getPeriodRange(period);
     el.mandalaTitle.textContent =
       `第 ${period + 1} 时辰 · ${secondsToHHMM(range.start)} - ${secondsToHHMM(range.end)}`;
+    // 渲染过去时辰快览导航
+    renderPeriodNav(el.planPeriodNav);
 
     const currentGlobalCell = getCurrentGlobalCell();
     el.mandalaGrid.innerHTML = "";
@@ -1511,16 +1540,46 @@
       const contentEl = document.createElement("div");
       if (tasks.length) {
         contentEl.className = "cell-content-list";
-        tasks.forEach((t) => {
+        tasks.forEach((t, idx) => {
           const item = document.createElement("div");
-          item.className = "cell-content-item";
-          // 优先级小圆点
-          const dot = document.createElement("span");
-          dot.className = "priority-dot " + (t.priority || "medium");
-          item.appendChild(dot);
+          item.className = "cell-content-item task-bar" + (t.done ? " task-done" : "");
+          item.dataset.idx = idx;
+          item.draggable = true;
+
+          // 复选框
+          const cb = document.createElement("span");
+          cb.className = "task-checkbox" + (t.done ? " checked" : "");
+          cb.innerHTML = t.done ? "✓" : "";
+          cb.addEventListener("click", (e) => {
+            e.stopPropagation();
+            toggleTaskDone(period, cell, idx);
+          });
+          item.appendChild(cb);
+
+          // 优先级竖条
+          const bar = document.createElement("span");
+          bar.className = "task-priority-bar " + (t.priority || "medium");
+          item.appendChild(bar);
+
+          // 任务文本
           const span = document.createElement("span");
+          span.className = "task-text";
           span.textContent = taskText(t);
           item.appendChild(span);
+
+          // 拖拽单条任务
+          item.addEventListener("dragstart", (e) => {
+            e.stopPropagation();
+            draggingTaskSource = { period, cell, idx };
+            item.classList.add("dragging-item");
+            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.setData("text/plain", String(idx));
+          });
+          item.addEventListener("dragend", () => {
+            item.classList.remove("dragging-item");
+            draggingTaskSource = null;
+          });
+
           contentEl.appendChild(item);
         });
         // 属性 meta 行
@@ -1654,6 +1713,65 @@
     renderAll();
   }
 
+  // 单条任务打钩/取消
+  function toggleTaskDone(period, cell, idx) {
+    const tasks = getCellTasks(period, cell).slice();
+    if (idx < 0 || idx >= tasks.length) return;
+    tasks[idx].done = !tasks[idx].done;
+    setCellTasks(period, cell, tasks);
+
+    // 如果勾选了完成，检查是否所有任务都完成 → 自动标记格子完成
+    const allDone = tasks.every((t) => t.done);
+    if (allDone && tasks.length > 0) {
+      setCellDone(period, cell, true);
+      playDoneSound();
+    } else {
+      setCellDone(period, cell, false);
+    }
+
+    // 如果取消勾选，检查未完成任务是否需要继承到下一格子
+    if (!tasks[idx].done) {
+      // 取消勾选，无需继承
+    }
+    renderAll();
+  }
+
+  // 未完成任务自动继承到下一格子
+  function autoCarryForward() {
+    const period = state.activePeriod;
+    // 遍历当前时辰的所有格子（跳过最后一格）
+    for (let cell = 0; cell < CELLS_PER_PERIOD - 1; cell++) {
+      const tasks = getCellTasks(period, cell).slice();
+      if (!tasks.length) continue;
+      const isCellDone = getCellDone(period, cell);
+      if (isCellDone) continue; // 整格已完成，不继承
+
+      // 找出未完成的任务
+      const undone = tasks.filter((t) => !t.done);
+      if (!undone.length) continue;
+
+      // 检查当前时间是否已过该格子
+      const cellRange = getCellRange(period, cell);
+      if (nowSeconds() < cellRange.end) continue; // 还没到格子结束时间
+
+      // 继承到下一格子
+      const nextCell = cell + 1;
+      const nextTasks = getCellTasks(period, nextCell).slice();
+      const toCarry = undone.map((t) => ({ ...t, done: false }));
+      nextTasks.push(...toCarry);
+      setCellTasks(period, nextCell, nextTasks);
+
+      // 从源格子移除未完成的任务
+      const remaining = tasks.filter((t) => t.done);
+      setCellTasks(period, cell, remaining);
+      if (remaining.length === 0) {
+        setCellDone(period, cell, true);
+      }
+      toast(`自动继承 ${toCarry.length} 个未完成任务到下一格`, "info");
+    }
+    renderAll();
+  }
+
   // ---------- 渲染：概览 ----------
   function renderOverview() {
     const currentPeriod = getCurrentPeriod();
@@ -1747,24 +1865,15 @@
     const oldRealm = state.realm;
     state.realm = realm;
 
-    // 让旧页执行离开动画
+    // 简化切换：直接更新容器属性，CSS 处理过渡
     if (el.realmContainer) {
       const oldPage = el.realmContainer.querySelector(`.realm-page[data-realm="${oldRealm}"]`);
-      if (oldPage) {
-        oldPage.classList.add("leaving");
-        // 设置方向标记
-        el.realmContainer.classList.toggle("reverse", !!reverse);
-      }
-
-      // 延迟后切换（等待离开动画完成）
+      if (oldPage) oldPage.classList.add("leaving");
+      el.realmContainer.dataset.realm = realm;
+      // 短延迟后移除 leaving 类
       setTimeout(() => {
-        // 移除旧页的 leaving 类
         if (oldPage) oldPage.classList.remove("leaving");
-        // 更新容器属性触发新页进入
-        el.realmContainer.dataset.realm = realm;
-        // 触发重排确保新页的初始状态被应用
-        void el.realmContainer.offsetWidth;
-      }, 150); // 离开动画约 150ms，足够平滑
+      }, 200);
     }
 
     if (el.realmSwitcher) {
@@ -1835,6 +1944,8 @@
     const range = getPeriodRange(period);
     el.recordTitle.textContent =
       `第 ${period + 1} 时辰 · ${secondsToHHMM(range.start)} - ${secondsToHHMM(range.end)} · 记录`;
+    // 渲染过去时辰快览导航
+    renderPeriodNav(el.recordPeriodNav);
 
     const currentGlobalCell = getCurrentGlobalCell();
     el.recordGrid.innerHTML = "";
@@ -1868,12 +1979,27 @@
       timeEl.textContent = `${secondsToHHMM(cellRange.start)} - ${secondsToHHMM(cellRange.end)}`;
       cellEl.appendChild(timeEl);
 
-      // 计划任务预览（小字提示）
-      if (planTasks.length && !(record && (record.actual || record.spent))) {
-        const planPreview = document.createElement("div");
-        planPreview.className = "record-plan-preview";
-        planPreview.innerHTML = `📋 ${escapeHtml(planTasks.map((t) => taskText(t)).join("; ").slice(0, 28))}${planTasks.map((t) => taskText(t)).join("; ").length > 28 ? "…" : ""}`;
-        cellEl.appendChild(planPreview);
+      // 计划任务预览（条状显示）
+      if (planTasks.length) {
+        const planList = document.createElement("div");
+        planList.className = "cell-content-list";
+        planTasks.forEach((t) => {
+          const item = document.createElement("div");
+          item.className = "cell-content-item task-bar" + (t.done ? " task-done" : "");
+          const cb = document.createElement("span");
+          cb.className = "task-checkbox" + (t.done ? " checked" : "");
+          cb.innerHTML = t.done ? "✓" : "";
+          const bar = document.createElement("span");
+          bar.className = "task-priority-bar " + (t.priority || "medium");
+          const span = document.createElement("span");
+          span.className = "task-text";
+          span.textContent = taskText(t);
+          item.appendChild(cb);
+          item.appendChild(bar);
+          item.appendChild(span);
+          planList.appendChild(item);
+        });
+        cellEl.appendChild(planList);
       }
 
       const contentEl = document.createElement("div");
@@ -2053,9 +2179,89 @@
     save(REVIEW_KEY, state.reviews);
   }
 
+  // 时辰总汇总
+  function renderReviewSummary() {
+    if (!el.reviewSummary) return;
+    const dayTasks = getDayTasks(state.currentDate);
+    const dayDone = getDayDone(state.currentDate);
+    let filled = 0, doneCount = 0, totalTasks = 0, undoneTasks = 0;
+    Object.keys(dayTasks).forEach((k) => {
+      if (dayTasks[k].length) {
+        filled++;
+        totalTasks += dayTasks[k].length;
+        if (dayDone[k]) doneCount++;
+        dayTasks[k].forEach((t) => { if (!t.done) undoneTasks++; });
+      }
+    });
+    const doneRate = filled ? Math.round((doneCount / filled) * 100) : 0;
+    el.reviewSummary.innerHTML = `
+      <div class="summary-card">
+        <div class="summary-num">${totalTasks}</div>
+        <div class="summary-label">总任务</div>
+      </div>
+      <div class="summary-card success">
+        <div class="summary-num">${doneCount}</div>
+        <div class="summary-label">已完成格</div>
+      </div>
+      <div class="summary-card warning">
+        <div class="summary-num">${undoneTasks}</div>
+        <div class="summary-label">未完成任务</div>
+      </div>
+      <div class="summary-card ${doneRate >= 80 ? 'success' : doneRate >= 50 ? 'warning' : 'danger'}">
+        <div class="summary-num">${doneRate}%</div>
+        <div class="summary-label">完成率</div>
+      </div>`;
+  }
+
+  // 过去时辰快览导航（计划/记录/复盘页通用）
+  function renderPeriodNav(targetEl) {
+    if (!targetEl) return;
+    const curPeriod = getCurrentPeriod();
+    const isTodayDate = isToday(state.currentDate);
+    const currentRealm = state.realm;
+    targetEl.innerHTML = "";
+    for (let p = 0; p < PERIOD_COUNT; p++) {
+      const range = getPeriodRange(p);
+      let pFilled = 0, pDone = 0, pUndone = 0;
+      for (let c = 0; c < CELLS_PER_PERIOD; c++) {
+        const tasks = getCellTasks(p, c);
+        if (tasks.length) {
+          pFilled++;
+          if (getCellDone(p, c)) pDone++;
+          tasks.forEach((t) => { if (!t.done) pUndone++; });
+        }
+      }
+      const isPast = isTodayDate && (curPeriod >= 0 && p < curPeriod);
+      const isCurrent = isTodayDate && p === curPeriod;
+      const hasUndone = isPast && pUndone > 0;
+      const item = document.createElement("div");
+      item.className = "period-nav-item" +
+        (isPast ? " past" : "") +
+        (isCurrent ? " current" : "") +
+        (hasUndone ? " has-undone" : "");
+      item.innerHTML = `
+        <div class="pni-time">${secondsToHHMM(range.start)}</div>
+        <div class="pni-stats ${pDone === pFilled && pFilled > 0 ? 'done' : ''}">${pDone}/${pFilled}</div>`;
+      item.title = `第 ${p + 1} 时辰 · ${secondsToHHMM(range.start)}-${secondsToHHMM(range.end)}\n计划 ${pFilled} 格，完成 ${pDone} 格${hasUndone ? `\n⚠ ${pUndone} 个未完成任务` : ''}`;
+      item.addEventListener("click", () => {
+        state.activePeriod = p;
+        // 在计划页点击过去的时辰 → 跳转到记录页
+        // 在记录/复盘页点击 → 留在当前页
+        if (currentRealm === "plan" && isPast) {
+          setRealm("record");
+        }
+        renderAll();
+        toast(`已跳转到第 ${p + 1} 时辰${currentRealm === "plan" && isPast ? " · 记录页" : ""}`, "info");
+      });
+      targetEl.appendChild(item);
+    }
+  }
+
   // 渲染复盘页
   function renderReview() {
     if (!el.reviewBody) return;
+    renderReviewSummary();
+    renderPeriodNav(el.reviewPeriodNav);
     const review = getDayReview(state.currentDate);
     if (!review) {
       el.reviewBody.innerHTML = `<div class="review-empty">尚无复盘内容。点击「AI 智能复盘」结合计划与记录生成总结</div>`;
@@ -3601,6 +3807,18 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     if (state.settings.searchEnabled && (state.settings.searchApiKey || !SEARCH_PROVIDERS[state.settings.searchProvider]?.needsKey)) addBadge("🔍联网");
     // 同步刷新环节进度指示器
     renderStageProgress();
+    // 同步更新分支按钮显隐
+    updateBranchButtonVisibility();
+  }
+
+  // 更新分支按钮（返回主线）显隐
+  function updateBranchButtonVisibility() {
+    const returnBtn = document.querySelector(".chip-branch-return");
+    const branchBtn = document.querySelector(".chip-branch");
+    if (!returnBtn) return;
+    const inBreakdown = state.chatState === "project_breakdown";
+    returnBtn.style.display = inBreakdown ? "" : "none";
+    if (branchBtn) branchBtn.classList.toggle("active", inBreakdown);
   }
 
   // ---------- 环节进度指示器（状态机可视化） ----------
@@ -5245,16 +5463,34 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         el.chatInput.dispatchEvent(new Event("input"));
         el.chatInput.focus();
       } else if (action === "project") {
-        // 切换到项目拆解环节，并预填示例
+        // 切换到项目拆解分支环节
         const projCat = getStageCategory("project_breakdown");
         state.settings.activePromptId = projCat ? projCat.id : "stage_project_breakdown";
         state.chatState = "project_breakdown";
+        state.breakdownStep = 1;
+        state.breakdownContext = null;
         save(SETTINGS_KEY, state.settings);
         renderChatBadges();
         actionResetDialog();
-        el.chatInput.value = "我想学习嵌入式开发";
+        // 不预填内容，让用户自己输入项目主题
+        el.chatInput.value = "";
+        el.chatInput.placeholder = "输入你要拆解的项目主题，如：学习嵌入式开发、准备产品发布会…";
         el.chatInput.dispatchEvent(new Event("input"));
-        toast("已切换到「项目拆解」分类", "info");
+        toast("已进入「项目拆解」分支，输入项目主题即可开始拆解", "info");
+        el.chatInput.focus();
+      } else if (action === "return-main") {
+        // 从项目拆解分支返回主线
+        state.chatState = "confirming";
+        state.breakdownStep = 1;
+        state.breakdownContext = null;
+        // 恢复默认提示词（确认环节）
+        const confirmingCat = getStageCategory("confirming");
+        state.settings.activePromptId = confirmingCat ? confirmingCat.id : "stage_confirming";
+        save(SETTINGS_KEY, state.settings);
+        renderChatBadges();
+        actionResetDialog();
+        toast("已返回主线（确认环节）", "info");
+        el.chatInput.placeholder = "告诉 AI 你今天要做的事…";
         el.chatInput.focus();
       } else if (action === "search") {
         const provider = SEARCH_PROVIDERS[state.settings.searchProvider];
@@ -5678,25 +5914,19 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   });
 
   // ---------- 拖拽任务移动 ----------
-  let draggingSource = null; // {period, cell, index}
+  let draggingSource = null; // {period, cell, index} 整格拖
+  let draggingTaskSource = null; // {period, cell, idx} 单条拖
 
   function attachDragHandlers(cellEl, period, cell) {
-    cellEl.setAttribute("draggable", "true");
-    cellEl.addEventListener("dragstart", (e) => {
-      draggingSource = { period, cell, index: -1 }; // 整格拖
-      cellEl.classList.add("dragging");
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", `${period}-${cell}`);
-    });
-    cellEl.addEventListener("dragend", () => {
-      cellEl.classList.remove("dragging");
-      document.querySelectorAll(".cell.drag-over").forEach((c) => c.classList.remove("drag-over"));
-      draggingSource = null;
-    });
+    // 注意：cellEl 本身不再 draggable，由内部 task-bar 单条拖拽
+    // 但保留 dragover/drop 用于接收单条任务拖入
     cellEl.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-      cellEl.classList.add("drag-over");
+      // 如果是单条任务拖拽，高亮目标格子
+      if (draggingTaskSource) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        cellEl.classList.add("drag-over");
+      }
     });
     cellEl.addEventListener("dragleave", () => {
       cellEl.classList.remove("drag-over");
@@ -5704,17 +5934,24 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     cellEl.addEventListener("drop", (e) => {
       e.preventDefault();
       cellEl.classList.remove("drag-over");
-      if (!draggingSource) return;
-      if (draggingSource.period === period && draggingSource.cell === cell) return;
-      // 移动源格子所有任务到目标格子（追加）
-      const sourceTasks = getCellTasks(draggingSource.period, draggingSource.cell).slice();
-      const targetTasks = getCellTasks(period, cell).slice();
-      const merged = targetTasks.concat(sourceTasks);
-      setCellTasks(period, cell, merged);
-      setCellTasks(draggingSource.period, draggingSource.cell, []);
-      setCellDone(draggingSource.period, draggingSource.cell, false);
-      renderAll();
-      toast(`已移动 ${sourceTasks.length} 个任务`, "success");
+      // 单条任务拖拽
+      if (draggingTaskSource) {
+        const src = draggingTaskSource;
+        if (src.period === period && src.cell === cell) return; // 同格子不处理
+        const sourceTasks = getCellTasks(src.period, src.cell).slice();
+        const task = sourceTasks[src.idx];
+        if (!task) return;
+        // 从源格子移除
+        sourceTasks.splice(src.idx, 1);
+        setCellTasks(src.period, src.cell, sourceTasks);
+        // 添加到目标格子
+        const targetTasks = getCellTasks(period, cell).slice();
+        targetTasks.push(task);
+        setCellTasks(period, cell, targetTasks);
+        renderAll();
+        toast(`已移动任务到第 ${cell + 1} 格`, "success");
+        return;
+      }
     });
   }
 
@@ -6036,6 +6273,151 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   el.statBtn.addEventListener("click", () => { renderStat(); el.statDialog.showModal(); });
   el.closeStat.addEventListener("click", () => el.statDialog.close());
   el.statDialog.addEventListener("click", (e) => { if (e.target === el.statDialog) el.statDialog.close(); });
+
+  // ---------- 待办收集箱 ----------
+  const INBOX_KEY = "mandala-inbox-v1";
+  let inboxItems = load(INBOX_KEY, []);
+  let inboxFilterTag = "";
+  let inboxTimeFilter = "all";
+
+  function saveInbox() { save(INBOX_KEY, inboxItems); }
+
+  function getInboxTags() {
+    const tags = new Set();
+    inboxItems.forEach((i) => { if (i.tag) tags.add(i.tag); });
+    return Array.from(tags);
+  }
+
+  function updateInboxTagDatalist() {
+    if (!el.inboxTagList) return;
+    const tags = getInboxTags();
+    el.inboxTagList.innerHTML = tags.map((t) => `<option value="${escapeHtml(t)}">`).join("");
+  }
+
+  function openInbox() {
+    updateInboxTagDatalist();
+    renderInboxFilter();
+    renderInboxList();
+    el.inboxDialog.showModal();
+    el.inboxInput.focus();
+  }
+
+  function renderInboxFilter() {
+    const tags = getInboxTags();
+    const chips = [{ tag: "", label: "全部" }].concat(tags.map((t) => ({ tag: t, label: t })));
+    el.inboxFilter.innerHTML = chips.map((c) =>
+      `<span class="inbox-filter-chip ${inboxFilterTag === c.tag ? "active" : ""}" data-tag="${escapeHtml(c.tag)}">${escapeHtml(c.label)}</span>`
+    ).join("");
+    el.inboxFilter.querySelectorAll(".inbox-filter-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        inboxFilterTag = chip.dataset.tag;
+        renderInboxFilter();
+        renderInboxList();
+      });
+    });
+  }
+
+  function filterInboxItems() {
+    let filtered = inboxItems;
+    if (inboxFilterTag) filtered = filtered.filter((i) => i.tag === inboxFilterTag);
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const weekStart = todayStart - 6 * 86400000;
+    switch (inboxTimeFilter) {
+      case "today": filtered = filtered.filter((i) => i.createdAt >= todayStart); break;
+      case "week": filtered = filtered.filter((i) => i.createdAt >= weekStart); break;
+      case "undone": filtered = filtered.filter((i) => !i.done); break;
+      case "done": filtered = filtered.filter((i) => i.done); break;
+    }
+    return filtered;
+  }
+
+  function tagColor(tag) {
+    let hash = 0;
+    for (let i = 0; i < tag.length; i++) hash = tag.charCodeAt(i) + ((hash << 5) - hash);
+    const colors = ["#60a5fa", "#7c5cff", "#4ade80", "#fbbf24", "#f87171", "#fb923c", "#34d399", "#a78bfa"];
+    return colors[Math.abs(hash) % colors.length];
+  }
+
+  function renderInboxList() {
+    const filtered = filterInboxItems();
+    if (!filtered.length) {
+      el.inboxList.innerHTML = '<div class="inbox-empty">暂无内容，想到什么先记下来吧</div>';
+      return;
+    }
+    el.inboxList.innerHTML = filtered.map((item) => {
+      const realIdx = inboxItems.indexOf(item);
+      const d = item.createdAt ? new Date(item.createdAt) : null;
+      const dateStr = d
+        ? d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" }) + " " + d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+        : "";
+      return `<div class="inbox-item ${item.done ? "done" : ""}" data-idx="${realIdx}">
+        <span class="inbox-item-cb ${item.done ? "checked" : ""}" data-idx="${realIdx}">${item.done ? "✓" : ""}</span>
+        <span class="inbox-item-text">${escapeHtml(item.text)}</span>
+        ${item.tag ? `<span class="inbox-item-tag" style="background:${tagColor(item.tag)}20;color:${tagColor(item.tag)};">${escapeHtml(item.tag)}</span>` : ""}
+        <span class="inbox-item-date">${dateStr}</span>
+        <button class="inbox-item-del" data-idx="${realIdx}" title="删除">✕</button>
+      </div>`;
+    }).join("");
+    el.inboxList.querySelectorAll(".inbox-item-cb").forEach((cb) => {
+      cb.addEventListener("click", () => {
+        const idx = parseInt(cb.dataset.idx);
+        inboxItems[idx].done = !inboxItems[idx].done;
+        saveInbox();
+        renderInboxList();
+      });
+    });
+    el.inboxList.querySelectorAll(".inbox-item-del").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = parseInt(btn.dataset.idx);
+        inboxItems.splice(idx, 1);
+        saveInbox();
+        updateInboxTagDatalist();
+        renderInboxFilter();
+        renderInboxList();
+      });
+    });
+    el.inboxList.querySelectorAll(".inbox-item-text").forEach((txt) => {
+      txt.addEventListener("click", () => {
+        const idx = parseInt(txt.parentElement.dataset.idx);
+        el.chatInput.value = inboxItems[idx].text;
+        el.chatInput.dispatchEvent(new Event("input"));
+        el.inboxDialog.close();
+        toast("已填入对话区，可发送给 AI 安排", "info");
+      });
+    });
+  }
+
+  el.inboxBtn.addEventListener("click", openInbox);
+  el.closeInbox.addEventListener("click", () => el.inboxDialog.close());
+  el.inboxDialog.addEventListener("click", (e) => { if (e.target === el.inboxDialog) el.inboxDialog.close(); });
+  el.inboxAddBtn.addEventListener("click", () => {
+    const text = el.inboxInput.value.trim();
+    if (!text) { toast("请输入内容", "error"); return; }
+    inboxItems.unshift({
+      text,
+      tag: el.inboxCategory.value.trim() || "",
+      done: false,
+      createdAt: Date.now(),
+    });
+    saveInbox();
+    el.inboxInput.value = "";
+    el.inboxCategory.value = "";
+    updateInboxTagDatalist();
+    renderInboxFilter();
+    renderInboxList();
+    toast("已添加到收集箱", "success");
+  });
+  el.inboxInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); el.inboxAddBtn.click(); }
+  });
+  el.inboxCategory.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); el.inboxAddBtn.click(); }
+  });
+  el.inboxTimeFilter.addEventListener("change", () => {
+    inboxTimeFilter = el.inboxTimeFilter.value;
+    renderInboxList();
+  });
 
   function renderStat() {
     const totalCells = PERIOD_COUNT * CELLS_PER_PERIOD;
@@ -6489,6 +6871,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       renderMandala();
       renderOverview();
       checkNotify();
+      autoCarryForward();
     }, 30000);
     checkNotify();
     // 注册 Service Worker（PWA 离线，network-first 策略避免缓存问题）
