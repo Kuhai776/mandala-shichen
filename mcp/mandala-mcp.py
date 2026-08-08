@@ -157,6 +157,29 @@ def add_hermes_note(args, data):
     return {"ok": True, "note": note}
 
 
+def add_inbox_item(args, data):
+    """Hermes 写入卡片型收集箱项（wiki 知识/微信文章总结/待读），0 token，前端渲染成卡片。"""
+    import time as _t
+    title = args.get("title", "").strip()
+    if not title:
+        return {"error": "title 不能为空"}
+    item = {
+        "id": "ic-" + str(int(_t.time() * 1000)),
+        "kind": "card",  # 卡片型（区别于速记型）
+        "type": args.get("type", "reading"),  # reading|wiki|summary
+        "title": title,
+        "summary": args.get("summary", "").strip(),
+        "link": args.get("link", "").strip(),
+        "source": args.get("source", "").strip(),
+        "created": today_str(),
+        "createdAt": int(_t.time() * 1000),
+        "done": False,
+    }
+    data.setdefault("inbox", []).insert(0, item)  # 最新在前
+    _write_raw(DATA_PATH, data)
+    return {"ok": True, "item": item}
+
+
 # ---------- MCP 工具注册表 ----------
 TOOLS = [
     {"name": "get_tasks", "description": "获取指定日期的曼陀罗时辰任务（9时辰×9格）",
@@ -186,13 +209,18 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {
          "text": {"type": "string"}, "type": {"type": "string", "enum": ["summary", "plan", "insight"]},
          "date": {"type": "string"}}, "required": ["text"]}},
+    {"name": "add_inbox_item", "description": "Hermes 写入卡片型收集箱项（wiki知识/微信文章总结/待读），0 token，前端渲染成卡片",
+     "inputSchema": {"type": "object", "properties": {
+         "title": {"type": "string"}, "type": {"type": "string", "enum": ["reading", "wiki", "summary"]},
+         "summary": {"type": "string"}, "link": {"type": "string"}, "source": {"type": "string"}},
+         "required": ["title"]}},
 ]
 
 TOOL_FUNCS = {
     "get_tasks": get_tasks, "add_task": add_task, "complete_task": complete_task,
     "get_long_tasks": get_long_tasks, "score_eval": score_eval,
     "get_today_plan": get_today_plan, "update_schedule": update_schedule,
-    "add_hermes_note": add_hermes_note,
+    "add_hermes_note": add_hermes_note, "add_inbox_item": add_inbox_item,
 }
 
 

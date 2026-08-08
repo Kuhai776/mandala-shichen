@@ -575,7 +575,13 @@
       });
       if (data.done) Object.keys(data.done).forEach((d) => { if (!state.done[d]) state.done[d] = {}; Object.assign(state.done[d], data.done[d]); });
       if (data.longTasks) save(LONGTASK_KEY, data.longTasks);
-      if (data.inbox) save(INBOX_KEY, data.inbox);
+      if (data.inbox) {
+        // 合并：按 id 去重，保留本地未同步项（避免覆盖丢失）
+        const local = load("mandala-inbox-v1", []);
+        const existIds = new Set(local.map((x) => x.id).filter(Boolean));
+        const merged = local.concat(data.inbox.filter((x) => x.id && !existIds.has(x.id)));
+        save("mandala-inbox-v1", merged);
+      }
       if (data.hermesNotes) {
         save(HERMES_NOTES_KEY, data.hermesNotes);
         renderHermesNotes();
@@ -7045,6 +7051,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   }
 
   function openInbox() {
+    // 每次打开重新从 localStorage 加载，含 Hermes 远程同步的卡片
+    inboxItems = load(INBOX_KEY, []);
     updateInboxTagDatalist();
     renderInboxFilter();
     renderInboxList();
@@ -7101,6 +7109,26 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       const dateStr = d
         ? d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" }) + " " + d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
         : "";
+      // Hermes 写入的卡片型 item（wiki/reading/summary）
+      if (item.kind === "card") {
+        const cardType = item.type || "reading";
+        const meta = { reading: "📖 待读", wiki: "📚 知识", summary: "📝 总结" }[cardType] || "📭 卡片";
+        return `<div class="inbox-card ${item.done ? "done" : ""}" data-idx="${realIdx}">
+          <div class="inbox-card-head">
+            <span class="inbox-card-type">${meta}</span>
+            <span class="inbox-item-date">${dateStr}</span>
+            <button class="inbox-item-del" data-idx="${realIdx}" title="删除">✕</button>
+          </div>
+          <div class="inbox-card-title">${escapeHtml(item.title || item.text || "")}</div>
+          ${item.summary ? `<div class="inbox-card-summary">${escapeHtml(item.summary)}</div>` : ""}
+          ${item.link ? `<a class="inbox-card-link" href="${escapeHtml(item.link)}" target="_blank" rel="noopener">${escapeHtml(item.source || item.link)}</a>` : ""}
+          <div class="inbox-card-actions">
+            <button class="inbox-card-act" data-act="tochat" data-idx="${realIdx}">💬 发给AI</button>
+            <button class="inbox-card-act" data-act="done" data-idx="${realIdx}">${item.done ? "↩ 取消完成" : "✓ 标记完成"}</button>
+          </div>
+        </div>`;
+      }
+      // 原速记型 item
       return `<div class="inbox-item ${item.done ? "done" : ""}" data-idx="${realIdx}">
         <span class="inbox-item-cb ${item.done ? "checked" : ""}" data-idx="${realIdx}">${item.done ? "✓" : ""}</span>
         <span class="inbox-item-text">${escapeHtml(item.text)}</span>
@@ -7134,6 +7162,24 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         el.chatInput.dispatchEvent(new Event("input"));
         el.inboxDialog.close();
         toast("已填入对话区，可发送给 AI 安排", "info");
+      });
+    });
+    // 卡片型操作
+    el.inboxList.querySelectorAll(".inbox-card-act").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = parseInt(btn.dataset.idx);
+        const act = btn.dataset.act;
+        if (act === "done") {
+          inboxItems[idx].done = !inboxItems[idx].done;
+          saveInbox();
+          renderInboxList();
+        } else if (act === "tochat") {
+          const it = inboxItems[idx];
+          el.chatInput.value = (it.title || "") + (it.summary ? "\n" + it.summary : "") + (it.link ? "\n" + it.link : "");
+          el.chatInput.dispatchEvent(new Event("input"));
+          el.inboxDialog.close();
+          toast("已填入对话区，可发送给 AI 安排", "info");
+        }
       });
     });
   }

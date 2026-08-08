@@ -88,6 +88,7 @@ data.json = {
 | `get_today_plan` | 今日计划概览（简报用） | — |
 | `update_schedule` | 批量更新某日计划（复盘写回） | tasks, date |
 | `add_hermes_note` | Hermes 写入总结/规划/洞察文本，同步显示到曼陀罗对话区 | text, type(summary/plan/insight), date |
+| `add_inbox_item` | Hermes 写入卡片型收集箱项（wiki/文章总结/待读），0 token 渲染卡片 | title, type(reading/wiki/summary), summary, link, source |
 
 ## 六、Hermes 接入步骤
 

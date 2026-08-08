@@ -5516,6 +5516,85 @@ dialog.inbox-dialog-fullscreen::backdrop {
   word-break: break-word;
 }
 
+/* ---------- Hermes 写入的收集箱卡片（wiki/reading/summary） ---------- */
+.inbox-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  transition: opacity 0.2s;
+}
+.inbox-card.done { opacity: 0.5; }
+.inbox-card[data-type="reading"] { border-left-color: #60a5fa; }
+.inbox-card[data-type="wiki"] { border-left-color: #7c5cff; }
+.inbox-card[data-type="summary"] { border-left-color: #fbbf24; }
+.inbox-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.inbox-card-type {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-light);
+}
+.inbox-card-head .inbox-item-date { margin-left: auto; }
+.inbox-card-head .inbox-item-del {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  color: var(--text-muted);
+  font-size: 11px;
+  display: flex; align-items: center; justify-content: center;
+}
+.inbox-card-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+  margin-bottom: 4px;
+}
+.inbox-card-summary {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  margin-bottom: 6px;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.inbox-card-link {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--accent-light);
+  text-decoration: none;
+  margin-bottom: 8px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inbox-card-link:active { opacity: 0.7; }
+.inbox-card-actions {
+  display: flex;
+  gap: 8px;
+}
+.inbox-card-act {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  transition: all 0.2s;
+}
+.inbox-card-act:active {
+  background: rgba(124, 92, 255, 0.2);
+  color: var(--accent-light);
+}
+
 /* ---------- 环节描述（更清晰） ---------- */
 .stage-current-label {
   display: flex;
