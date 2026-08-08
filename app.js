@@ -23,9 +23,18 @@
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.2.0";
-  const APP_VERSION_DATE = "2026-08-02";
+  const APP_VERSION = "2.3.0";
+  const APP_VERSION_DATE = "2026-08-08";
   const APP_CHANGELOG = [
+    { v: "2.3.0", date: "2026-08-08", items: [
+      "新增：长期任务时间地图（顶部甘特条）—— 跨日/周/月事项一眼可见",
+      "新增：长期任务设定（收集箱 + AI 对话）—— 支持开始/截止日期、重复周期",
+      "新增：知识评估 7 维度面板（清晰度Cl/完整性Cp/边界感B/关联度L/进化感Ev/精炼度P/节奏感Rh）",
+      "新增：7 维度作为必需要素融入 AI 对话全环节（拆解/确认/复盘自动套用核心追问）",
+      "新增：AI 对话工具栏「🧠 7维度」快捷参考卡，一键查看标准·编号·子维度·核心追问",
+      "新增：事项重复与截止时间绑定（每日/每周/每月）",
+      "优化：AI 对话环节进度条更清晰（图标+说明+分支高亮）",
+    ]},
     { v: "2.2.0", date: "2026-08-02", items: [
       "新增：待办收集箱（Inbox）—— 想到什么先记下，支持分类标签 + 日期显示",
       "新增：复盘页时辰总汇总（总任务/已完成/未完成/完成率）",
@@ -139,6 +148,78 @@
   // 天地人三才：记录页数据 & 复盘页数据
   const RECORD_KEY = "mandala-records-v1";
   const REVIEW_KEY = "mandala-reviews-v1";
+  // 长期任务（时间地图）数据
+  const LONGTASK_KEY = "mandala-longtasks-v1";
+
+  // ---------- 知识评估 7 维度 ----------
+  // 标准 编号前缀 - 子维度 - 核心追问
+  const KNOWLEDGE_DIMENSIONS = [
+    { code: "Cl", name: "清晰度", color: "#7c5cff",
+      subs: [
+        { key: "def", name: "定义清晰度", q: "能用一句话说清这个知识是什么吗？" },
+        { key: "boundary", name: "边界清晰度", q: "能说清它和相似知识的区别吗？" },
+        { key: "repr", name: "表征清晰度", q: "能用图形、比喻、口诀等多种方式表达它吗？" },
+      ]},
+    { code: "Cp", name: "完整性", color: "#4ade80",
+      subs: [
+        { key: "structure", name: "结构完整度", q: "有没有遗漏的子知识？根干枝叶齐全吗？" },
+        { key: "steps", name: "步骤完整度", q: "操作链的每一步都能闭卷写出来吗？" },
+      ]},
+    { code: "B", name: "边界感", color: "#fbbf24",
+      subs: [
+        { key: "condition", name: "适用条件", q: "在什么条件下能用？" },
+        { key: "fail", name: "失效条件", q: "在什么条件下会出错？" },
+        { key: "limit", name: "极限测试", q: "推到极端参数还成立吗？" },
+      ]},
+    { code: "L", name: "关联度", color: "#60a5fa",
+      subs: [
+        { key: "upstream", name: "上下游关联", q: "它的前置知识和后续应用是什么？" },
+        { key: "isomorphic", name: "同构关联", q: "和哪个知识共享相同的底层骨架？" },
+        { key: "crossdomain", name: "跨域关联", q: "能迁移到其他领域或生活中吗？" },
+      ]},
+    { code: "Ev", name: "进化感", color: "#f87171",
+      subs: [
+        { key: "version", name: "版本追溯", q: "和过去比，理解变深了吗？" },
+        { key: "iteration", name: "迭代方向", q: "下一步该修正、升级还是淘汰？" },
+      ]},
+    { code: "P", name: "精炼度", color: "#34d399",
+      subs: [
+        { key: "chunk", name: "组块紧凑度", q: "能压缩成多短的口诀？" },
+        { key: "fluency", name: "执行流畅度", q: "能自动执行还是需要刻意回忆？" },
+      ]},
+    { code: "Rh", name: "节奏感", color: "#a78bfa",
+      subs: [
+        { key: "cycle", name: "周期", q: "固定多久检索一次？" },
+        { key: "freq", name: "频率", q: "练习频率够高吗？" },
+        { key: "predict", name: "预测", q: "能预判自己会在哪卡住吗？" },
+        { key: "duration", name: "时长", q: "每次训练的时长合理吗？" },
+        { key: "timing", name: "时机", q: "在什么状态下训练效果最好？" },
+      ]},
+  ];
+
+  // 生成本维度空评估对象 { def:0, boundary:0, ... }
+  function emptyEval() {
+    const o = {};
+    KNOWLEDGE_DIMENSIONS.forEach((d) => d.subs.forEach((s) => { o[s.key] = 0; }));
+    return o;
+  }
+
+  // 计算某维度平均分（0-5）
+  function dimScore(evalObj, dim) {
+    const vals = dim.subs.map((s) => evalObj[s.key] || 0);
+    return vals.reduce((a, b) => a + b, 0) / vals.length;
+  }
+
+  // 长期任务重复周期选项
+  const REPEAT_OPTIONS = [
+    { value: "none", label: "不重复" },
+    { value: "daily", label: "每日" },
+    { value: "weekly", label: "每周" },
+    { value: "monthly", label: "每月" },
+  ];
+
+  // 长期任务配色（循环）
+  const LONGTASK_COLORS = ["#7c5cff", "#f87171", "#60a5fa", "#4ade80", "#fbbf24", "#fb923c", "#34d399", "#a78bfa"];
 
   // ---------- 预设技能 ----------
   // 技能体系按「天·计划 / 地·记录 / 人·复盘 / 跨环节综合」四大维度组织
@@ -266,7 +347,7 @@
       desc: "递归拆解项目为可执行学习单元",
       recommendedSkills: ["deepwork", "gtd", "timeblock", "goal_decomposition", "habit_system"],
       isSystem: true,
-      content: "你正在【项目拆解】环节。用户给出项目目标（如\"学习嵌入式开发\"）。\n按 6 步推进，每轮只推进一步：\n1. 识别主要模块（如 C语言、STM32、焊锡、单片机...）\n2. 询问用户模块清单是否完整/优先级\n3. 对每个模块继续细分（C语言→指针/结构体/内存管理...）\n4. 对细分点「组块压缩」——合并为可在 13 分钟格子内完成的单元\n5. 对每个组块「深度剖析」——学习目标/关键概念/实践练习/检验方式\n6. 按依赖关系和难度分配到格子\n设置 action=\"breakdown\"，返回 breakdown 树结构和下一轮问题。\n全部拆解完成且用户确认后，设 action=\"confirm\" 并把 leaf 任务放入 tasks。",
+      content: "你正在【项目拆解】环节。用户给出项目目标（如\"学习嵌入式开发\"）。\n按 6 步推进，每轮只推进一步：\n1. 识别主要模块（如 C语言、STM32、焊锡、单片机...）\n2. 询问用户模块清单是否完整/优先级\n3. 对每个模块继续细分（C语言→指针/结构体/内存管理...）\n4. 对细分点「组块压缩」——合并为可在 13 分钟格子内完成的单元\n5. 对每个组块「深度剖析」——必须套用【知识评估 7 维度】核心追问逐项检验（见下方框架），输出每个组块在各维度的薄弱点与建议\n6. 按依赖关系和难度分配到格子\n设置 action=\"breakdown\"，返回 breakdown 树结构和下一轮问题。\n全部拆解完成且用户确认后，设 action=\"confirm\" 并把 leaf 任务放入 tasks。",
       summaryTemplate: "项目拆解完成：{{模块数}} 个模块，{{任务数}} 个可执行单元。进入确认环节。",
     },
     {
@@ -1088,6 +1169,30 @@
     inboxFilter: document.getElementById("inboxFilter"),
     inboxTimeFilter: document.getElementById("inboxTimeFilter"),
     inboxTagList: document.getElementById("inboxTagList"),
+    // 长期任务时间地图
+    longtaskBar: document.getElementById("longtaskBar"),
+    longtaskTimeline: document.getElementById("longtaskTimeline"),
+    ltbHint: document.getElementById("ltbHint"),
+    ltbAddBtn: document.getElementById("ltbAddBtn"),
+    // 收集箱-长期任务模式
+    inboxQuickPane: document.getElementById("inboxQuickPane"),
+    inboxLongPane: document.getElementById("inboxLongPane"),
+    longTitle: document.getElementById("longTitle"),
+    longStart: document.getElementById("longStart"),
+    longDue: document.getElementById("longDue"),
+    longRepeat: document.getElementById("longRepeat"),
+    longBindCell: document.getElementById("longBindCell"),
+    longNote: document.getElementById("longNote"),
+    longSaveBtn: document.getElementById("longSaveBtn"),
+    longList: document.getElementById("longList"),
+    // 长期任务详情弹窗
+    longtaskDetailDialog: document.getElementById("longtaskDetailDialog"),
+    ltdTitle: document.getElementById("ltdTitle"),
+    ltdBody: document.getElementById("ltdBody"),
+    closeLongDetail: document.getElementById("closeLongDetail"),
+    // 知识评估 7 维度参考卡
+    knowledgeDimDialog: document.getElementById("knowledgeDimDialog"),
+    kdimGrid: document.getElementById("kdimGrid"),
     // 复盘汇总
     reviewSummary: document.getElementById("reviewSummary"),
     reviewPeriodNav: document.getElementById("reviewPeriodNav"),
@@ -1833,6 +1938,7 @@
 
   function renderAll() {
     updateDateLabel();
+    renderLongtaskBar();
     renderPeriodTabs();
     renderMandala();
     renderRecord();
@@ -3824,11 +3930,18 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   // ---------- 环节进度指示器（状态机可视化） ----------
   // 环节简短显示名（用于节点标签）
   const STAGE_SHORT_NAMES = {
-    idle: "待命",
-    gathering: "收集",
-    confirming: "确认",
-    project_breakdown: "拆解",
-    done: "完成",
+    idle: "💤 待命",
+    gathering: "📥 收集",
+    confirming: "✅ 确认",
+    project_breakdown: "🔗 拆解",
+    done: "🎯 完成",
+  };
+  const STAGE_DESC = {
+    idle: "等待你描述今日任务",
+    gathering: "正在收集背景信息",
+    confirming: "方案已就绪，待你确认",
+    project_breakdown: "项目拆解中（分支环节）",
+    done: "已规划完成",
   };
 
   let _lastRenderedStage = null;
@@ -3883,11 +3996,12 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       }
     });
 
-    // 更新当前环节文字标签（分支环节特殊标记）
+    // 更新当前环节文字标签（分支环节特殊标记）+ 描述
     const cat = getStageCategory(curStage);
     let labelText = cat ? cat.name : (STAGE_SHORT_NAMES[curStage] || curStage);
     if (isBranch) labelText = "🔗 " + labelText;
-    el.stageCurrentLabel.textContent = labelText;
+    const desc = STAGE_DESC[curStage] || "";
+    el.stageCurrentLabel.innerHTML = `<span class="stage-label-main">${escapeHtml(labelText)}</span>${desc ? `<span class="stage-label-desc">${escapeHtml(desc)}</span>` : ""}`;
 
     // 切换闪烁动画：移除再添加以重启动画
     if (isTransition) {
@@ -4195,6 +4309,52 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         const thinking = addBotMessage("");
         thinking.querySelector(".message-content").innerHTML = "📅 已切换到计划页…";
         setRealm("plan");
+        return;
+      }
+      // 长期任务指令：长期任务/长线任务 + 标题 [+ 截止/重复]
+      const longMatch = effectiveText.match(/^(?:长期任务|长线任务|长期事项)[:：]?\s*(.+)/i);
+      if (longMatch) {
+        const rest = longMatch[1].trim();
+        addUserMessage(effectiveText);
+        el.chatInput.value = "";
+        el.chatInput.style.height = "auto";
+        const thinking = addBotMessage("");
+        // 解析 截止日期 / 重复
+        let due = "", repeat = "none", title = rest;
+        const dueMatch = rest.match(/(?:截止|到期|due)[:：]?\s*(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}\/\d{1,2}|\d{1,2}月\d{1,2}日?)/i);
+        if (dueMatch) {
+          const raw = dueMatch[1];
+          if (/^\d{4}-\d/.test(raw)) due = raw;
+          else if (/^\d{1,2}\/\d{1,2}$/.test(raw)) { const [m,d] = raw.split("/"); due = `${new Date().getFullYear()}-${m.padStart(2,"0")}-${d.padStart(2,"0")}`; }
+          else { const m = raw.match(/(\d{1,2})月(\d{1,2})日?/); if (m) due = `${new Date().getFullYear()}-${m[1].padStart(2,"0")}-${m[2].padStart(2,"0")}`; }
+          title = rest.slice(0, dueMatch.index).trim();
+        }
+        const repMatch = title.match(/(?:重复|循环|repeat)[:：]?\s*(每日|每天|每周|每月|daily|weekly|monthly)/i);
+        if (repMatch) {
+          const r = repMatch[1].toLowerCase();
+          if (/每日|每天|daily/.test(r)) repeat = "daily";
+          else if (/每周|weekly/.test(r)) repeat = "weekly";
+          else if (/每月|monthly/.test(r)) repeat = "monthly";
+          title = title.slice(0, repMatch.index).trim();
+        }
+        title = title.replace(/[,，。；;]+$/, "").trim();
+        if (!title) title = "未命名长期任务";
+        const id = genLongId();
+        const color = LONGTASK_COLORS[longTasks.length % LONGTASK_COLORS.length];
+        longTasks.unshift({
+          id, title, note: "由 AI 对话创建",
+          startDate: state.currentDate, dueDate: due,
+          repeat, bindCell: "", progress: 0, color,
+          eval: emptyEval(), createdAt: Date.now(), done: false,
+        });
+        saveLongTasks();
+        renderLongtaskBar();
+        thinking.querySelector(".message-content").innerHTML =
+          `🗺️ 已创建长期任务：<b>${escapeHtml(title)}</b>` +
+          (due ? `<br>📅 截止：${due}` : "") +
+          (repeat !== "none" ? `<br>🔁 重复：${REPEAT_OPTIONS.find((r)=>r.value===repeat)?.label}` : "") +
+          `<br><br>该任务已显示在顶部时间地图，点击可设置知识评估 7 维度与进度。`;
+        toast("长期任务已创建", "success");
         return;
       }
     }
@@ -4701,6 +4861,38 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     const stageCat = getStageCategory(chatState) || getStageCategory("idle");
     parts.push(`【当前环节】${stageCat.name}（状态：${chatState}）`);
     parts.push(`【环节提示词】\n${stageCat.content}`);
+
+    // 知识评估 7 维度（必需要素，全环节生效）
+    parts.push(`【知识评估 7 维度 · 必需要素】（全环节生效，凡涉及学习/长线任务均须套用）
+这是本项目对每个知识点/长线任务的统一评估标准。请在拆解、确认、复盘时主动套用，并向用户抛出对应的核心追问：
+- Cl 清晰度
+  · 定义清晰度：能用一句话说清这个知识是什么吗？
+  · 边界清晰度：能说清它和相似知识的区别吗？
+  · 表征清晰度：能用图形、比喻、口诀等多种方式表达它吗？
+- Cp 完整性
+  · 结构完整度：有没有遗漏的子知识？根干枝叶齐全吗？
+  · 步骤完整度：操作链的每一步都能闭卷写出来吗？
+- B 边界感
+  · 适用条件：在什么条件下能用？
+  · 失效条件：在什么条件下会出错？
+  · 极限测试：推到极端参数还成立吗？
+- L 关联度
+  · 上下游关联：它的前置知识和后续应用是什么？
+  · 同构关联：和哪个知识共享相同的底层骨架？
+  · 跨域关联：能迁移到其他领域或生活中吗？
+- Ev 进化感
+  · 版本追溯：和过去比，理解变深了吗？
+  · 迭代方向：下一步该修正、升级还是淘汰？
+- P 精炼度
+  · 组块紧凑度：能压缩成多短的口诀？
+  · 执行流畅度：能自动执行还是需要刻意回忆？
+- Rh 节奏感
+  · 周期：固定多久检索一次？
+  · 频率：练习频率够高吗？
+  · 预测：能预判自己会在哪卡住吗？
+  · 时长：每次训练的时长合理吗？
+  · 时机：在什么状态下训练效果最好？
+使用规则：在 confirm/breakdown 阶段，对每个学习类任务在 summary 中标注其在 Cl/Cp/B/L/Ev/P/Rh 各维度的薄弱项（1-2 个）并给出追问；在 done 阶段提示用户到长期任务详情面板用星标打分（1-5）建立基线。`);
 
     // 附加提示词（用户自定义，全局生效）
     const customCats = getCustomCategories();
@@ -5515,6 +5707,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         if (chatSection) chatSection.scrollIntoView({ behavior: "smooth", block: "center" });
       } else if (action === "conv-tpl") {
         openConvTplDialog();
+      } else if (action === "knowledge-dim") {
+        openKnowledgeDimDialog();
       }
     });
   });
@@ -5974,6 +6168,39 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   el.closeConvTpl.addEventListener("click", () => el.convTplDialog.close());
   el.convTplDialog.addEventListener("click", (e) => { if (e.target === el.convTplDialog) el.convTplDialog.close(); });
 
+  // 知识评估 7 维度参考卡
+  function openKnowledgeDimDialog() {
+    if (!el.kdimGrid) return;
+    el.kdimGrid.innerHTML = KNOWLEDGE_DIMENSIONS.map((d) => {
+      const subs = d.subs.map((s) =>
+        `<li><b>${s.name}</b>：${escapeHtml(s.q)}</li>`
+      ).join("");
+      return `<div class="kdim-card" style="--dim-color:${d.color};">
+        <div class="kdim-head">
+          <span class="kdim-code">${d.code}</span>
+          <span class="kdim-name">${d.name}</span>
+        </div>
+        <ul class="kdim-subs">${subs}</ul>
+      </div>`;
+    }).join("");
+    el.knowledgeDimDialog.showModal();
+  }
+  const closeKnowledgeDimBtn = document.getElementById("closeKnowledgeDim");
+  if (closeKnowledgeDimBtn) closeKnowledgeDimBtn.addEventListener("click", () => el.knowledgeDimDialog.close());
+  const closeKnowledgeDim2 = document.getElementById("closeKnowledgeDim2");
+  if (closeKnowledgeDim2) closeKnowledgeDim2.addEventListener("click", () => el.knowledgeDimDialog.close());
+  if (el.knowledgeDimDialog) el.knowledgeDimDialog.addEventListener("click", (e) => { if (e.target === el.knowledgeDimDialog) el.knowledgeDimDialog.close(); });
+  const kdimToInboxBtn = document.getElementById("kdimToInbox");
+  if (kdimToInboxBtn) kdimToInboxBtn.addEventListener("click", () => {
+    el.knowledgeDimDialog.close();
+    if (el.inboxBtn) el.inboxBtn.click();
+    // 切换到长期任务模式
+    setTimeout(() => {
+      const longTab = document.querySelector('.inbox-mode-tab[data-mode="long"]');
+      if (longTab) longTab.click();
+    }, 80);
+  });
+
   el.useInputConvTplBtn.addEventListener("click", () => {
     el.convTplText.value = el.chatInput.value.trim();
     if (!el.convTplName.value && el.convTplText.value) {
@@ -6273,6 +6500,414 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   el.statBtn.addEventListener("click", () => { renderStat(); el.statDialog.showModal(); });
   el.closeStat.addEventListener("click", () => el.statDialog.close());
   el.statDialog.addEventListener("click", (e) => { if (e.target === el.statDialog) el.statDialog.close(); });
+
+  // ---------- 长期任务（时间地图） ----------
+  let longTasks = load(LONGTASK_KEY, []);
+
+  function saveLongTasks() { save(LONGTASK_KEY, longTasks); }
+
+  function genLongId() {
+    return "lt-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  }
+
+  // 计算时间地图的时间范围（取所有任务的最早开始到最晚截止，至少覆盖今天前后 14 天）
+  function getTimelineRange() {
+    if (!longTasks.length) {
+      const today = new Date(state.currentDate);
+      const start = new Date(today); start.setDate(today.getDate() - 3);
+      const end = new Date(today); end.setDate(today.getDate() + 11);
+      return { start, end };
+    }
+    let minD = null, maxD = null;
+    longTasks.forEach((t) => {
+      const s = t.startDate ? new Date(t.startDate) : null;
+      const e = t.dueDate ? new Date(t.dueDate) : null;
+      if (s && (!minD || s < minD)) minD = s;
+      if (e && (!maxD || e > maxD)) maxD = e;
+    });
+    if (!minD) minD = new Date(state.currentDate);
+    if (!maxD) { maxD = new Date(minD); maxD.setDate(maxD.getDate() + 14); }
+    // 扩展边界，保证今日可见
+    const today = new Date(state.currentDate);
+    if (today < minD) { minD = new Date(today); minD.setDate(minD.getDate() - 3); }
+    if (today > maxD) { maxD = new Date(today); maxD.setDate(maxD.getDate() + 7); }
+    // 两端各留 1 天余量
+    minD = new Date(minD); minD.setDate(minD.getDate() - 1);
+    maxD = new Date(maxD); maxD.setDate(maxD.getDate() + 1);
+    return { start: minD, end: maxD };
+  }
+
+  function daysBetween(a, b) {
+    const ms = b.setHours(0,0,0,0) - a.setHours(0,0,0,0);
+    return Math.round(ms / 86400000);
+  }
+
+  // 渲染顶部时间地图
+  function renderLongtaskBar() {
+    const tl = el.longtaskTimeline;
+    if (!tl) return;
+    const range = getTimelineRange();
+    const totalDays = Math.max(1, daysBetween(new Date(range.start), new Date(range.end)));
+    const todayStr = state.currentDate;
+    const todayIdx = Math.max(0, Math.min(totalDays, daysBetween(new Date(range.start), new Date(todayStr))));
+
+    // 刻度（每 N 天一格，视总跨度）
+    const step = totalDays > 60 ? 7 : (totalDays > 21 ? 3 : 1);
+    let ticks = "";
+    for (let d = 0; d <= totalDays; d += step) {
+      const dt = new Date(range.start); dt.setDate(dt.getDate() + d);
+      const pct = (d / totalDays) * 100;
+      const isToday = dateToStr(dt) === todayStr;
+      ticks += `<div class="ltb-tick ${isToday ? "today" : ""}" style="left:${pct}%;">
+        <span class="ltb-tick-label">${dt.getMonth()+1}/${dt.getDate()}</span>
+      </div>`;
+    }
+
+    // 任务条
+    let bars = "";
+    longTasks.forEach((t, i) => {
+      const s = t.startDate ? new Date(t.startDate) : new Date(range.start);
+      const e = t.dueDate ? new Date(t.dueDate) : new Date(range.end);
+      const startOff = Math.max(0, daysBetween(new Date(range.start), s));
+      const endOff = Math.min(totalDays, daysBetween(new Date(range.start), e));
+      const leftPct = (startOff / totalDays) * 100;
+      const widthPct = Math.max(2, ((endOff - startOff) / totalDays) * 100);
+      const color = t.color || LONGTASK_COLORS[i % LONGTASK_COLORS.length];
+      const isOverdue = !t.done && t.dueDate && new Date(t.dueDate) < new Date(todayStr);
+      const repeatLabel = t.repeat && t.repeat !== "none" ? " 🔁" : "";
+      bars += `<div class="ltb-bar ${t.done ? "done" : ""} ${isOverdue ? "overdue" : ""}"
+        style="left:${leftPct}%;width:${widthPct}%;background:${color};"
+        data-id="${t.id}" title="${escapeHtml(t.title)}（${t.startDate||"?"} → ${t.dueDate||"?"}）${repeatLabel}">
+        <span class="ltb-bar-label">${escapeHtml(t.title.slice(0, 12))}${t.title.length>12?"…":""}${repeatLabel}</span>
+        <span class="ltb-bar-progress" style="width:${t.progress||0}%;background:rgba(255,255,255,0.25);"></span>
+      </div>`;
+    });
+
+    // 今日竖线
+    const todayPct = (todayIdx / totalDays) * 100;
+
+    tl.innerHTML = `
+      <div class="ltb-track">
+        <div class="ltb-ticks">${ticks}</div>
+        <div class="ltb-today-line" style="left:${todayPct}%;"></div>
+        <div class="ltb-bars">${bars || '<div class="ltb-empty">暂无长期任务，点「新建」或到收集箱添加</div>'}</div>
+      </div>
+    `;
+
+    // 提示文字
+    if (el.ltbHint) {
+      const active = longTasks.filter((t) => !t.done).length;
+      const overdue = longTasks.filter((t) => !t.done && t.dueDate && new Date(t.dueDate) < new Date(todayStr)).length;
+      el.ltbHint.textContent = active ? `${active} 个进行中${overdue ? ` · ${overdue} 个已逾期` : ""}` : "跨日/周/月的长线任务";
+    }
+
+    // 点击任务条打开详情
+    tl.querySelectorAll(".ltb-bar").forEach((bar) => {
+      bar.addEventListener("click", () => openLongDetail(bar.dataset.id));
+    });
+  }
+
+  // 填充「绑定今日格子」下拉
+  function fillLongBindCell() {
+    if (!el.longBindCell) return;
+    const opts = ['<option value="">不绑定</option>'];
+    for (let p = 0; p < PERIOD_COUNT; p++) {
+      const range = getPeriodRange(p);
+      for (let c = 0; c < CELLS_PER_PERIOD; c++) {
+        const cellStart = range.start + c * SECONDS_PER_CELL;
+        const cellEnd = cellStart + SECONDS_PER_CELL;
+        const key = `${p}-${c}`;
+        opts.push(`<option value="${key}">第${p+1}辰·${secondsToHHMM(cellStart)}-${secondsToHHMM(cellEnd)}</option>`);
+      }
+    }
+    el.longBindCell.innerHTML = opts.join("");
+  }
+
+  // 重置长期任务表单
+  function resetLongForm() {
+    if (!el.longTitle) return;
+    el.longTitle.value = "";
+    el.longStart.value = state.currentDate;
+    const def = new Date(state.currentDate); def.setDate(def.getDate() + 7);
+    el.longDue.value = dateToStr(def);
+    el.longRepeat.value = "none";
+    el.longBindCell.value = "";
+    el.longNote.value = "";
+    fillLongBindCell();
+  }
+
+  // 保存长期任务
+  function saveLongForm() {
+    const title = el.longTitle.value.trim();
+    if (!title) { toast("请输入长期事项标题", "error"); return; }
+    const start = el.longStart.value || state.currentDate;
+    const due = el.longDue.value || "";
+    if (due && due < start) { toast("截止日期不能早于开始日期", "error"); return; }
+    const repeat = el.longRepeat.value;
+    const bindCell = el.longBindCell.value;
+    const note = el.longNote.value.trim();
+    const id = genLongId();
+    const color = LONGTASK_COLORS[longTasks.length % LONGTASK_COLORS.length];
+    const task = {
+      id, title, note,
+      startDate: start, dueDate: due,
+      repeat, bindCell,
+      progress: 0,
+      color,
+      eval: emptyEval(),
+      createdAt: Date.now(),
+      done: false,
+    };
+    longTasks.unshift(task);
+    saveLongTasks();
+
+    // 若绑定了今日格子，把任务标题写入对应格子
+    if (bindCell) {
+      const [p, c] = bindCell.split("-").map(Number);
+      const key = cellKey(state.currentDate, p, c);
+      if (!state.tasks[key]) state.tasks[key] = [];
+      state.tasks[key].push({ text: "🗺️ " + title, priority: 2, tag: "长期", done: false });
+      save(STORAGE_KEY, state.tasks);
+    }
+    resetLongForm();
+    renderLongList();
+    renderLongtaskBar();
+    toast("长期任务已创建", "success");
+  }
+
+  // 渲染收集箱中的长期任务列表
+  function renderLongList() {
+    if (!el.longList) return;
+    if (!longTasks.length) {
+      el.longList.innerHTML = '<div class="inbox-empty">暂无长期任务</div>';
+      return;
+    }
+    const todayStr = state.currentDate;
+    el.longList.innerHTML = longTasks.map((t) => {
+      const idx = longTasks.indexOf(t);
+      const isOverdue = !t.done && t.dueDate && t.dueDate < todayStr;
+      const repeatLabel = t.repeat && t.repeat !== "none"
+        ? `<span class="long-repeat-badge">${REPEAT_OPTIONS.find((r)=>r.value===t.repeat)?.label||t.repeat}</span>` : "";
+      const dueLabel = t.dueDate ? `<span class="long-due ${isOverdue?"overdue":""}">截止 ${t.dueDate}</span>` : "";
+      return `<div class="long-item ${t.done?"done":""}" data-id="${t.id}">
+        <span class="long-item-cb ${t.done?"checked":""}" data-id="${t.id}">${t.done?"✓":""}</span>
+        <div class="long-item-main">
+          <div class="long-item-title">${escapeHtml(t.title)}</div>
+          <div class="long-item-meta">
+            <span class="long-date">${t.startDate||"?"} → ${t.dueDate||"?"}</span>
+            ${dueLabel}${repeatLabel}
+            <span class="long-progress-badge">${t.progress||0}%</span>
+          </div>
+          ${t.note?`<div class="long-item-note">${escapeHtml(t.note)}</div>`:""}
+        </div>
+        <button class="long-item-eval" data-id="${t.id}" title="知识评估 7 维度">🧠</button>
+        <button class="long-item-edit" data-id="${t.id}" title="详情/编辑">✏</button>
+        <button class="long-item-del" data-id="${t.id}" title="删除">🗑</button>
+      </div>`;
+    }).join("");
+
+    // 绑定事件
+    el.longList.querySelectorAll(".long-item-cb").forEach((cb) => {
+      cb.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const t = longTasks.find((x) => x.id === cb.dataset.id);
+        if (t) { t.done = !t.done; if (t.done) t.progress = 100; saveLongTasks(); renderLongList(); renderLongtaskBar(); }
+      });
+    });
+    el.longList.querySelectorAll(".long-item-eval").forEach((b) => {
+      b.addEventListener("click", (e) => { e.stopPropagation(); openLongDetail(b.dataset.id, "eval"); });
+    });
+    el.longList.querySelectorAll(".long-item-edit").forEach((b) => {
+      b.addEventListener("click", (e) => { e.stopPropagation(); openLongDetail(b.dataset.id); });
+    });
+    el.longList.querySelectorAll(".long-item-del").forEach((b) => {
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const i = longTasks.findIndex((x) => x.id === b.dataset.id);
+        if (i >= 0) {
+          if (confirm("删除该长期任务？")) {
+            longTasks.splice(i, 1); saveLongTasks(); renderLongList(); renderLongtaskBar();
+            toast("已删除", "info");
+          }
+        }
+      });
+    });
+    el.longList.querySelectorAll(".long-item").forEach((item) => {
+      item.addEventListener("click", () => openLongDetail(item.dataset.id));
+    });
+  }
+
+  // 打开长期任务详情弹窗（含知识评估 7 维度）
+  function openLongDetail(id, focusTab) {
+    const t = longTasks.find((x) => x.id === id);
+    if (!t) return;
+    el.ltdTitle.textContent = (t.done ? "✓ " : "") + t.title;
+    if (!t.eval) t.eval = emptyEval();
+
+    // 进度滑块
+    const progress = t.progress || 0;
+    const overall = Math.round(
+      KNOWLEDGE_DIMENSIONS.reduce((sum, d) => sum + dimScore(t.eval, d), 0) / KNOWLEDGE_DIMENSIONS.length
+    );
+
+    // 7 维度评分表
+    const dimsHtml = KNOWLEDGE_DIMENSIONS.map((d) => {
+      const score = dimScore(t.eval, d);
+      const subs = d.subs.map((s) => {
+        const v = t.eval[s.key] || 0;
+        return `<div class="eval-sub">
+          <span class="eval-sub-name">${s.name}</span>
+          <span class="eval-sub-q">${s.q}</span>
+          <div class="eval-stars" data-key="${s.key}">
+            ${[1,2,3,4,5].map((n) => `<span class="eval-star ${v>=n?"on":""}" data-n="${n}">★</span>`).join("")}
+          </div>
+        </div>`;
+      }).join("");
+      return `<div class="eval-dim" style="--dim-color:${d.color};">
+        <div class="eval-dim-head">
+          <span class="eval-dim-code">${d.code}</span>
+          <span class="eval-dim-name">${d.name}</span>
+          <span class="eval-dim-score">${score.toFixed(1)}</span>
+        </div>
+        <div class="eval-subs">${subs}</div>
+      </div>`;
+    }).join("");
+
+    el.ltdBody.innerHTML = `
+      <div class="ltd-section">
+        <div class="ltd-row">
+          <label>标题</label>
+          <input type="text" id="ltdEditTitle" value="${escapeHtml(t.title)}" maxlength="60" />
+        </div>
+        <div class="ltd-row">
+          <label>开始</label><input type="date" id="ltdEditStart" value="${t.startDate||""}" />
+          <label>截止</label><input type="date" id="ltdEditDue" value="${t.dueDate||""}" />
+        </div>
+        <div class="ltd-row">
+          <label>重复</label>
+          <select id="ltdEditRepeat">
+            ${REPEAT_OPTIONS.map((r)=>`<option value="${r.value}" ${t.repeat===r.value?"selected":""}>${r.label}</option>`).join("")}
+          </select>
+          <label>进度</label>
+          <input type="range" id="ltdEditProgress" min="0" max="100" value="${progress}" style="flex:1;" />
+          <span id="ltdProgressVal" style="min-width:36px;text-align:right;">${progress}%</span>
+        </div>
+        <div class="ltd-row">
+          <label>备注</label>
+          <input type="text" id="ltdEditNote" value="${escapeHtml(t.note||"")}" maxlength="120" style="flex:1;" />
+        </div>
+        <div class="ltd-row">
+          <button class="tool-btn" id="ltdToggleDone">${t.done?"↩ 标记未完成":"✓ 标记完成"}</button>
+          <button class="tool-btn" id="ltdSave" style="background:var(--accent);color:#fff;">💾 保存修改</button>
+          <button class="tool-btn" id="ltdDel" style="background:var(--danger);color:#fff;">🗑 删除</button>
+        </div>
+      </div>
+
+      <div class="ltd-section">
+        <div class="ltd-section-head">
+          <h4>🧠 知识评估 7 维度</h4>
+          <span class="ltd-overall">综合 ${overall} / 5</span>
+        </div>
+        <p class="panel-desc">标准 编号前缀 · 子维度 · 核心追问。点击星标打分（1-5），用于追踪长线学习/任务的理解深度。</p>
+        <div class="eval-grid">${dimsHtml}</div>
+      </div>
+    `;
+
+    el.longtaskDetailDialog.showModal();
+
+    // 星标打分
+    el.ltdBody.querySelectorAll(".eval-stars").forEach((wrap) => {
+      const key = wrap.dataset.key;
+      wrap.querySelectorAll(".eval-star").forEach((star) => {
+        star.addEventListener("click", () => {
+          const n = parseInt(star.dataset.n, 10);
+          t.eval[key] = (t.eval[key] === n) ? n - 1 : n;
+          saveLongTasks();
+          // 局部刷新星标与分数
+          wrap.querySelectorAll(".eval-star").forEach((s) => {
+            const sn = parseInt(s.dataset.n, 10);
+            s.classList.toggle("on", (t.eval[key] || 0) >= sn);
+          });
+          const dim = KNOWLEDGE_DIMENSIONS.find((d) => d.subs.some((s) => s.key === key));
+          if (dim) {
+            const head = wrap.closest(".eval-dim").querySelector(".eval-dim-score");
+            head.textContent = dimScore(t.eval, dim).toFixed(1);
+          }
+          const newOverall = Math.round(
+            KNOWLEDGE_DIMENSIONS.reduce((sum, d) => sum + dimScore(t.eval, d), 0) / KNOWLEDGE_DIMENSIONS.length
+          );
+          el.ltdBody.querySelector(".ltd-overall").textContent = `综合 ${newOverall} / 5`;
+        });
+      });
+    });
+
+    // 进度滑块
+    const progInput = el.ltdBody.querySelector("#ltdEditProgress");
+    const progVal = el.ltdBody.querySelector("#ltdProgressVal");
+    progInput.addEventListener("input", () => { progVal.textContent = progInput.value + "%"; });
+
+    // 保存
+    el.ltdBody.querySelector("#ltdSave").addEventListener("click", () => {
+      t.title = el.ltdBody.querySelector("#ltdEditTitle").value.trim() || t.title;
+      t.startDate = el.ltdBody.querySelector("#ltdEditStart").value || t.startDate;
+      t.dueDate = el.ltdBody.querySelector("#ltdEditDue").value || t.dueDate;
+      t.repeat = el.ltdBody.querySelector("#ltdEditRepeat").value;
+      t.progress = parseInt(progInput.value, 10);
+      t.note = el.ltdBody.querySelector("#ltdEditNote").value.trim();
+      if (t.progress >= 100) t.done = true;
+      saveLongTasks();
+      el.ltdTitle.textContent = (t.done ? "✓ " : "") + t.title;
+      renderLongList();
+      renderLongtaskBar();
+      toast("已保存", "success");
+    });
+
+    el.ltdBody.querySelector("#ltdToggleDone").addEventListener("click", () => {
+      t.done = !t.done; if (t.done) t.progress = 100; saveLongTasks();
+      el.ltdTitle.textContent = (t.done ? "✓ " : "") + t.title;
+      renderLongList(); renderLongtaskBar();
+      el.longtaskDetailDialog.close();
+    });
+
+    el.ltdBody.querySelector("#ltdDel").addEventListener("click", () => {
+      if (confirm("删除该长期任务？")) {
+        const i = longTasks.findIndex((x) => x.id === id);
+        if (i >= 0) { longTasks.splice(i, 1); saveLongTasks(); renderLongList(); renderLongtaskBar(); }
+        el.longtaskDetailDialog.close();
+        toast("已删除", "info");
+      }
+    });
+  }
+
+  // 顶部「新建」按钮 → 打开收集箱并切到长期任务 tab
+  if (el.ltbAddBtn) {
+    el.ltbAddBtn.addEventListener("click", () => {
+      openInbox();
+      switchInboxMode("long");
+      resetLongForm();
+      el.longTitle && el.longTitle.focus();
+    });
+  }
+
+  // 收集箱模式切换
+  function switchInboxMode(mode) {
+    const tabs = document.querySelectorAll(".inbox-mode-tab");
+    tabs.forEach((t) => t.classList.toggle("active", t.dataset.mode === mode));
+    if (el.inboxQuickPane) el.inboxQuickPane.hidden = (mode !== "quick");
+    if (el.inboxLongPane) el.inboxLongPane.hidden = (mode !== "long");
+    if (mode === "long") { resetLongForm(); renderLongList(); }
+  }
+  document.querySelectorAll(".inbox-mode-tab").forEach((tab) => {
+    tab.addEventListener("click", () => switchInboxMode(tab.dataset.mode));
+  });
+
+  // 长期任务表单保存
+  if (el.longSaveBtn) el.longSaveBtn.addEventListener("click", saveLongForm);
+  if (el.longTitle) {
+    el.longTitle.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); saveLongForm(); } });
+  }
+  if (el.closeLongDetail) el.closeLongDetail.addEventListener("click", () => el.longtaskDetailDialog.close());
+  if (el.longtaskDetailDialog) el.longtaskDetailDialog.addEventListener("click", (e) => { if (e.target === el.longtaskDetailDialog) el.longtaskDetailDialog.close(); });
 
   // ---------- 待办收集箱 ----------
   const INBOX_KEY = "mandala-inbox-v1";

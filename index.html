@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
   <title>曼陀罗时辰 · AI 日程规划</title>
-  <link rel="stylesheet" href="styles.css?v=20260803a" />
+  <link rel="stylesheet" href="styles.css?v=20260808b" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
 </head>
@@ -15,7 +15,7 @@
   <!-- 顶部状态栏 -->
   <header class="app-header">
     <div class="header-left">
-      <h1 class="app-title">曼陀罗时辰 <span class="version-badge" id="versionBadge" title="点击查看更新日志">v2.2.0</span></h1>
+      <h1 class="app-title">曼陀罗时辰 <span class="version-badge" id="versionBadge" title="点击查看更新日志">v2.3.0</span></h1>
       <p class="app-subtitle" id="dateLabel">AI 对话式日程规划</p>
     </div>
     <div class="header-right">
@@ -26,6 +26,16 @@
     <button class="icon-btn" id="notifyBtn" aria-label="提醒" title="开启提醒">🔔</button>
     <button class="icon-btn settings-btn" id="settingsBtn" aria-label="设置">⚙</button>
   </header>
+
+  <!-- 长期任务时间地图（顶部甘特条） -->
+  <div class="longtask-bar" id="longtaskBar">
+    <div class="longtask-bar-header">
+      <span class="ltb-title">🗺️ 长期事项时间地图</span>
+      <span class="ltb-hint" id="ltbHint">跨日/周/月的长线任务</span>
+      <button class="ltb-add-btn" id="ltbAddBtn" title="新建长期任务">＋ 新建</button>
+    </div>
+    <div class="longtask-timeline" id="longtaskTimeline"></div>
+  </div>
 
   <!-- 工具栏 -->
   <div class="toolbar">
@@ -210,6 +220,7 @@
         <!-- 工具 -->
         <span class="qa-group-label">工具</span>
         <button class="chip" data-action="search">🔍 联网搜索</button>
+        <button class="chip" data-action="knowledge-dim">🧠 7维度</button>
       </div>
     </section>
   </main>
@@ -336,6 +347,24 @@
         </div>
         <h4 style="margin:14px 0 8px;font-size:13px;color:var(--text-secondary);">已保存的对话模板</h4>
         <div class="template-list" id="convTplList"></div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 知识评估 7 维度参考卡 -->
+  <dialog class="knowledge-dim-dialog" id="knowledgeDimDialog">
+    <div class="dialog-content dialog-lg">
+      <div class="dialog-header">
+        <h3>🧠 知识评估 7 维度</h3>
+        <button class="icon-btn" id="closeKnowledgeDim" aria-label="关闭">✕</button>
+      </div>
+      <div class="dialog-body">
+        <p class="panel-desc">本项目对每个知识点/长线任务的统一评估标准：<b>标准 · 编号前缀 · 子维度 · 核心追问</b>。AI 对话全环节自动套用，长期任务详情面板可用星标打分。</p>
+        <div class="kdim-grid" id="kdimGrid"></div>
+        <div class="dialog-actions">
+          <button class="tool-btn" id="kdimToInbox">📥 去收集箱新建长期任务</button>
+          <button class="primary-btn" id="closeKnowledgeDim2">知道了</button>
+        </div>
       </div>
     </div>
   </dialog>
@@ -767,30 +796,80 @@
         <button class="icon-btn" id="closeInbox" aria-label="关闭">✕</button>
       </div>
       <div class="inbox-fullscreen-body">
-        <!-- 输入区 -->
-        <div class="inbox-input-area">
-          <input type="text" id="inboxInput" placeholder="想到什么先记下来…" maxlength="200" />
-          <input type="text" id="inboxCategory" placeholder="标签" maxlength="10" list="inboxTagList" style="width:80px;" />
-          <datalist id="inboxTagList"></datalist>
-          <button class="tool-btn" id="inboxAddBtn" style="background:var(--accent);color:#fff;">＋ 添加</button>
+        <!-- 模式切换：速记 / 长期任务 -->
+        <div class="inbox-mode-tabs">
+          <button class="inbox-mode-tab active" data-mode="quick">⚡ 速记</button>
+          <button class="inbox-mode-tab" data-mode="long">🗺️ 长期任务</button>
         </div>
-        <!-- 筛选区 -->
-        <div class="inbox-filter-row">
-          <div class="inbox-filter" id="inboxFilter"></div>
-          <select id="inboxTimeFilter" style="padding:4px 8px;background:var(--input-bg);border:1px solid var(--input-border);border-radius:8px;color:var(--text-primary);font-size:11px;">
-            <option value="all">全部时间</option>
-            <option value="today">今天</option>
-            <option value="week">本周</option>
-            <option value="undone">仅未完成</option>
-            <option value="done">仅已完成</option>
-          </select>
+
+        <!-- 速记模式 -->
+        <div class="inbox-quick-pane" id="inboxQuickPane">
+          <div class="inbox-input-area">
+            <input type="text" id="inboxInput" placeholder="想到什么先记下来…" maxlength="200" />
+            <input type="text" id="inboxCategory" placeholder="标签" maxlength="10" list="inboxTagList" style="width:80px;" />
+            <datalist id="inboxTagList"></datalist>
+            <button class="tool-btn" id="inboxAddBtn" style="background:var(--accent);color:#fff;">＋ 添加</button>
+          </div>
+          <div class="inbox-filter-row">
+            <div class="inbox-filter" id="inboxFilter"></div>
+            <select id="inboxTimeFilter" style="padding:4px 8px;background:var(--input-bg);border:1px solid var(--input-border);border-radius:8px;color:var(--text-primary);font-size:11px;">
+              <option value="all">全部时间</option>
+              <option value="today">今天</option>
+              <option value="week">本周</option>
+              <option value="undone">仅未完成</option>
+              <option value="done">仅已完成</option>
+            </select>
+          </div>
+          <div class="inbox-list" id="inboxList"></div>
         </div>
-        <!-- 列表 -->
-        <div class="inbox-list" id="inboxList"></div>
+
+        <!-- 长期任务模式 -->
+        <div class="inbox-long-pane" id="inboxLongPane" hidden>
+          <div class="long-form" id="longForm">
+            <div class="long-form-row">
+              <input type="text" id="longTitle" placeholder="长期事项标题，如：学完嵌入式系统" maxlength="60" />
+            </div>
+            <div class="long-form-row">
+              <label>开始</label>
+              <input type="date" id="longStart" />
+              <label>截止</label>
+              <input type="date" id="longDue" />
+            </div>
+            <div class="long-form-row">
+              <label>重复</label>
+              <select id="longRepeat">
+                <option value="none">不重复</option>
+                <option value="daily">每日</option>
+                <option value="weekly">每周</option>
+                <option value="monthly">每月</option>
+              </select>
+              <label>绑定今日格子</label>
+              <select id="longBindCell">
+                <option value="">不绑定</option>
+              </select>
+            </div>
+            <div class="long-form-row">
+              <input type="text" id="longNote" placeholder="备注（可选）" maxlength="120" />
+              <button class="tool-btn" id="longSaveBtn" style="background:var(--accent);color:#fff;">💾 保存</button>
+            </div>
+          </div>
+          <div class="long-list" id="longList"></div>
+        </div>
       </div>
     </div>
   </dialog>
 
-  <script src="app.js?v=20260803a" defer></script>
+  <!-- 长期任务详情弹窗（含知识评估 7 维度） -->
+  <dialog class="longtask-detail-dialog" id="longtaskDetailDialog">
+    <div class="dialog-content dialog-lg">
+      <div class="dialog-header">
+        <h3 id="ltdTitle">长期任务详情</h3>
+        <button class="icon-btn" id="closeLongDetail" aria-label="关闭">✕</button>
+      </div>
+      <div class="dialog-body" id="ltdBody"></div>
+    </div>
+  </dialog>
+
+  <script src="app.js?v=20260808b" defer></script>
 </body>
 </html>
