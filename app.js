@@ -591,8 +591,24 @@
         save("mandala-inbox-v1", merged);
       }
       if (data.hermesNotes) {
-        save(HERMES_NOTES_KEY, data.hermesNotes);
+        // 按 id 合并去重（远程不覆盖本地未同步项），与 inbox 一致策略
+        const localNotes = load(HERMES_NOTES_KEY, []);
+        const noteIds = new Set(localNotes.map((x) => x.id).filter(Boolean));
+        const mergedNotes = localNotes.concat(
+          (data.hermesNotes || []).filter((x) => x.id && !noteIds.has(x.id))
+        );
+        save(HERMES_NOTES_KEY, mergedNotes);
         renderHermesNotes();
+      }
+      if (data.inbox) {
+        // 合并后刷新收集箱视图（重新加载 + 重渲染，确保 Hermes 写入的卡片可见）
+        if (typeof openInbox !== "undefined" && el.inboxDialog && el.inboxDialog.open) {
+          // 收集箱已打开时才需要刷新，否则下次 openInbox 会自动加载
+          inboxItems = load(INBOX_KEY, []);
+          updateInboxTagDatalist();
+          renderInboxFilter();
+          renderInboxList();
+        }
       }
       syncPullDone = true;
       if (el.syncStatus) el.syncStatus.textContent = "✓ 已拉取远程数据";
