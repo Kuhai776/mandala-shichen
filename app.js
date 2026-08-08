@@ -150,6 +150,8 @@
   const REVIEW_KEY = "mandala-reviews-v1";
   // 长期任务（时间地图）数据
   const LONGTASK_KEY = "mandala-longtasks-v1";
+  // Hermes 同步的总结/规划/洞察（L3 add_hermes_note 写入）
+  const HERMES_NOTES_KEY = "mandala-hermes-notes-v1";
 
   // ---------- 知识评估 7 维度 ----------
   // 标准 编号前缀 - 子维度 - 核心追问
@@ -523,7 +525,7 @@
     try { localStorage.setItem(key, JSON.stringify(value)); }
     catch (e) { console.warn("保存失败", e); }
     // Hermes 联动：数据变更触发防抖推送（仅对已知数据键）
-    if (key === STORAGE_KEY || key === DONE_KEY || key === LONGTASK_KEY || key === INBOX_KEY || key === SETTINGS_KEY) {
+    if (key === STORAGE_KEY || key === DONE_KEY || key === LONGTASK_KEY || key === INBOX_KEY || key === SETTINGS_KEY || key === HERMES_NOTES_KEY) {
       scheduleSyncPush();
     }
   }
@@ -544,6 +546,7 @@
       records: state.records, reviews: state.reviews,
       longTasks: load(LONGTASK_KEY, []),
       inbox: load(INBOX_KEY, []),
+      hermesNotes: load(HERMES_NOTES_KEY, []),
     };
   }
   async function pushSync() {
@@ -573,10 +576,55 @@
       if (data.done) Object.keys(data.done).forEach((d) => { if (!state.done[d]) state.done[d] = {}; Object.assign(state.done[d], data.done[d]); });
       if (data.longTasks) save(LONGTASK_KEY, data.longTasks);
       if (data.inbox) save(INBOX_KEY, data.inbox);
+      if (data.hermesNotes) {
+        save(HERMES_NOTES_KEY, data.hermesNotes);
+        renderHermesNotes();
+      }
       syncPullDone = true;
       if (el.syncStatus) el.syncStatus.textContent = "✓ 已拉取远程数据";
       renderAll(); // 合并后重渲染
     } catch (e) { /* 静默 */ }
+  }
+  // 渲染 Hermes 同步的总结/规划到对话区顶部（独立容器，不污染对话历史）
+  const NOTE_TYPE_META = {
+    summary: { icon: "📋", label: "Hermes 总结" },
+    plan: { icon: "🗺️", label: "Hermes 规划" },
+    insight: { icon: "💡", label: "Hermes 洞察" },
+  };
+  function renderHermesNotes() {
+    if (!el.chatMessages) return;
+    let container = document.getElementById("hermesNotesContainer");
+    const notes = load(HERMES_NOTES_KEY, []);
+    const today = dateToStr(new Date());
+    const todays = notes.filter((n) => n.date === today);
+    if (!todays.length) { if (container) container.remove(); return; }
+    if (!container) {
+      container = document.createElement("div");
+      container.id = "hermesNotesContainer";
+      container.className = "hermes-notes-container";
+      el.chatMessages.insertBefore(container, el.chatMessages.firstChild);
+    }
+    container.innerHTML = todays.map((n) => {
+      const meta = NOTE_TYPE_META[n.type] || NOTE_TYPE_META.summary;
+      const time = n.at ? new Date(n.at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) : "";
+      return `<div class="hermes-note" data-id="${n.id}" data-type="${n.type}">
+        <div class="hermes-note-head">
+          <span class="hermes-note-icon">${meta.icon}</span>
+          <span class="hermes-note-label">${meta.label}</span>
+          <span class="hermes-note-time">${time}</span>
+          <button class="hermes-note-close" data-id="${n.id}" aria-label="关闭">✕</button>
+        </div>
+        <div class="hermes-note-body">${escapeHtml(n.text)}</div>
+      </div>`;
+    }).join("");
+    container.querySelectorAll(".hermes-note-close").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.id;
+        const all = load(HERMES_NOTES_KEY, []).filter((x) => x.id !== id);
+        save(HERMES_NOTES_KEY, all);
+        renderHermesNotes();
+      });
+    });
   }
 
   // ---------- 方案草稿暂存 ----------
@@ -7566,6 +7614,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     loadPomoState();
     checkUrlSync();
     pullSync(); // Hermes 联动：启动拉取远程数据合并
+    renderHermesNotes(); // 恢复今日 Hermes notes 显示
     // 首次使用引导（延迟展示，等渲染完成）
     setTimeout(showOnboarding, 600);
     setInterval(renderClock, 1000);

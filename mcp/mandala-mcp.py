@@ -136,6 +136,27 @@ def update_schedule(args, data):
     return {"ok": True, "date": d, "periods": len(new_tasks)}
 
 
+def add_hermes_note(args, data):
+    """Hermes 写入总结/规划/洞察文本（晨间简报、晚间复盘等），同步显示到曼陀罗对话区。"""
+    import time as _t
+    text = args.get("text", "").strip()
+    if not text:
+        return {"error": "text 不能为空"}
+    note = {
+        "id": "hn-" + str(int(_t.time() * 1000)),
+        "type": args.get("type", "summary"),  # summary|plan|insight
+        "text": text,
+        "date": args.get("date", today_str()),
+        "at": datetime.now().isoformat(),
+    }
+    data.setdefault("hermesNotes", []).append(note)
+    # 仅保留最近 50 条，避免无限增长
+    if len(data["hermesNotes"]) > 50:
+        data["hermesNotes"] = data["hermesNotes"][-50:]
+    _write_raw(DATA_PATH, data)
+    return {"ok": True, "note": note}
+
+
 # ---------- MCP 工具注册表 ----------
 TOOLS = [
     {"name": "get_tasks", "description": "获取指定日期的曼陀罗时辰任务（9时辰×9格）",
@@ -161,12 +182,17 @@ TOOLS = [
     {"name": "update_schedule", "description": "批量更新某日任务计划（晚间复盘写回）",
      "inputSchema": {"type": "object", "properties": {
          "date": {"type": "string"}, "tasks": {"type": "object"}}, "required": ["tasks"]}},
+    {"name": "add_hermes_note", "description": "Hermes 写入总结/规划/洞察文本（晨间简报、晚间复盘），同步显示到曼陀罗对话区",
+     "inputSchema": {"type": "object", "properties": {
+         "text": {"type": "string"}, "type": {"type": "string", "enum": ["summary", "plan", "insight"]},
+         "date": {"type": "string"}}, "required": ["text"]}},
 ]
 
 TOOL_FUNCS = {
     "get_tasks": get_tasks, "add_task": add_task, "complete_task": complete_task,
     "get_long_tasks": get_long_tasks, "score_eval": score_eval,
     "get_today_plan": get_today_plan, "update_schedule": update_schedule,
+    "add_hermes_note": add_hermes_note,
 }
 
 
