@@ -12,3 +12,12 @@ __pycache__/
 *.swo
 .idea/
 .vscode/
+
+# Capacitor / Android 构建产物
+node_modules/
+android/
+android/app/build/
+android/.gradle/
+*.keystore
+local.properties
+

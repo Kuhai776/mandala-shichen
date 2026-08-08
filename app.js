@@ -24,6 +24,34 @@
 
   const STORAGE_KEY = "mandala-tasks-v2";
 
+  // ---------- Capacitor 原生能力（APK 环境）----------
+  // 浏览器环境：navigator.vibrate / 无状态栏控制；APK 环境：@capacitor/haptics + status-bar
+  const IS_NATIVE = typeof window !== "undefined" && !!window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+  const NativeHaptics = IS_NATIVE && window.Capacitor.Plugins && window.Capacitor.Plugins.Haptics ? window.Capacitor.Plugins.Haptics : null;
+  const NativeStatusBar = IS_NATIVE && window.Capacitor.Plugins && window.Capacitor.Plugins.StatusBar ? window.Capacitor.Plugins.StatusBar : null;
+
+  // 统一震动接口：APK 用原生 Haptics，浏览器用 navigator.vibrate
+  function haptic(pattern) {
+    try {
+      if (NativeHaptics) {
+        // Capacitor Haptics：vibrate 接受 duration(ms)
+        const duration = typeof pattern === "number" ? pattern : 30;
+        NativeHaptics.vibrate({ duration });
+      } else if (navigator.vibrate) {
+        navigator.vibrate(pattern);
+      }
+    } catch (e) { /* 静默 */ }
+  }
+
+  // APK 启动时设置沉浸式状态栏（与主题色融合）
+  async function setupImmersiveMode() {
+    if (!NativeStatusBar) return;
+    try {
+      await NativeStatusBar.setStyle({ style: "DARK" });
+      await NativeStatusBar.setBackgroundColor({ color: "#1a1a2e" });
+    } catch (e) { /* 静默 */ }
+  }
+
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
   const APP_VERSION = "2.3.0";
@@ -677,9 +705,11 @@
         if (realm && ["plan", "record", "review"].includes(realm)) {
           setRealm(realm);
           toast(message || `Hermes 已切换到 ${realm === "plan" ? "计划" : realm === "record" ? "记录" : "复盘"}页`, "info", 3000);
+          haptic(30); // 切页轻震
         }
       } else if (type === "toast") {
         toast(message || "Hermes 提示", "info", 4000);
+        haptic(20); // 提示轻震
       } else if (type === "pulse") {
         triggerPeriodPulse(state.activePeriod);
         toast(message || "时辰提醒", "info", 3000);
@@ -706,6 +736,8 @@
       el.mandalaGrid.classList.add("grid-pulse");
       setTimeout(() => el.mandalaGrid.classList.remove("grid-pulse"), 3000);
     }
+    // 3. 震动反馈（APK 原生 Haptics / 浏览器 navigator.vibrate）
+    haptic([60, 40, 60]);
   }
   // 渲染 Hermes 同步的总结/规划到对话区顶部（独立容器，不污染对话历史）
   const NOTE_TYPE_META = {
@@ -7793,6 +7825,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     checkNotify();
     // 初始化时辰检测基线（首次不触发提示）
     state.lastPeriod = getCurrentPeriod();
+    // APK 沉浸式状态栏（仅原生环境生效，浏览器无影响）
+    setupImmersiveMode();
     // 注册 Service Worker（PWA 离线，network-first 策略避免缓存问题）
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("./sw.js?v=3").catch((e) => console.warn("SW 注册失败", e));

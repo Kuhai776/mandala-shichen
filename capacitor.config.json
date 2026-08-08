@@ -1,0 +1,27 @@
+{
+  "appId": "com.kuhai.mandala",
+  "appName": "曼陀罗时辰",
+  "webDir": ".",
+  "server": {
+    "url": "https://mandala.lz-oc.xyz",
+    "cleartext": false
+  },
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#1a1a2e",
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  },
+  "plugins": {
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#1a1a2e",
+      "overlaysWebView": false
+    },
+    "SplashScreen": {
+      "launchShowDuration": 1000,
+      "backgroundColor": "#1a1a2e",
+      "showSpinner": false
+    }
+  }
+}
