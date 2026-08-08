@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# 临时分享包
+.trae-html-share-packages/
+
+# 系统/编辑器
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
