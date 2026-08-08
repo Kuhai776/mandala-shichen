@@ -18,6 +18,9 @@
   const SECONDS_PER_PERIOD = PERIOD_HOURS * 3600;
   const SECONDS_PER_CELL = SECONDS_PER_PERIOD / CELLS_PER_PERIOD;
   const START_SECONDS = START_HOUR * 3600;
+  // 时辰地支映射（9 时辰对应 卯→亥），Hermes 台词与界面统一用此
+  const PERIOD_NAMES = ["卯时", "辰时", "巳时", "午时", "未时", "申时", "酉时", "戌时", "亥时"];
+  const PERIOD_GLYPHS = ["卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"];
 
   const STORAGE_KEY = "mandala-tasks-v2";
 
@@ -152,6 +155,8 @@
   const LONGTASK_KEY = "mandala-longtasks-v1";
   // Hermes 同步的总结/规划/洞察（L3 add_hermes_note 写入）
   const HERMES_NOTES_KEY = "mandala-hermes-notes-v1";
+  // Hermes 触发的 PWA 动作队列（L3 trigger_action 写入，pullSync 拉取后消费）
+  const ACTIONS_KEY = "mandala-actions-v1";
 
   // ---------- 知识评估 7 维度 ----------
   // 标准 编号前缀 - 子维度 - 核心追问
@@ -488,6 +493,8 @@
     records: load(RECORD_KEY, {}),
     // 复盘页数据：{ "2026-07-29": { summary, insights, stats, userNotes, aiGeneratedAt } }
     reviews: load(REVIEW_KEY, {}),
+    // 时辰切换检测：记录上次检测到的时辰（用于触发"该记录了"提示+闪烁）
+    lastPeriod: -1,
   };
 
   // ---------- 日期工具 ----------
@@ -547,6 +554,7 @@
       longTasks: load(LONGTASK_KEY, []),
       inbox: load(INBOX_KEY, []),
       hermesNotes: load(HERMES_NOTES_KEY, []),
+      actions: load(ACTIONS_KEY, []), // 含 consumed 状态，回写让 Hermes 端可知晓已执行
     };
   }
   async function pushSync() {
@@ -588,8 +596,100 @@
       }
       syncPullDone = true;
       if (el.syncStatus) el.syncStatus.textContent = "✓ 已拉取远程数据";
+      // 拉取到远程 actions 后立即消费（Hermes trigger_action 触发）
+      if (data.actions) consumeActions(data.actions);
       renderAll(); // 合并后重渲染
     } catch (e) { /* 静默 */ }
+  }
+
+  // ---------- 时辰切换检测 ----------
+  // 每分钟检测当前时辰是否变化，进入新时辰时提示"上一时辰有 N 个未完成"+ 闪烁
+  function checkPeriodTransition() {
+    if (!isToday(state.currentDate)) return;
+    const cur = getCurrentPeriod();
+    if (cur < 0) return;
+    if (state.lastPeriod < 0) {
+      // 首次初始化，仅记录不提示
+      state.lastPeriod = cur;
+      return;
+    }
+    if (cur === state.lastPeriod) return;
+    // 时辰已切换：lastPeriod → cur
+    const prevPeriod = state.lastPeriod;
+    state.lastPeriod = cur;
+    // 统计上一时辰未完成任务数
+    let undoneCount = 0;
+    for (let c = 0; c < CELLS_PER_PERIOD; c++) {
+      const tasks = getCellTasks(prevPeriod, c);
+      undoneCount += tasks.filter((t) => !t.done).length;
+    }
+    const prevName = PERIOD_NAMES[prevPeriod] || `第${prevPeriod + 1}时辰`;
+    const curName = PERIOD_NAMES[cur] || `第${cur + 1}时辰`;
+    const undoneHint = undoneCount > 0 ? `，上一时辰 ${prevName} 有 ${undoneCount} 个未完成` : "";
+    toast(`时辰已转入 ${curName}${undoneHint}，可去记录页补登`, "info", 5000);
+    // 触发辨识度闪烁
+    triggerPeriodPulse(cur);
+  }
+
+  // ---------- Hermes 动作消费 ----------
+  // 消费 Hermes 通过 trigger_action 写入的动作队列
+  function consumeActions(remoteActions) {
+    if (!Array.isArray(remoteActions) || !remoteActions.length) return;
+    const local = load(ACTIONS_KEY, []);
+    const localIds = new Set(local.map((a) => a.id).filter(Boolean));
+    // 合并：仅追加本地没有的
+    const merged = local.concat(remoteActions.filter((a) => a.id && !localIds.has(a.id)));
+    save(ACTIONS_KEY, merged);
+    // 执行未消费的动作
+    const pending = merged.filter((a) => !a.consumed);
+    if (!pending.length) return;
+    for (const action of pending) {
+      executeAction(action);
+      action.consumed = true;
+    }
+    save(ACTIONS_KEY, merged);
+    // 标记远程已消费（写回 syncUrl，下次 pushSync 会带 actions）
+    // 注意：远程 consumed 状态由本地 pushSync 同步，这里仅更新本地视图
+  }
+
+  // 执行单个 Hermes 动作
+  function executeAction(action) {
+    const { type, payload = {}, message } = action;
+    try {
+      if (type === "switch_realm") {
+        const realm = payload.realm;
+        if (realm && ["plan", "record", "review"].includes(realm)) {
+          setRealm(realm);
+          toast(message || `Hermes 已切换到 ${realm === "plan" ? "计划" : realm === "record" ? "记录" : "复盘"}页`, "info", 3000);
+        }
+      } else if (type === "toast") {
+        toast(message || "Hermes 提示", "info", 4000);
+      } else if (type === "pulse") {
+        triggerPeriodPulse(state.activePeriod);
+        toast(message || "时辰提醒", "info", 3000);
+      }
+    } catch (e) { /* 静默，不影响其他动作 */ }
+  }
+
+  // 触发时辰切换/提醒闪烁（辨识度高）
+  function triggerPeriodPulse(period) {
+    // 1. 时辰切换标签闪烁
+    const tabs = el.periodTabs ? el.periodTabs.querySelectorAll(".period-tab") : [];
+    const targetTab = tabs[period];
+    if (targetTab) {
+      targetTab.classList.remove("period-pulse");
+      // 强制重排以重启动画
+      void targetTab.offsetWidth;
+      targetTab.classList.add("period-pulse");
+      setTimeout(() => targetTab.classList.remove("period-pulse"), 3000);
+    }
+    // 2. 九宫格边框闪烁
+    if (el.mandalaGrid) {
+      el.mandalaGrid.classList.remove("grid-pulse");
+      void el.mandalaGrid.offsetWidth;
+      el.mandalaGrid.classList.add("grid-pulse");
+      setTimeout(() => el.mandalaGrid.classList.remove("grid-pulse"), 3000);
+    }
   }
   // 渲染 Hermes 同步的总结/规划到对话区顶部（独立容器，不污染对话历史）
   const NOTE_TYPE_META = {
@@ -1700,7 +1800,7 @@
       tab.className = "period-tab";
       if (i === state.activePeriod) tab.classList.add("active");
       if (i === currentPeriod && isToday(state.currentDate)) tab.classList.add("current");
-      tab.textContent = `第${i + 1}辰 ${secondsToHHMM(range.start)}`;
+      tab.textContent = `${PERIOD_GLYPHS[i]} ${secondsToHHMM(range.start)}`;
       tab.addEventListener("click", () => { state.activePeriod = i; renderAll(); });
       el.periodTabs.appendChild(tab);
     }
@@ -1713,12 +1813,13 @@
     const period = state.activePeriod;
     const range = getPeriodRange(period);
     el.mandalaTitle.textContent =
-      `第 ${period + 1} 时辰 · ${secondsToHHMM(range.start)} - ${secondsToHHMM(range.end)}`;
+      `${PERIOD_NAMES[period]} · ${secondsToHHMM(range.start)} - ${secondsToHHMM(range.end)}`;
     // 渲染过去时辰快览导航
     renderPeriodNav(el.planPeriodNav);
 
     const currentGlobalCell = getCurrentGlobalCell();
     el.mandalaGrid.innerHTML = "";
+    el.mandalaGrid.dataset.glyph = PERIOD_GLYPHS[period]; // 地支水印（CSS ::before）
     attachMandalaGestures();
 
     for (let cell = 0; cell < CELLS_PER_PERIOD; cell++) {
@@ -2164,12 +2265,13 @@
     const period = state.activePeriod;
     const range = getPeriodRange(period);
     el.recordTitle.textContent =
-      `第 ${period + 1} 时辰 · ${secondsToHHMM(range.start)} - ${secondsToHHMM(range.end)} · 记录`;
+      `${PERIOD_NAMES[period]} · ${secondsToHHMM(range.start)} - ${secondsToHHMM(range.end)} · 记录`;
     // 渲染过去时辰快览导航
     renderPeriodNav(el.recordPeriodNav);
 
     const currentGlobalCell = getCurrentGlobalCell();
     el.recordGrid.innerHTML = "";
+    el.recordGrid.dataset.glyph = PERIOD_GLYPHS[period]; // 地支水印
 
     let recordedInPeriod = 0;
     let planInPeriod = 0;
@@ -2762,7 +2864,6 @@
     const dayTasks = state.tasks[date] || {};
     const dayRecords = state.records[date] || {};
     const dayDone = state.done[date] || {};
-    const PERIOD_NAMES = ["卯时", "辰时", "巳时", "午时", "未时", "申时", "酉时", "戌时", "亥时"];
     let maxRec = 0;
     const periodStats = [];
     for (let p = 0; p < PERIOD_COUNT; p++) {
@@ -7670,8 +7771,12 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       renderOverview();
       checkNotify();
       autoCarryForward();
+      checkPeriodTransition(); // 时辰切换检测：进入新时辰时提示+闪烁
+      pullSync(); // 拉取 Hermes trigger_action 写入的动作队列并消费
     }, 30000);
     checkNotify();
+    // 初始化时辰检测基线（首次不触发提示）
+    state.lastPeriod = getCurrentPeriod();
     // 注册 Service Worker（PWA 离线，network-first 策略避免缓存问题）
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("./sw.js?v=3").catch((e) => console.warn("SW 注册失败", e));

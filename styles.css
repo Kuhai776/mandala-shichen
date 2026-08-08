@@ -384,6 +384,40 @@ textarea, input, select {
   color: var(--success);
 }
 
+/* ---------- 时辰切换 / Hermes 提醒闪烁（辨识度高） ---------- */
+/* 标签脉冲：金橙色发光 + 缩放，3 秒内 3 次脉冲 */
+.period-tab.period-pulse {
+  animation: periodPulse 1s ease-in-out 3;
+}
+
+@keyframes periodPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(251, 191, 36, 0);
+    transform: scale(1);
+    border-color: transparent;
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(251, 191, 36, 0.35), 0 0 20px rgba(251, 191, 36, 0.6);
+    transform: scale(1.12);
+    border-color: var(--warning);
+    background: rgba(251, 191, 36, 0.18);
+  }
+}
+
+/* 九宫格边框流光：accent 色脉冲发光 */
+.mandala-grid.grid-pulse {
+  animation: gridPulse 1s ease-in-out 3;
+}
+
+@keyframes gridPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 var(--accent-glow);
+  }
+  50% {
+    box-shadow: 0 0 0 4px var(--accent-glow), 0 0 32px 8px var(--accent-glow);
+  }
+}
+
 /* ---------- 主体布局 ---------- */
 .app-main {
   display: grid;
@@ -1132,7 +1166,25 @@ body:has(.pomodoro-bar[style*="display: block"]) .realm-fab {
   aspect-ratio: 1 / 1;
   max-width: 480px;
   margin: 0 auto;
+  position: relative;
 }
+
+/* 时辰地支水印：九宫格中心透出大地支字，与 Hermes 台词统一 */
+.mandala-grid::before {
+  content: attr(data-glyph);
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 180px;
+  font-weight: 800;
+  color: var(--accent);
+  opacity: 0.06;
+  pointer-events: none;
+  z-index: 0;
+  font-family: "STKaiti", "KaiTi", "楷体", serif;
+}
+.mandala-grid .cell { position: relative; z-index: 1; }
 
 .cell {
   background: var(--bg-tertiary);

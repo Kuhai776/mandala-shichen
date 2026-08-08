@@ -116,15 +116,115 @@ def score_eval(args, data):
 
 
 def get_today_plan(args, data):
-    """获取今日全时辰计划（晨间简报用）。返回 9 时辰的任务概览。"""
+    """获取今日全时辰计划（晨间简报用）。返回 9 时辰的任务概览（含地支名）。"""
     d = today_str()
+    # 9 时辰对应地支：1=卯 2=辰 3=巳 4=午 5=未 6=申 7=酉 8=戌 9=亥
+    PERIOD_NAMES = ["卯时", "辰时", "巳时", "午时", "未时", "申时", "酉时", "戌时", "亥时"]
+    PERIOD_RANGES = ["5-7", "7-9", "9-11", "11-13", "13-15", "15-17", "17-19", "19-21", "21-23"]
     tasks = data.get("tasks", {}).get(d, {})
     summary = []
     for p in range(1, 10):
         items = tasks.get(str(p), [])
-        if items:
-            summary.append({"period": p, "count": len(items), "tasks": items})
-    return {"date": d, "periods": summary, "total": sum(s["count"] for s in summary)}
+        idx = p - 1
+        summary.append({
+            "period": p,
+            "name": PERIOD_NAMES[idx],       # 如 "巳时"
+            "range": PERIOD_RANGES[idx],      # 如 "9-11"
+            "count": len(items),
+            "tasks": items,
+        })
+    # 当前时辰
+    now_hour = datetime.now().hour
+    cur = 0
+    for i, r in enumerate(PERIOD_RANGES):
+        lo, hi = r.split("-")
+        if int(lo) <= now_hour < int(hi):
+            cur = i + 1
+            break
+    return {
+        "date": d,
+        "current_period": cur,
+        "current_name": PERIOD_NAMES[cur - 1] if cur else None,
+        "periods": summary,
+        "total": sum(s["count"] for s in summary),
+    }
+
+
+def get_current_context(args, data):
+    """获取当前时辰上下文：上一时辰汇总(含未完成) + 本时辰任务 + 下一时辰预告。
+    供 Hermes 在时辰切换时生成"刚才漏了 X，接下来做 Y，再之后是 Z"的连贯对话。"""
+    d = args.get("date", today_str())
+    PERIOD_NAMES = ["卯时", "辰时", "巳时", "午时", "未时", "申时", "酉时", "戌时", "亥时"]
+    PERIOD_RANGES = ["5-7", "7-9", "9-11", "11-13", "13-15", "15-17", "17-19", "19-21", "21-23"]
+    now_hour = datetime.now().hour
+    cur = 0
+    for i, r in enumerate(PERIOD_RANGES):
+        lo, hi = r.split("-")
+        if int(lo) <= now_hour < int(hi):
+            cur = i + 1
+            break
+    tasks_map = data.get("tasks", {}).get(d, {})
+    done_map = data.get("done", {}).get(d, {})
+
+    def period_summary(p):
+        """返回某时辰的计划/完成/未完成明细。"""
+        if p < 1 or p > 9:
+            return None
+        idx = p - 1
+        planned = tasks_map.get(str(p), [])
+        done_list = done_map.get(str(p), [])
+        done_texts = {x.get("task") for x in done_list if x.get("done")}
+        undone = [t for t in planned if t not in done_texts]
+        return {
+            "period": p,
+            "name": PERIOD_NAMES[idx],
+            "range": PERIOD_RANGES[idx],
+            "planned_count": len(planned),
+            "done_count": len(done_list),
+            "undone_count": len(undone),
+            "undone": undone,
+            "tasks": planned,
+        }
+
+    return {
+        "date": d,
+        "current_period": cur,
+        "current_name": PERIOD_NAMES[cur - 1] if cur else None,
+        "current_range": PERIOD_RANGES[cur - 1] if cur else None,
+        "prev": period_summary(cur - 1) if cur and cur > 1 else None,
+        "current": period_summary(cur) if cur else None,
+        "next": period_summary(cur + 1) if cur and cur < 9 else None,
+    }
+
+
+def trigger_action(args, data):
+    """Hermes 触发 PWA 动作。写入 actions 队列，PWA 下次 pullSync 时消费执行。
+    type: switch_realm(跳转页) / toast(弹提示) / pulse(时辰切换闪烁)。"""
+    action_type = args.get("type", "toast")
+    valid_types = {"switch_realm", "toast", "pulse"}
+    if action_type not in valid_types:
+        return {"error": f"type 必须是 {sorted(valid_types)}"}
+    payload = args.get("payload", {}) or {}
+    if action_type == "switch_realm":
+        if payload.get("realm") not in ("plan", "record", "review"):
+            return {"error": "payload.realm 必须是 plan/record/review"}
+    now = datetime.now()
+    action = {
+        "id": "ac-" + str(int(now.timestamp() * 1000)),
+        "type": action_type,
+        "payload": payload,
+        "message": args.get("message", ""),
+        "created_at": now.isoformat(),
+        "consumed": False,
+    }
+    acts = data.setdefault("actions", [])
+    acts.append(action)
+    # 仅保留最近 50 条，避免无限增长
+    if len(acts) > 50:
+        data["actions"] = acts[-50:]
+    _write_raw(DATA_PATH, data)
+    pending = sum(1 for a in data["actions"] if not a.get("consumed"))
+    return {"ok": True, "action": action, "pending_count": pending}
 
 
 def update_schedule(args, data):
@@ -202,6 +302,15 @@ TOOLS = [
          "required": ["id", "dim_code", "sub_key", "score"]}},
     {"name": "get_today_plan", "description": "获取今日全时辰计划概览（晨间简报用）",
      "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "get_current_context", "description": "获取当前时辰上下文：上一时辰汇总(含未完成) + 本时辰任务 + 下一时辰预告。时辰切换对话用，Hermes 可据此说\"刚才漏了X，接下来做Y\"",
+     "inputSchema": {"type": "object", "properties": {
+         "date": {"type": "string", "description": "YYYY-MM-DD，默认今天"}}, "required": []}},
+    {"name": "trigger_action", "description": "Hermes 触发 PWA 动作：switch_realm(跳转计划/记录/复盘页) / toast(弹文字提示) / pulse(时辰切换闪烁)。PWA 下次 pullSync 时消费执行",
+     "inputSchema": {"type": "object", "properties": {
+         "type": {"type": "string", "enum": ["switch_realm", "toast", "pulse"]},
+         "payload": {"type": "object", "description": "switch_realm 时必填 {realm: plan|record|review}"},
+         "message": {"type": "string", "description": "可选文字提示，toast/pulse 时显示给用户"}},
+         "required": ["type"]}},
     {"name": "update_schedule", "description": "批量更新某日任务计划（晚间复盘写回）",
      "inputSchema": {"type": "object", "properties": {
          "date": {"type": "string"}, "tasks": {"type": "object"}}, "required": ["tasks"]}},
@@ -219,7 +328,8 @@ TOOLS = [
 TOOL_FUNCS = {
     "get_tasks": get_tasks, "add_task": add_task, "complete_task": complete_task,
     "get_long_tasks": get_long_tasks, "score_eval": score_eval,
-    "get_today_plan": get_today_plan, "update_schedule": update_schedule,
+    "get_today_plan": get_today_plan, "get_current_context": get_current_context,
+    "trigger_action": trigger_action, "update_schedule": update_schedule,
     "add_hermes_note": add_hermes_note, "add_inbox_item": add_inbox_item,
 }
 
