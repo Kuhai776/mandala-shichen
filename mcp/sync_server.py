@@ -95,6 +95,23 @@ def merge_payload(payload, data_path):
     return current
 
 
+# ---------- 静态文件托管 ----------
+# PWA 静态文件目录（仓库根目录，含 index.html/app.js/styles.css/sw.js/manifest.json）
+STATIC_DIR = os.path.dirname(_HERE)
+
+MIME_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".ico": "image/x-icon",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+}
+
+
 # ---------- HTTP 处理器 ----------
 class SyncHandler(BaseHTTPRequestHandler):
     data_path = DEFAULT_DATA
@@ -110,18 +127,53 @@ class SyncHandler(BaseHTTPRequestHandler):
         self._cors()
         self.end_headers()
 
-    def do_GET(self):
-        if self.path.split("?")[0] != "/api/sync":
+    def _serve_static(self, path):
+        """托管 PWA 静态文件。路径安全检查 + MIME 推断。"""
+        # 归一化路径，防止目录穿越
+        clean = path.split("?")[0].split("#")[0]
+        if clean == "/" or clean == "":
+            clean = "/index.html"
+        # 只允许仓库根目录下的已知文件，防止任意文件读取
+        rel = clean.lstrip("/")
+        # 拼接绝对路径
+        abs_path = os.path.normpath(os.path.join(STATIC_DIR, rel))
+        if not abs_path.startswith(STATIC_DIR):
+            self.send_error(403, "Forbidden")
+            return
+        if not os.path.isfile(abs_path):
             self.send_error(404, "Not Found")
             return
-        data = _read_raw(self.data_path)
-        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        ext = os.path.splitext(abs_path)[1].lower()
+        mime = MIME_TYPES.get(ext, "application/octet-stream")
+        try:
+            with open(abs_path, "rb") as f:
+                body = f.read()
+        except OSError:
+            self.send_error(404, "Not Found")
+            return
         self.send_response(200)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self._cors()
+        self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(body)))
+        # sw.js 不能被缓存，否则 PWA 永远更新不了
+        if clean.endswith("/sw.js"):
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         self.end_headers()
         self.wfile.write(body)
+
+    def do_GET(self):
+        path = self.path.split("?")[0]
+        if path == "/api/sync":
+            data = _read_raw(self.data_path)
+            body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self._cors()
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            # 其余路径托管 PWA 静态文件
+            self._serve_static(self.path)
 
     def do_POST(self):
         if self.path.split("?")[0] != "/api/sync":
