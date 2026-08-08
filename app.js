@@ -454,6 +454,8 @@
       notifyLeadMin: 0, // 提前提醒分钟数（0=到点提醒）
       soundEnabled: false, // 完成任务声音反馈
       accentColor: "", // 自定义强调色（空=默认）
+      // Hermes 联动同步
+      syncUrl: "", syncEnabled: false,
     }),
     theme: load(THEME_KEY, "auto"),
     notifyEnabled: load(NOTIFY_KEY, false),
@@ -520,6 +522,61 @@
   function save(key, value) {
     try { localStorage.setItem(key, JSON.stringify(value)); }
     catch (e) { console.warn("保存失败", e); }
+    // Hermes 联动：数据变更触发防抖推送（仅对已知数据键）
+    if (key === STORAGE_KEY || key === DONE_KEY || key === LONGTASK_KEY || key === INBOX_KEY || key === SETTINGS_KEY) {
+      scheduleSyncPush();
+    }
+  }
+
+  // ---------- Hermes 联动同步（L2） ----------
+  // 防抖推送：本地数据变更后 3 秒内无新变更才推送，避免高频写
+  let syncPushTimer = null;
+  let syncPullDone = false;
+  function scheduleSyncPush() {
+    if (!state.settings.syncEnabled || !state.settings.syncUrl) return;
+    if (syncPushTimer) clearTimeout(syncPushTimer);
+    syncPushTimer = setTimeout(pushSync, 3000);
+  }
+  function buildSyncPayload() {
+    return {
+      version: 5, exportedAt: new Date().toISOString(),
+      tasks: state.tasks, done: state.done, checklists: state.checklists, repeats: state.repeats,
+      records: state.records, reviews: state.reviews,
+      longTasks: load(LONGTASK_KEY, []),
+      inbox: load(INBOX_KEY, []),
+    };
+  }
+  async function pushSync() {
+    const url = state.settings.syncUrl;
+    if (!url) return;
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildSyncPayload()),
+      });
+      if (res.ok && el.syncStatus) el.syncStatus.textContent = "✓ 已同步 " + new Date().toLocaleTimeString();
+    } catch (e) { /* 静默失败，不阻塞用户 */ if (el.syncStatus) el.syncStatus.textContent = "⚠ 同步失败"; }
+  }
+  async function pullSync() {
+    if (!state.settings.syncEnabled || !state.settings.syncUrl) return;
+    try {
+      const res = await fetch(state.settings.syncUrl, { method: "GET" });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data || !data.tasks) return;
+      // 合并远程数据（与导入逻辑一致：合并不覆盖）
+      Object.keys(data.tasks || {}).forEach((d) => {
+        if (!state.tasks[d]) state.tasks[d] = {};
+        Object.assign(state.tasks[d], data.tasks[d]);
+      });
+      if (data.done) Object.keys(data.done).forEach((d) => { if (!state.done[d]) state.done[d] = {}; Object.assign(state.done[d], data.done[d]); });
+      if (data.longTasks) save(LONGTASK_KEY, data.longTasks);
+      if (data.inbox) save(INBOX_KEY, data.inbox);
+      syncPullDone = true;
+      if (el.syncStatus) el.syncStatus.textContent = "✓ 已拉取远程数据";
+      renderAll(); // 合并后重渲染
+    } catch (e) { /* 静默 */ }
   }
 
   // ---------- 方案草稿暂存 ----------
@@ -1047,6 +1104,10 @@
     apiKeyHint: document.getElementById("apiKeyHint"),
     apiModel: document.getElementById("apiModel"),
     platformGrid: document.getElementById("platformGrid"),
+    // Hermes 联动同步
+    syncUrl: document.getElementById("syncUrl"),
+    syncEnabled: document.getElementById("syncEnabled"),
+    syncStatus: document.getElementById("syncStatus"),
     skillList: document.getElementById("skillList"),
     skillFile: document.getElementById("skillFile"),
     skillUploadBtn: document.getElementById("skillUploadBtn"),
@@ -3311,6 +3372,9 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     el.apiUrl.value = state.settings.apiUrl || "";
     el.apiKey.value = state.settings.apiKey || "";
     el.apiModel.value = state.settings.apiModel || "gpt-4o-mini";
+    el.syncUrl.value = state.settings.syncUrl || "";
+    el.syncEnabled.checked = !!state.settings.syncEnabled;
+    el.syncStatus.textContent = state.settings.syncEnabled ? "已启用 → " + (state.settings.syncUrl || "/api/sync") : "未启用";
     el.mcpEnabled.checked = !!state.settings.mcpEnabled;
     el.mcpConfig.value = state.settings.mcpConfig || "";
     el.skillFileName.textContent = state.settings.customSkill ? "已加载自定义技能" : "未选择";
@@ -3421,6 +3485,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     { id: "ollama",      name: "Ollama 本地",       emoji: "🦙", url: "http://localhost:11434/v1/chat/completions",                      model: "qwen2.5:7b",                   type: "local", alt: ["qwen2.5:7b", "llama3.1:8b", "phi3:mini", "gemma2:9b"] },
     { id: "lmstudio",    name: "LM Studio 本地",    emoji: "🎧", url: "http://localhost:1234/v1/chat/completions",                       model: "local-model",                  type: "local", alt: ["local-model"] },
     { id: "vllm",        name: "vLLM 本地",         emoji: "🏭", url: "http://localhost:8000/v1/chat/completions",                       model: "meta-llama/Llama-3-8b-chat-hf", type: "local", alt: ["meta-llama/Llama-3-8b-chat-hf"] },
+    { id: "hermes",      name: "Hermes 智能体",     emoji: "🪽", url: "http://localhost:8002/v1/chat/completions",                       model: "hermes",                       type: "local", alt: ["hermes", "gpt-4o-mini", "qwen2.5:7b"] },
     { id: "custom",      name: "自定义",            emoji: "⚙️", url: "",                                                                 model: "",                             type: "cloud", alt: [] },
   ];
 
@@ -3824,6 +3889,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     state.settings.apiUrl = el.apiUrl.value.trim();
     state.settings.apiKey = el.apiKey.value.trim();
     state.settings.apiModel = el.apiModel.value.trim() || "gpt-4o-mini";
+    state.settings.syncUrl = el.syncUrl.value.trim();
+    state.settings.syncEnabled = el.syncEnabled.checked;
     state.settings.mcpEnabled = el.mcpEnabled.checked;
     state.settings.mcpConfig = el.mcpConfig.value;
     state.settings.searchEnabled = el.searchEnabled.checked;
@@ -7498,6 +7565,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     renderDraftBanner();
     loadPomoState();
     checkUrlSync();
+    pullSync(); // Hermes 联动：启动拉取远程数据合并
     // 首次使用引导（延迟展示，等渲染完成）
     setTimeout(showOnboarding, 600);
     setInterval(renderClock, 1000);

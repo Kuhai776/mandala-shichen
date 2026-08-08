@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
   <title>曼陀罗时辰 · AI 日程规划</title>
-  <link rel="stylesheet" href="styles.css?v=20260808b" />
+  <link rel="stylesheet" href="styles.css?v=20260808c" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
 </head>
@@ -627,6 +627,18 @@
           </div>
           <hr style="border:none;border-top:1px solid var(--border);margin:14px 0;" />
           <div class="form-group">
+            <label>Hermes 联动同步</label>
+            <p class="panel-desc">与 Hermes 智能体双向同步：本地改动防抖推送至后端，启动时拉取合并。后端 serve.py 需提供 <code>/api/sync</code> 端点。</p>
+            <div class="form-row" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <input type="text" id="syncUrl" placeholder="/api/sync（留空=关闭）" style="flex:1;min-width:180px;" />
+              <label class="fill-mode-toggle" style="white-space:nowrap;">
+                <input type="checkbox" id="syncEnabled" /> 自动同步
+              </label>
+            </div>
+            <small id="syncStatus">未启用</small>
+          </div>
+          <hr style="border:none;border-top:1px solid var(--border);margin:14px 0;" />
+          <div class="form-group">
             <label>跨设备同步（无需账号）</label>
             <p class="panel-desc">把当前数据编码为文本，复制后粘贴到另一设备导入；或生成分享链接（仅当日数据，适合短链接）。</p>
             <div class="dialog-actions" style="justify-content:flex-start;margin-bottom:8px;">
@@ -870,6 +882,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=20260808b" defer></script>
+  <script src="app.js?v=20260808c" defer></script>
 </body>
 </html>
