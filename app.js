@@ -185,6 +185,8 @@
   const HERMES_NOTES_KEY = "mandala-hermes-notes-v1";
   // Hermes 触发的 PWA 动作队列（L3 trigger_action 写入，pullSync 拉取后消费）
   const ACTIONS_KEY = "mandala-actions-v1";
+  // 任务孵化历史（完成率闭环用）
+  const HATCH_HISTORY_KEY = "mandala-hatch-history-v1";
 
   // ---------- 知识评估 7 维度 ----------
   // 标准 编号前缀 - 子维度 - 核心追问
@@ -825,7 +827,22 @@
     if (items[idx]) {
       items[idx].done = !items[idx].done;
       setCellChecklist(period, cell, items);
+      // 完成时若带 dim 标记（孵化产出），提示去评分
+      const it = items[idx];
+      if (it.done && it.dim) {
+        promptDimScore(it.dim, it.dimGoal);
+      }
     }
+  }
+
+  // 维度评分提示（孵化完成回填闭环）
+  function promptDimScore(dim, goal) {
+    const [dc, sk] = dim.split(".");
+    const meta = lookupDim(dc, sk);
+    if (!meta) return;
+    const goalTxt = goal ? `目标 ${goal} 星` : "自评 1-5 星";
+    toast(`${dim} 练习完成（${goalTxt}）。${meta.question}`, "success", 5000);
+    if (navigator.vibrate) navigator.vibrate([10, 30, 10, 30, 10]);
   }
   function checklistProgress(period, cell) {
     const items = getCellChecklist(period, cell);
@@ -1457,6 +1474,27 @@
     // 知识评估 7 维度参考卡
     knowledgeDimDialog: document.getElementById("knowledgeDimDialog"),
     kdimGrid: document.getElementById("kdimGrid"),
+    // 任务孵化
+    hatchBtn: document.getElementById("hatchBtn"),
+    hatchDialog: document.getElementById("hatchDialog"),
+    closeHatch: document.getElementById("closeHatch"),
+    hatchTaskText: document.getElementById("hatchTaskText"),
+    hatchMode: document.getElementById("hatchMode"),
+    hatchScene: document.getElementById("hatchScene"),
+    hatchHistoryHint: document.getElementById("hatchHistoryHint"),
+    hatchProgress: document.getElementById("hatchProgress"),
+    hatchProgressFill: document.getElementById("hatchProgressFill"),
+    hatchProgressText: document.getElementById("hatchProgressText"),
+    hatchResult: document.getElementById("hatchResult"),
+    hatchSummary: document.getElementById("hatchSummary"),
+    hatchShortcut: document.getElementById("hatchShortcut"),
+    hatchList: document.getElementById("hatchList"),
+    hatchError: document.getElementById("hatchError"),
+    hatchSelectAll: document.getElementById("hatchSelectAll"),
+    hatchInvert: document.getElementById("hatchInvert"),
+    hatchRegen: document.getElementById("hatchRegen"),
+    hatchApply: document.getElementById("hatchApply"),
+    hatchCancelBtn: document.getElementById("hatchCancelBtn"),
     // 复盘汇总
     reviewSummary: document.getElementById("reviewSummary"),
     reviewPeriodNav: document.getElementById("reviewPeriodNav"),
@@ -3229,7 +3267,11 @@ ${recordItems.join("\n") || "（无）"}
     el.taskEstimate.value = first?.estimate || "";
     el.taskDeadline.value = first?.deadline || "";
     const checklist = getCellChecklist(period, cell);
-    el.taskChecklist.value = checklist.map((i) => (i.done ? "☑ " : "☐ ") + i.text).join("\n");
+    el.taskChecklist.value = checklist.map((i) => {
+      let line = (i.done ? "☑ " : "☐ ") + i.text;
+      if (i.dim) line += ` #${i.dim}${i.dimGoal ? `→${i.dimGoal}` : ""}#`;
+      return line;
+    }).join("\n");
     // 重复规则
     const rpt = getRepeatRuleForCell(state.currentDate, period, cell);
     el.taskRepeat.value = rpt ? rpt.rule : "";
@@ -3257,12 +3299,26 @@ ${recordItems.join("\n") || "（无）"}
     // 子任务清单：支持 ☑/☐/✓/x 前缀标记完成状态
     const clLines = el.taskChecklist.value.split("\n").map((s) => s.trim()).filter(Boolean);
     const checklist = clLines.map((line) => {
-      const m = line.match(/^([☑☐✓√xX])\s*(.*)$/);
-      if (m) {
-        const done = /[☑✓√]/.test(m[1]);
-        return { text: m[2], done };
+      // 解析维度标记 ` #Cl.def→3#`（孵化写入，完成时可回填评分）
+      let dim = null, dimGoal = null, text = line;
+      const dimMatch = line.match(/\s*#(\w+)\.(\w+)(?:→(\d+))?#\s*$/);
+      if (dimMatch) {
+        dim = `${dimMatch[1]}.${dimMatch[2]}`;
+        dimGoal = dimMatch[3] ? parseInt(dimMatch[3], 10) : null;
+        text = line.replace(/\s*#\w+\.\w+(?:→\d+)?#\s*$/, "");
       }
-      return { text: line, done: false };
+      const m = text.match(/^([☑☐✓√xX])\s*(.*)$/);
+      let done = false;
+      if (m) {
+        done = /[☑✓√]/.test(m[1]);
+        text = m[2];
+      }
+      const item = { text, done };
+      if (dim) {
+        item.dim = dim;
+        if (dimGoal) item.dimGoal = dimGoal;
+      }
+      return item;
     });
     setCellChecklist(period, cell, checklist);
     // 重复规则：先清旧的，再按选择加新的
@@ -3300,6 +3356,633 @@ ${recordItems.join("\n") || "（无）"}
   el.closeTaskDialog.addEventListener("click", closeTaskDialog);
   el.taskDialog.addEventListener("click", (e) => { if (e.target === el.taskDialog) closeTaskDialog(); });
 
+  // ---------- 任务孵化（Hatch）----------
+  // 复用 TJ decompose 的编排哲学：estimate → main → grow → risk 四步流式
+  // 输出有序可执行动作链（带 est_min/depends_on/risk），写入 checklist
+  const HATCH_MODE_CFG = {
+    lite:   { min: 3, max: 5,  label: "lite" },
+    medium: { min: 5, max: 8,  label: "medium" },
+    zen:    { min: 8, max: 12, label: "zen" },
+  };
+  const HATCH_SCENES = {
+    learn: {
+      label: "学习",
+      focus: "理解性步骤：先建立认知框架再深入细节",
+      rules: "步骤要包含「检索/对比/复述/应用」四类学习动作；每步标注预期理解的深度（表面/机制/迁移）",
+    },
+    exec: {
+      label: "执行",
+      focus: "顺序动作链：每步可独立产出物",
+      rules: "每步必须是具体动作（动词开头）；单步 15-30 分钟可完成；产出可验证",
+    },
+    decide: {
+      label: "决策",
+      focus: "信息收集 → 选项对比 → 决策标准 → 选择",
+      rules: "前 2 步聚焦信息收集和选项列举；中间步骤列利弊和决策标准；最后 1 步是明确选择动作",
+    },
+    checklist: {
+      label: "清单",
+      focus: "并列检查项，无严格顺序",
+      rules: "步骤之间无依赖（depends_on 一律 null）；每步是一个独立检查项；总数偏多没关系",
+    },
+    drill: {
+      label: "薄弱补强",
+      focus: "针对 7 维度薄弱子维度生成定向练习",
+      rules: "每个薄弱子维度生成 1-2 个步骤；步骤必须直接回应该子维度的核心追问；target_dim 必填；dim_goal = 当前分+1（封顶5）",
+    },
+  };
+
+  // 自动识别场景（关键词路由）
+  function detectHatchScene(taskText) {
+    const t = taskText.toLowerCase();
+    if (/(学|读|研究|理解|掌握|弄懂|搞懂|复习|预习)/.test(t)) return "learn";
+    if (/(选|决定|对比|选择|评估.*方案|权衡)/.test(t)) return "decide";
+    if (/(准备|组织|策划|整理|检查|盘点|核对)/.test(t)) return "checklist";
+    return "exec";
+  }
+
+  // 7 维度薄弱项识别（≤ threshold 视为薄弱）
+  function findWeakDims(evalObj, threshold = 2) {
+    if (!evalObj) return [];
+    const weak = [];
+    KNOWLEDGE_DIMENSIONS.forEach((d) => {
+      d.subs.forEach((s) => {
+        const v = evalObj[s.key] || 0;
+        if (v <= threshold && v >= 0) {
+          weak.push({
+            dim: d.code, dimName: d.name, dimColor: d.color,
+            sub: s.key, subName: s.name, question: s.q,
+            score: v, goal: Math.min(5, v + 1),
+          });
+        }
+      });
+    });
+    return weak.sort((a, b) => a.score - b.score).slice(0, 5);
+  }
+
+  // 根据维度 code+sub 查找维度元信息
+  function lookupDim(dimCode, subKey) {
+    const d = KNOWLEDGE_DIMENSIONS.find((x) => x.code === dimCode);
+    if (!d) return null;
+    const s = d.subs.find((x) => x.key === subKey);
+    if (!s) return null;
+    return { dim: d.code, dimName: d.name, dimColor: d.color, sub: s.key, subName: s.name, question: s.q };
+  }
+
+  // 7 维度标准练习模板（0 token 命中即用，未命中走 LLM）
+  const HATCH_DIM_TEMPLATES = {
+    "Cl.def": (task) => `用一句话定义「${task}」，再对比一个最易混淆的概念，说清两者区别`,
+    "Cl.boundary": (task) => `列举「${task}」的 3 个边界条件：什么情况下它成立/不成立`,
+    "Cl.repr": (task) => `用图形或比喻重新表达「${task}」，画一张示意图或找一个生活类比`,
+    "Cp.structure": (task) => `画出「${task}」的知识结构树（根干枝叶），检查是否有遗漏子知识`,
+    "Cp.steps": (task) => `闭卷写出「${task}」的完整操作链，每步不能跳过`,
+    "B.condition": (task) => `列出「${task}」的 3 个适用条件，每条配一个真实例子`,
+    "B.fail": (task) => `列举「${task}」失效的 3 种场景，分析为什么失效`,
+    "B.limit": (task) => `把「${task}」推到极端参数，观察它还成立吗，记录临界点`,
+    "L.upstream": (task) => `梳理「${task}」的前置知识（必须先会什么）和后续应用（能做什么）`,
+    "L.isomorphic": (task) => `找出一个和「${task}」共享相同底层骨架的知识，对比结构`,
+    "L.crossdomain": (task) => `把「${task}」迁移到另一个领域或生活场景，给出具体应用`,
+    "Ev.version": (task) => `记录你对「${task}」理解的 3 个版本（过去/现在/预期未来），对比深化点`,
+    "Ev.iteration": (task) => `判断「${task}」下一步该修正、升级还是淘汰，给出理由`,
+    "P.chunk": (task) => `把「${task}」压缩成一句口诀或一个记忆钩子，越短越好`,
+    "P.fluency": (task) => `对「${task}」做 3 次闭卷快速复述，记录从刻意回忆到自动执行的转变点`,
+    "Rh.cycle": (task) => `为「${task}」设定检索周期（如 1/3/7 天），写下第一次复习日期`,
+    "Rh.freq": (task) => `统计本周「${task}」的练习次数，若 <3 次则排进下周计划`,
+    "Rh.predict": (task) => `预判「${task}」中你最可能卡住的 2 个点，各写一个应急方案`,
+    "Rh.duration": (task) => `评估「${task}」每次训练的合理时长，过短/过长都调整`,
+    "Rh.timing": (task) => `找出你训练「${task}」状态最好的时段（如清晨/夜深），固定下来`,
+  };
+
+  // 自动选档（基于任务文本长度 + 关键词）
+  function autoHatchMode(taskText) {
+    const len = taskText.length;
+    if (/(论文|项目|设计|重构|策划|开发|搭建)/.test(taskText)) return "zen";
+    if (len < 8) return "lite";
+    if (len > 20) return "zen";
+    return "medium";
+  }
+
+  // 任务文本哈希（历史命中用，简易 djb2）
+  function hashTaskText(text) {
+    let h = 5381;
+    for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0;
+    return "h" + (h >>> 0).toString(36);
+  }
+
+  // 孵化历史读写
+  function loadHatchHistory() { return load(HATCH_HISTORY_KEY, []); }
+  function saveHatchHistory(list) { save(HATCH_HISTORY_KEY, list); }
+  function findHatchHistory(taskHash) {
+    const list = loadHatchHistory();
+    return list.find((h) => h.task_hash === taskHash);
+  }
+  function recordHatchHistory(taskHash, taskText, result, acceptedCount) {
+    const list = loadHatchHistory();
+    const existing = list.find((h) => h.task_hash === taskHash);
+    const entry = {
+      task_hash: taskHash,
+      task_text: taskText,
+      last_mode: result.mode,
+      last_scene: result.scene,
+      accepted_count: acceptedCount,
+      total_count: (result.steps || []).length,
+      est_total_min: result.est_total_min || 0,
+      created_at: Date.now(),
+    };
+    if (existing) Object.assign(existing, entry);
+    else list.push(entry);
+    // 只保留最近 50 条
+    while (list.length > 50) list.shift();
+    saveHatchHistory(list);
+  }
+
+  // 核心 LLM 调用（不走 chat 历史，独立请求）
+  async function callHatchLLM(systemPrompt, userPrompt, signal) {
+    const { apiUrl, apiKey, apiModel } = state.settings;
+    if (!apiUrl || !apiKey) throw new Error("请先在设置中配置 AI API");
+    const resp = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: apiModel,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.5,
+        stream: false,
+      }),
+      signal,
+    });
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => "");
+      throw new Error(formatApiError(resp.status, errText));
+    }
+    const data = await resp.json();
+    return data.choices?.[0]?.message?.content || "";
+  }
+
+  // 从 LLM 输出中提取 JSON（容错：去 markdown 围栏 + 找第一个 { 到最后 }）
+  function extractJSON(text) {
+    if (!text) return null;
+    let t = text.trim();
+    // 去掉 ```json ... ``` 围栏
+    t = t.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+    const start = t.indexOf("{");
+    const end = t.lastIndexOf("}");
+    if (start === -1 || end === -1 || end <= start) return null;
+    try { return JSON.parse(t.slice(start, end + 1)); }
+    catch (e) { return null; }
+  }
+
+  // 单次合并调用（4 步合一，省 token，速度更快）
+  function buildHatchPrompt(taskText, mode, scene, context, weakDims) {
+    const cfg = HATCH_MODE_CFG[mode];
+    const sc = HATCH_SCENES[scene];
+    const isDrill = scene === "drill";
+
+    const schemaFields = [
+      '"text":"具体动作"',
+      '"est_min":15',
+      '"depends_on":null',
+      '"risk":"low"',
+      '"risk_note":""',
+      '"why":"为什么必要"',
+    ];
+    if (isDrill || scene === "learn") {
+      schemaFields.push('"target_dim":"维度.子维度（如 Cl.def，drill 必填，learn 选填）"');
+      schemaFields.push('"dim_goal":3');
+      schemaFields.push('"verify":"完成自检标准（如：能脱稿讲2分钟）"');
+    }
+
+    const systemPrompt = [
+      "你是任务拆解专家。把用户的粗粒度任务拆成可执行子任务。",
+      "只输出 JSON，不要解释、不要 markdown 围栏。",
+      "",
+      "【硬规则】",
+      "1. 每个子任务必须是具体动作（动词开头：写/查/调/发/对齐/读/列...）",
+      `2. 总步数 ${cfg.min}-${cfg.max}，单步可在 15-30 分钟完成（超了继续拆）`,
+      "3. 按执行顺序排列，标注依赖（depends_on 为前一步的 index，从 0 开始；无依赖为 null）",
+      "4. 标注 est_min（预估分钟，15-30）、risk（low/med/high）",
+      "5. risk=med/high 时 risk_note 必填（说明卡点和应急方案）",
+      "6. why 一句话说明这步为什么必要",
+      "",
+      `【场景：${sc.label}】`,
+      `重点：${sc.focus}`,
+      `附加规则：${sc.rules}`,
+    ];
+
+    if (isDrill && weakDims && weakDims.length) {
+      systemPrompt.push("");
+      systemPrompt.push("【该任务当前 7 维度薄弱项（每步必须针对其中一项）】");
+      weakDims.forEach((w) => {
+        systemPrompt.push(`- ${w.dim}.${w.sub}=${w.score}（${w.dimName}·${w.subName}）：${w.question} → 目标提升到 ${w.goal} 分`);
+      });
+      systemPrompt.push("每个薄弱项生成 1-2 个步骤，步骤的 target_dim 和 dim_goal 必须对应上述薄弱项。");
+      systemPrompt.push("verify 字段给出可自检的完成标准（达成即可认为该子维度提升到 dim_goal）。");
+    } else if (scene === "learn") {
+      systemPrompt.push("");
+      systemPrompt.push("【学习场景可选标注】若步骤明显对应某 7 维度（Cl清晰度/Cp完整性/B边界感/L关联度/Ev进化感/P精炼度/Rh节奏感），可填 target_dim 帮助后续评估。");
+    }
+
+    systemPrompt.push("");
+    systemPrompt.push("【输出 schema】");
+    systemPrompt.push(`{"complexity":"simple|standard|complex","est_total_min":数字,"first_blocker":"最可能卡住的点","shortcut":"可选捷径（可空）","steps":[{${schemaFields.join(",")}}]}`);
+
+    const userPrompt = [
+      `任务：${taskText}`,
+      context ? `背景：${context}` : "",
+      `档位：${mode}（目标 ${cfg.min}-${cfg.max} 步）`,
+      `场景：${scene}（${sc.label}）`,
+      "",
+      "请按 schema 输出。",
+    ].filter(Boolean).join("\n");
+
+    return { systemPrompt: systemPrompt.join("\n"), userPrompt };
+  }
+
+  // 孵化状态
+  const hatchState = {
+    running: false,
+    abortController: null,
+    taskText: "",
+    taskHash: "",
+    mode: "medium",
+    scene: "exec",
+    result: null,
+    acceptedSet: null, // Set of selected step indices
+    longTaskId: null,  // 关联长期任务 id（drill 模式用）
+    weakDims: null,    // 薄弱维度列表（drill 模式用）
+  };
+
+  function showHatchProgress(step, text) {
+    el.hatchProgress.hidden = false;
+    el.hatchResult.hidden = true;
+    el.hatchError.hidden = true;
+    el.hatchProgressFill.style.width = (step * 25) + "%";
+    el.hatchProgressText.textContent = text;
+    el.hatchProgress.querySelectorAll(".hatch-step").forEach((s) => {
+      const n = parseInt(s.dataset.step, 10);
+      s.classList.toggle("active", n === step);
+      s.classList.toggle("done", n < step);
+    });
+  }
+
+  function renderHatchResult(result) {
+    hatchState.result = result;
+    el.hatchProgress.hidden = true;
+    el.hatchResult.hidden = false;
+    el.hatchError.hidden = true;
+
+    // 摘要
+    const totalMin = result.est_total_min || (result.steps || []).reduce((s, x) => s + (x.est_min || 0), 0);
+    const highRisk = (result.steps || []).filter((s) => s.risk === "high").length;
+    const medRisk = (result.steps || []).filter((s) => s.risk === "med").length;
+    const riskClass = highRisk ? "hatch-summary-risk-high" : (medRisk ? "hatch-summary-risk-med" : "hatch-summary-risk-low");
+    const riskText = highRisk ? `高 ${highRisk}` : (medRisk ? `中 ${medRisk}` : "低");
+    el.hatchSummary.innerHTML = `
+      <div class="hatch-summary-row"><span class="hatch-summary-label">总步数</span><span class="hatch-summary-value">${(result.steps || []).length}</span></div>
+      <div class="hatch-summary-row"><span class="hatch-summary-label">预估时长</span><span class="hatch-summary-value">${totalMin} 分钟（约 ${(totalMin / 60).toFixed(1)}h）</span></div>
+      <div class="hatch-summary-row"><span class="hatch-summary-label">风险等级</span><span class="hatch-summary-value ${riskClass}">${riskText}</span></div>
+      ${result.first_blocker ? `<div class="hatch-summary-row"><span class="hatch-summary-label">最可能卡点</span><span class="hatch-summary-value">${escapeHtml(result.first_blocker)}</span></div>` : ""}
+    `;
+
+    // 捷径
+    if (result.shortcut && result.shortcut.trim()) {
+      el.hatchShortcut.hidden = false;
+      el.hatchShortcut.textContent = result.shortcut;
+    } else {
+      el.hatchShortcut.hidden = true;
+    }
+
+    // 步骤列表
+    hatchState.acceptedSet = new Set((result.steps || []).map((_, i) => i)); // 默认全选
+    el.hatchList.innerHTML = "";
+    (result.steps || []).forEach((step, idx) => {
+      const item = document.createElement("label");
+      item.className = "hatch-item";
+      const riskTag = step.risk ? `<span class="hatch-tag hatch-tag-risk-${step.risk}">${({low:"低风险",med:"中风险",high:"高风险"})[step.risk] || step.risk}</span>` : "";
+      const depTag = (step.depends_on !== null && step.depends_on !== undefined) ? `<span class="hatch-tag hatch-tag-dep">← 依赖${step.depends_on + 1}</span>` : "";
+      const minTag = step.est_min ? `<span class="hatch-tag">${step.est_min}min</span>` : "";
+      // 维度徽章（带颜色）
+      let dimTag = "";
+      if (step.target_dim) {
+        const [dc, sk] = step.target_dim.split(".");
+        const meta = lookupDim(dc, sk);
+        if (meta) {
+          const goalTxt = step.dim_goal ? `→${step.dim_goal}` : "";
+          dimTag = `<span class="hatch-tag hatch-tag-dim" style="background:${meta.dimColor}22;color:${meta.dimColor};" title="${meta.dimName}·${meta.subName}：${meta.question}">${step.target_dim}${goalTxt}</span>`;
+        }
+      }
+      item.innerHTML = `
+        <input type="checkbox" checked data-idx="${idx}" />
+        <div class="hatch-item-body">
+          <div class="hatch-item-head">
+            <span class="hatch-item-idx">${idx + 1}</span>
+            <span class="hatch-item-text">${escapeHtml(step.text)}</span>
+          </div>
+          <div class="hatch-item-meta">${minTag}${depTag}${riskTag}${dimTag}</div>
+          ${step.verify ? `<div class="hatch-item-verify">✓ ${escapeHtml(step.verify)}</div>` : ""}
+          ${step.risk_note && (step.risk === "med" || step.risk === "high") ? `<div class="hatch-item-risk-note">⚠ ${escapeHtml(step.risk_note)}</div>` : ""}
+          ${step.why ? `<div class="hatch-item-meta" style="margin-top:2px;color:var(--text-muted);">为什么：${escapeHtml(step.why)}</div>` : ""}
+        </div>
+      `;
+      const cb = item.querySelector("input");
+      cb.addEventListener("change", () => {
+        if (cb.checked) hatchState.acceptedSet.add(idx);
+        else hatchState.acceptedSet.delete(idx);
+      });
+      el.hatchList.appendChild(item);
+    });
+  }
+
+  function showHatchError(msg) {
+    el.hatchProgress.hidden = true;
+    el.hatchResult.hidden = true;
+    el.hatchError.hidden = false;
+    el.hatchError.textContent = msg;
+  }
+
+  async function runHatch(taskText, mode, scene, context, longTaskId, forceLLM) {
+    if (hatchState.running) return;
+    if (!state.settings.apiUrl || !state.settings.apiKey) {
+      showHatchError("请先在设置中配置 AI API（apiUrl + apiKey）");
+      return;
+    }
+    hatchState.running = true;
+    hatchState.taskText = taskText;
+    hatchState.taskHash = hashTaskText(taskText);
+    hatchState.mode = mode;
+    hatchState.scene = scene;
+    hatchState.longTaskId = longTaskId || null;
+    el.hatchBtn.disabled = true;
+    el.hatchBtn.classList.add("loading");
+
+    // drill 场景：读关联长期任务的 eval，识别薄弱维度
+    let weakDims = null;
+    if (scene === "drill") {
+      if (!longTaskId) {
+        showHatchError("drill 场景需要关联长期任务");
+        hatchState.running = false;
+        el.hatchBtn.disabled = false;
+        el.hatchBtn.classList.remove("loading");
+        return;
+      }
+      const lt = longTasks.find((x) => x.id === longTaskId);
+      if (!lt) {
+        showHatchError("未找到关联的长期任务");
+        hatchState.running = false;
+        el.hatchBtn.disabled = false;
+        el.hatchBtn.classList.remove("loading");
+        return;
+      }
+      if (!lt.eval) lt.eval = emptyEval();
+      weakDims = findWeakDims(lt.eval, 2);
+      hatchState.weakDims = weakDims;
+      if (!weakDims.length) {
+        // 全维度 ≥3，提示已掌握
+        showHatchError(`「${lt.title}」7 维度评分均 ≥3，无明显薄弱项。建议归档或提升到 4-5 分精通。`);
+        hatchState.running = false;
+        el.hatchBtn.disabled = false;
+        el.hatchBtn.classList.remove("loading");
+        return;
+      }
+      // 模板库优先：若薄弱维度都能命中模板，0 token 直接生成（forceLLM 时跳过，走个性化）
+      const templated = forceLLM ? null : tryTemplateHatch(taskText, weakDims);
+      if (templated) {
+        showHatchProgress(4, "④ 模板命中（0 token）…");
+        await sleep(300);
+        templated.mode = mode;
+        templated.scene = scene;
+        renderHatchResult(templated);
+        if (navigator.vibrate) navigator.vibrate(30);
+        hatchState.running = false;
+        el.hatchBtn.disabled = false;
+        el.hatchBtn.classList.remove("loading");
+        return;
+      }
+    }
+
+    // 历史提示
+    const hist = findHatchHistory(hatchState.taskHash);
+    if (hist) {
+      el.hatchHistoryHint.hidden = false;
+      const completionRate = hist.total_count ? Math.round(hist.accepted_count / hist.total_count * 100) : 0;
+      const ageHours = Math.round((Date.now() - hist.created_at) / 3600000);
+      let suggestion = "";
+      if (completionRate < 50) suggestion = " · 上次拆得太细，建议这次降档";
+      else if (completionRate === 100) suggestion = " · 上次拆得很准，可复用";
+      el.hatchHistoryHint.textContent = `📊 上次孵化（${ageHours}h 前）：${hist.total_count} 步，接受 ${hist.accepted_count} 条，完成率 ${completionRate}%${suggestion}`;
+    } else {
+      el.hatchHistoryHint.hidden = true;
+    }
+
+    try {
+      showHatchProgress(1, "① 估时判级…");
+      await sleep(150);
+      showHatchProgress(2, "② 主干拆分…");
+      await sleep(150);
+      showHatchProgress(3, "③ 步骤细化…");
+
+      const { systemPrompt, userPrompt } = buildHatchPrompt(taskText, mode, scene, context, weakDims);
+      hatchState.abortController = new AbortController();
+      const timeoutId = setTimeout(() => hatchState.abortController.abort(), 60000);
+
+      const raw = await callHatchLLM(systemPrompt, userPrompt, hatchState.abortController.signal);
+      clearTimeout(timeoutId);
+
+      showHatchProgress(4, "④ 风险预判…");
+      await sleep(200);
+
+      const parsed = extractJSON(raw);
+      if (!parsed || !Array.isArray(parsed.steps) || !parsed.steps.length) {
+        throw new Error("AI 输出格式异常，未能解析出步骤。请重试或换档位。");
+      }
+      parsed.mode = mode;
+      parsed.scene = scene;
+      parsed.longTaskId = longTaskId || null;
+
+      renderHatchResult(parsed);
+      // 轻震动反馈
+      if (navigator.vibrate) navigator.vibrate(30);
+    } catch (err) {
+      if (err.name === "AbortError") {
+        showHatchError("请求已取消或超时（60秒）。可降档重试。");
+      } else {
+        showHatchError(err.message || "孵化失败，请重试");
+      }
+    } finally {
+      hatchState.running = false;
+      hatchState.abortController = null;
+      el.hatchBtn.disabled = false;
+      el.hatchBtn.classList.remove("loading");
+    }
+  }
+
+  // 模板库优先命中：薄弱维度全部有模板时，0 token 生成
+  function tryTemplateHatch(taskText, weakDims) {
+    if (!weakDims || !weakDims.length) return null;
+    const steps = [];
+    let totalMin = 0;
+    weakDims.forEach((w, idx) => {
+      const key = `${w.dim}.${w.sub}`;
+      const tpl = HATCH_DIM_TEMPLATES[key];
+      if (!tpl) return; // 有未命中的，整体回退 LLM
+      const text = tpl(taskText);
+      const est = 20;
+      totalMin += est;
+      steps.push({
+        text,
+        est_min: est,
+        depends_on: null,
+        risk: w.score <= 1 ? "med" : "low",
+        risk_note: w.score <= 1 ? `${w.dimName}·${w.subName} 仅 ${w.score} 分，可能需要先补前置知识` : "",
+        why: `${w.dim}.${w.sub} 当前 ${w.score} 分，目标 ${w.goal}`,
+        target_dim: key,
+        dim_goal: w.goal,
+        verify: `完成后到长期任务详情页给 ${w.dim}.${w.sub} 评 ${w.goal} 星自检`,
+      });
+    });
+    if (steps.length !== weakDims.length) return null; // 未全部命中
+    return {
+      complexity: weakDims.length > 3 ? "complex" : "standard",
+      est_total_min: totalMin,
+      first_blocker: weakDims[0] ? `${weakDims[0].dimName}·${weakDims[0].subName}（${weakDims[0].score}分）` : "",
+      shortcut: "全部命中 7 维度标准模板，0 token 生成。可点「重新生成」走 LLM 个性化。",
+      steps,
+    };
+  }
+
+  function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+  function openHatchDialog() {
+    // 取当前任务弹窗第一行任务文本作为孵化对象
+    const text = el.taskContent.value.split("\n").map((s) => s.trim()).filter(Boolean)[0] || "";
+    if (!text) {
+      toast("请先输入任务内容", "error");
+      return;
+    }
+    el.hatchTaskText.textContent = text;
+    el.hatchMode.value = "auto";
+    el.hatchScene.value = "auto";
+    el.hatchProgress.hidden = true;
+    el.hatchResult.hidden = true;
+    el.hatchError.hidden = true;
+    el.hatchHistoryHint.hidden = true;
+    el.hatchDialog.showModal();
+    // 自动启动一次
+    const mode = autoHatchMode(text);
+    const scene = detectHatchScene(text);
+    el.hatchMode.value = mode;
+    el.hatchScene.value = scene;
+    runHatch(text, mode, scene, buildHatchContext());
+  }
+
+  // 构建孵化上下文（今日已做 + 关联长期任务）
+  function buildHatchContext() {
+    const parts = [];
+    const todayTasks = getCellTasks ? getDayTasks(state.currentDate) : null;
+    if (todayTasks) {
+      const doneCount = Object.values(getDayDone(state.currentDate) || {}).reduce((s, arr) => s + (Array.isArray(arr) ? arr.length : 0), 0);
+      if (doneCount) parts.push(`今日已完成 ${doneCount} 项任务`);
+    }
+    return parts.join("；");
+  }
+
+  function closeHatchDialog() {
+    if (hatchState.abortController) {
+      try { hatchState.abortController.abort(); } catch (e) {}
+    }
+    el.hatchDialog.close();
+  }
+
+  // 加入清单：追加到 taskChecklist 末尾，保留原有内容
+  // 带 target_dim 的步骤在行尾追加 ` #Cl.def→3#` 标记，saveTask 时解析为 item.dim
+  function applyHatchToChecklist() {
+    if (!hatchState.result || !hatchState.acceptedSet) return;
+    const acceptedSteps = (hatchState.result.steps || [])
+      .filter((_, i) => hatchState.acceptedSet.has(i));
+    if (!acceptedSteps.length) {
+      toast("未选择任何步骤", "info");
+      return;
+    }
+    // 编码：纯文本步骤直接用；带 target_dim 的追加 ` #Dim.Sub→goal#`
+    const newLines = acceptedSteps.map((s) => {
+      let line = s.text;
+      if (s.target_dim) {
+        const goal = s.dim_goal ? `→${s.dim_goal}` : "";
+        line += ` #${s.target_dim}${goal}#`;
+      }
+      return line;
+    });
+    const existing = el.taskChecklist.value.split("\n").map((s) => s.trim()).filter(Boolean);
+    const before = existing.length;
+    // 去重（按纯文本，忽略 dim 标记和完成前缀）
+    const existingSet = new Set(existing.map((s) => s.replace(/^[☑☐✓√xX]\s*/, "").replace(/\s*#\w+\.\w+(→\d+)?#\s*$/, "")));
+    const newOnes = newLines.filter((t) => !existingSet.has(t.replace(/\s*#\w+\.\w+(→\d+)?#\s*$/, "")));
+    if (!newOnes.length) {
+      toast("所选步骤已在清单中", "info");
+      return;
+    }
+    el.taskChecklist.value = [...existing, ...newOnes].join("\n");
+    // 记录历史（用于完成率闭环）
+    recordHatchHistory(hatchState.taskHash, hatchState.taskText, hatchState.result, newOnes.length);
+    const dimCount = acceptedSteps.filter((s) => s.target_dim).length;
+    toast(`已加入 ${newOnes.length} 条到清单${dimCount ? `（含 ${dimCount} 条维度练习）` : ""}`, "success");
+    if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+    closeHatchDialog();
+  }
+
+  el.hatchBtn.addEventListener("click", openHatchDialog);
+  el.closeHatch.addEventListener("click", closeHatchDialog);
+  el.hatchCancelBtn.addEventListener("click", closeHatchDialog);
+  el.hatchDialog.addEventListener("click", (e) => { if (e.target === el.hatchDialog) closeHatchDialog(); });
+
+  el.hatchSelectAll.addEventListener("click", () => {
+    if (!hatchState.result) return;
+    hatchState.acceptedSet = new Set((hatchState.result.steps || []).map((_, i) => i));
+    el.hatchList.querySelectorAll("input[type=checkbox]").forEach((cb) => { cb.checked = true; });
+  });
+  el.hatchInvert.addEventListener("click", () => {
+    if (!hatchState.result) return;
+    const newSet = new Set();
+    el.hatchList.querySelectorAll("input[type=checkbox]").forEach((cb, i) => {
+      cb.checked = !cb.checked;
+      if (cb.checked) newSet.add(i);
+    });
+    hatchState.acceptedSet = newSet;
+  });
+  el.hatchRegen.addEventListener("click", () => {
+    // 重新生成：温度通过加随机后缀变相提升（避免完全相同结果）
+    if (!hatchState.taskText) return;
+    const mode = el.hatchMode.value === "auto" ? autoHatchMode(hatchState.taskText) : el.hatchMode.value;
+    const scene = el.hatchScene.value === "auto" ? detectHatchScene(hatchState.taskText) : el.hatchScene.value;
+    // 降档重试逻辑：如果上次失败过，这里不变档；正常重新生成保持同档
+    // drill 场景强制走 LLM（绕过模板库），便于个性化
+    const forceLLM = scene === "drill";
+    runHatch(hatchState.taskText + (forceLLM ? "（个性化）" : " "), mode, scene, buildHatchContext(), hatchState.longTaskId, forceLLM);
+  });
+  el.hatchApply.addEventListener("click", applyHatchToChecklist);
+
+  // 模式/场景手动切换后自动重跑
+  el.hatchMode.addEventListener("change", () => {
+    if (!hatchState.taskText || hatchState.running) return;
+    const mode = el.hatchMode.value === "auto" ? autoHatchMode(hatchState.taskText) : el.hatchMode.value;
+    const scene = el.hatchScene.value === "auto" ? detectHatchScene(hatchState.taskText) : el.hatchScene.value;
+    runHatch(hatchState.taskText, mode, scene, buildHatchContext());
+  });
+  el.hatchScene.addEventListener("change", () => {
+    if (!hatchState.taskText || hatchState.running) return;
+    const scene = el.hatchScene.value === "auto" ? detectHatchScene(hatchState.taskText) : el.hatchScene.value;
+    if (scene === "drill" && !hatchState.longTaskId) {
+      toast("🎯 薄弱补强需从长期任务详情页进入（需读取 7 维度评分）", "info", 4000);
+      el.hatchScene.value = "auto";
+      return;
+    }
+    const mode = el.hatchMode.value === "auto" ? autoHatchMode(hatchState.taskText) : el.hatchMode.value;
+    runHatch(hatchState.taskText, mode, scene, buildHatchContext(), hatchState.longTaskId);
+  });
+
   // ---------- 子任务清单弹出层 ----------
   let activePopover = null;
   function openChecklistPopover(period, cell, anchorEl) {
@@ -3312,7 +3995,16 @@ ${recordItems.join("\n") || "（无）"}
     items.forEach((it, idx) => {
       const row = document.createElement("label");
       row.className = "checklist-row" + (it.done ? " done" : "");
-      row.innerHTML = `<input type="checkbox" ${it.done ? "checked" : ""}><span>${escapeHtml(it.text)}</span>`;
+      let dimBadge = "";
+      if (it.dim) {
+        const [dc, sk] = it.dim.split(".");
+        const meta = lookupDim(dc, sk);
+        if (meta) {
+          const goalTxt = it.dimGoal ? `→${it.dimGoal}` : "";
+          dimBadge = `<span class="hatch-tag hatch-tag-dim" style="background:${meta.dimColor}22;color:${meta.dimColor};font-size:10px;" title="${meta.dimName}·${meta.subName}：${meta.question}">${it.dim}${goalTxt}</span>`;
+        }
+      }
+      row.innerHTML = `<input type="checkbox" ${it.done ? "checked" : ""}><span>${escapeHtml(it.text)}</span>${dimBadge}`;
       row.querySelector("input").addEventListener("change", () => {
         toggleChecklistItem(period, cell, idx);
         row.classList.toggle("done");
@@ -7229,12 +7921,15 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       KNOWLEDGE_DIMENSIONS.reduce((sum, d) => sum + dimScore(t.eval, d), 0) / KNOWLEDGE_DIMENSIONS.length
     );
 
-    // 7 维度评分表
+    // 7 维度评分表（薄弱项 ≤2 分高亮）
+    const weakSet = new Set(findWeakDims(t.eval, 2).map((w) => w.sub));
+    const weakCount = weakSet.size;
     const dimsHtml = KNOWLEDGE_DIMENSIONS.map((d) => {
       const score = dimScore(t.eval, d);
       const subs = d.subs.map((s) => {
         const v = t.eval[s.key] || 0;
-        return `<div class="eval-sub">
+        const weak = weakSet.has(s.key);
+        return `<div class="eval-sub ${weak ? "weak" : ""}">
           <span class="eval-sub-name">${s.name}</span>
           <span class="eval-sub-q">${s.q}</span>
           <div class="eval-stars" data-key="${s.key}">
@@ -7288,9 +7983,41 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
           <span class="ltd-overall">综合 ${overall} / 5</span>
         </div>
         <p class="panel-desc">标准 编号前缀 · 子维度 · 核心追问。点击星标打分（1-5），用于追踪长线学习/任务的理解深度。</p>
+        <div class="ltd-row" style="margin-bottom:8px;">
+          <button class="tool-btn" id="ltdDrillHatch" style="background:linear-gradient(135deg,rgba(255,200,80,0.2),rgba(124,92,255,0.2));">
+            🎯 薄弱补强孵化${weakCount ? `（${weakCount} 项薄弱）` : "（无薄弱，已掌握）"}
+          </button>
+        </div>
         <div class="eval-grid">${dimsHtml}</div>
       </div>
     `;
+
+    // 薄弱补强孵化按钮
+    const drillBtn = el.ltdBody.querySelector("#ltdDrillHatch");
+    if (drillBtn) {
+      drillBtn.addEventListener("click", () => {
+        if (!weakCount) {
+          toast("7 维度评分均 ≥3，无明显薄弱项", "info");
+          return;
+        }
+        if (!state.settings.apiUrl || !state.settings.apiKey) {
+          toast("请先在设置中配置 AI API", "error");
+          return;
+        }
+        // 关闭详情弹窗，打开孵化弹窗（drill 场景）
+        el.longtaskDetailDialog.close();
+        const mode = weakCount > 4 ? "zen" : (weakCount > 2 ? "medium" : "lite");
+        el.hatchTaskText.textContent = t.title;
+        el.hatchMode.value = mode;
+        el.hatchScene.value = "drill";
+        el.hatchProgress.hidden = true;
+        el.hatchResult.hidden = true;
+        el.hatchError.hidden = true;
+        el.hatchHistoryHint.hidden = true;
+        el.hatchDialog.showModal();
+        runHatch(t.title, mode, "drill", `长期任务：${t.title}（进度 ${progress}%）`, t.id);
+      });
+    }
 
     el.longtaskDetailDialog.showModal();
 
