@@ -5771,3 +5771,349 @@ dialog.inbox-dialog-fullscreen::backdrop {
   color: var(--text-muted);
   font-weight: 400;
 }
+
+/* ============ 任务孵化（Hatch）============ */
+.checklist-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.checklist-toolbar textarea {
+  flex: 1;
+  min-width: 0;
+}
+.hatch-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: linear-gradient(135deg, rgba(255,200,80,0.08), rgba(124,92,255,0.08));
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.hatch-btn:hover {
+  border-color: rgba(255,200,80,0.6);
+  background: linear-gradient(135deg, rgba(255,200,80,0.18), rgba(124,92,255,0.16));
+  transform: translateY(-1px);
+}
+.hatch-btn:active { transform: scale(0.96); }
+.hatch-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+.hatch-btn .hatch-icon {
+  font-size: 18px;
+  line-height: 1;
+  transition: transform 0.4s;
+}
+.hatch-btn:hover .hatch-icon { transform: rotate(-12deg) scale(1.15); }
+.hatch-btn.loading .hatch-icon { animation: hatchWiggle 0.8s ease-in-out infinite; }
+@keyframes hatchWiggle {
+  0%, 100% { transform: rotate(-8deg); }
+  50% { transform: rotate(8deg); }
+}
+
+/* 孵化弹窗 */
+.hatch-dialog .dialog-content {
+  max-width: 560px;
+  max-height: 88vh;
+}
+.hatch-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-elevated);
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+.hatch-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hatch-meta-label {
+  flex-shrink: 0;
+  width: 40px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.hatch-meta-value {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  word-break: break-word;
+}
+.hatch-mode-select {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.hatch-history-hint {
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: rgba(124, 92, 255, 0.08);
+  border-left: 2px solid rgba(124, 92, 255, 0.5);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* 进度区 */
+.hatch-progress {
+  padding: 16px 12px;
+  text-align: center;
+}
+.hatch-progress-steps {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.hatch-step {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 4px 8px;
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  transition: all 0.3s;
+}
+.hatch-step.active {
+  background: linear-gradient(135deg, rgba(255,200,80,0.3), rgba(124,92,255,0.3));
+  color: var(--text);
+  font-weight: 600;
+}
+.hatch-step.done {
+  background: rgba(80, 200, 120, 0.15);
+  color: rgb(80, 200, 120);
+}
+.hatch-progress-bar {
+  height: 4px;
+  background: var(--bg-elevated);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.hatch-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, rgba(255,200,80,0.8), rgba(124,92,255,0.8));
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+.hatch-progress-text {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* 结果区 */
+.hatch-summary {
+  padding: 10px 12px;
+  background: var(--bg-elevated);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.hatch-summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.hatch-summary-row:last-child { margin-bottom: 0; }
+.hatch-summary-label { color: var(--text-muted); font-size: 12px; }
+.hatch-summary-value { font-weight: 600; }
+.hatch-summary-risk-high { color: #ff6b6b; }
+.hatch-summary-risk-med { color: #ffa94d; }
+.hatch-summary-risk-low { color: #51cf66; }
+
+.hatch-shortcut {
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: rgba(255, 200, 80, 0.08);
+  border-left: 2px solid rgba(255, 200, 80, 0.6);
+  font-size: 12px;
+}
+.hatch-shortcut::before { content: "⚡ 捷径："; font-weight: 600; }
+
+.hatch-list {
+  max-height: 40vh;
+  overflow-y: auto;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+}
+.hatch-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 6px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.hatch-item:hover { background: var(--bg-hover); }
+.hatch-item input[type="checkbox"] {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+.hatch-item-body {
+  flex: 1;
+  min-width: 0;
+}
+.hatch-item-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 2px;
+}
+.hatch-item-idx {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.hatch-item-text {
+  flex: 1;
+  font-size: 13px;
+  word-break: break-word;
+}
+.hatch-item-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.hatch-tag {
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--bg-elevated);
+}
+.hatch-tag-risk-high { background: rgba(255,107,107,0.15); color: #ff6b6b; }
+.hatch-tag-risk-med { background: rgba(255,169,77,0.15); color: #ffa94d; }
+.hatch-tag-risk-low { background: rgba(81,207,102,0.15); color: #51cf66; }
+.hatch-tag-dep { background: rgba(124,92,255,0.12); color: var(--text-muted); }
+.hatch-item-risk-note {
+  margin-top: 3px;
+  font-size: 11px;
+  color: #ffa94d;
+  padding-left: 4px;
+  border-left: 2px solid rgba(255,169,77,0.5);
+}
+
+.hatch-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.hatch-spacer { flex: 1; }
+.hatch-actions .tool-btn,
+.hatch-actions .primary-btn,
+.hatch-actions .danger-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.hatch-error {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255,107,107,0.08);
+  border-left: 3px solid #ff6b6b;
+  color: #ff6b6b;
+  font-size: 13px;
+}
+
+/* 悬浮孵化卡片（任务弹窗内进度提示） */
+.hatch-floater {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 1000;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 24px rgba(0,0,0,0.18);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  max-width: 280px;
+  cursor: pointer;
+  transition: all 0.3s;
+  animation: hatchFloaterIn 0.3s ease;
+}
+@keyframes hatchFloaterIn {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.hatch-floater:hover { transform: translateY(-2px); }
+.hatch-floater.done {
+  border-color: rgba(81,207,102,0.6);
+  background: linear-gradient(135deg, rgba(81,207,102,0.08), var(--bg-card));
+}
+.hatch-floater.error {
+  border-color: rgba(255,107,107,0.6);
+}
+.hatch-floater-icon { font-size: 20px; }
+.hatch-floater-text { flex: 1; min-width: 0; }
+.hatch-floater-title { font-weight: 600; }
+.hatch-floater-sub { color: var(--text-muted); font-size: 11px; }
+
+/* 维度徽章（统一类，颜色内联） */
+.hatch-tag-dim {
+  font-weight: 600;
+  border: 1px solid currentColor;
+}
+
+/* verify 自检标准 */
+.hatch-item-verify {
+  margin-top: 3px;
+  font-size: 11px;
+  color: #51cf66;
+  padding-left: 4px;
+  border-left: 2px solid rgba(81, 207, 102, 0.5);
+}
+
+/* 7 维度薄弱项高亮（长期任务详情页） */
+.eval-sub.weak {
+  background: rgba(255, 107, 107, 0.06);
+  border-radius: 6px;
+  padding: 4px 6px;
+  margin: 2px 0;
+  border-left: 2px solid rgba(255, 107, 107, 0.5);
+}
+.eval-sub.weak .eval-sub-name::after {
+  content: " 薄弱";
+  font-size: 10px;
+  color: #ff6b6b;
+  font-weight: 600;
+}
+
+

@@ -709,7 +709,12 @@
         </div>
         <div class="form-group">
           <label>子任务清单（可选，每行一个步骤）</label>
-          <textarea id="taskChecklist" rows="3" placeholder="如：&#10;收集资料&#10;写大纲&#10;填充内容"></textarea>
+          <div class="checklist-toolbar">
+            <textarea id="taskChecklist" rows="3" placeholder="如：&#10;收集资料&#10;写大纲&#10;填充内容"></textarea>
+            <button type="button" class="hatch-btn" id="hatchBtn" title="AI 拆解当前任务为可执行子步骤">
+              <span class="hatch-icon">🥚</span><span>孵化</span>
+            </button>
+          </div>
           <small>保存后可在格子上看到完成进度，点击进度徽章可快速勾选</small>
         </div>
         <div class="form-group">
@@ -736,6 +741,73 @@
           <button class="tool-btn" id="startPomoBtn">🍅 开始专注</button>
           <button class="primary-btn" id="saveTask">保存</button>
         </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 孵化预览弹窗 -->
+  <dialog class="hatch-dialog" id="hatchDialog">
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <h3 id="hatchDialogTitle">🥚 任务孵化</h3>
+        <button class="icon-btn" id="closeHatch" aria-label="关闭">✕</button>
+      </div>
+      <div class="dialog-body">
+        <div class="hatch-meta" id="hatchMeta">
+          <div class="hatch-meta-row">
+            <span class="hatch-meta-label">任务</span>
+            <span class="hatch-meta-value" id="hatchTaskText">—</span>
+          </div>
+          <div class="hatch-meta-row">
+            <span class="hatch-meta-label">模式</span>
+            <select id="hatchMode" class="hatch-mode-select">
+              <option value="auto">自动</option>
+              <option value="lite">lite · 3-5 步</option>
+              <option value="medium">medium · 5-8 步</option>
+              <option value="zen">zen · 8-12 步</option>
+            </select>
+          </div>
+          <div class="hatch-meta-row">
+            <span class="hatch-meta-label">场景</span>
+            <select id="hatchScene" class="hatch-mode-select">
+              <option value="auto">自动识别</option>
+              <option value="learn">📖 学习</option>
+              <option value="exec">⚙️ 执行</option>
+              <option value="decide">⚖️ 决策</option>
+              <option value="checklist">📋 清单</option>
+              <option value="drill">🎯 薄弱补强</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="hatch-history-hint" id="hatchHistoryHint" hidden></div>
+
+        <div class="hatch-progress" id="hatchProgress" hidden>
+          <div class="hatch-progress-steps">
+            <span class="hatch-step" data-step="1">① 估时</span>
+            <span class="hatch-step" data-step="2">② 主干</span>
+            <span class="hatch-step" data-step="3">③ 细化</span>
+            <span class="hatch-step" data-step="4">④ 风险</span>
+          </div>
+          <div class="hatch-progress-bar"><div class="hatch-progress-fill" id="hatchProgressFill"></div></div>
+          <div class="hatch-progress-text" id="hatchProgressText">准备中…</div>
+        </div>
+
+        <div class="hatch-result" id="hatchResult" hidden>
+          <div class="hatch-summary" id="hatchSummary"></div>
+          <div class="hatch-shortcut" id="hatchShortcut" hidden></div>
+          <div class="hatch-list" id="hatchList"></div>
+          <div class="hatch-actions">
+            <button class="tool-btn" id="hatchSelectAll">全选</button>
+            <button class="tool-btn" id="hatchInvert">反选</button>
+            <button class="tool-btn" id="hatchRegen">🔄 重新生成</button>
+            <span class="hatch-spacer"></span>
+            <button class="danger-btn" id="hatchCancelBtn">取消</button>
+            <button class="primary-btn" id="hatchApply">✓ 加入清单</button>
+          </div>
+        </div>
+
+        <div class="hatch-error" id="hatchError" hidden></div>
       </div>
     </div>
   </dialog>
