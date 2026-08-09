@@ -5434,6 +5434,7 @@ dialog.inbox-dialog-fullscreen::backdrop {
   color: var(--text-muted);
   margin-top: 4px;
 }
+.long-item-hatch,
 .long-item-eval,
 .long-item-edit,
 .long-item-del {
@@ -5447,6 +5448,14 @@ dialog.inbox-dialog-fullscreen::backdrop {
   justify-content: center;
   flex-shrink: 0;
   transition: all 0.2s;
+}
+.long-item-hatch {
+  background: linear-gradient(135deg, rgba(255,200,80,0.15), rgba(124,92,255,0.12));
+  border: 1px solid rgba(255,200,80,0.25);
+}
+.long-item-hatch:hover {
+  background: linear-gradient(135deg, rgba(255,200,80,0.3), rgba(124,92,255,0.2));
+  transform: scale(1.08);
 }
 .long-item-eval:hover { background: var(--accent-glow); }
 .long-item-edit:hover { background: var(--accent-glow); }
@@ -5846,14 +5855,128 @@ dialog.inbox-dialog-fullscreen::backdrop {
   50% { transform: rotate(8deg); }
 }
 
-/* 孵化弹窗（实验室界面，接近全屏） */
-.hatch-dialog .dialog-content {
-  max-width: 920px;
-  max-height: 92vh;
-  width: 94vw;
+/* 孵化弹窗（全屏实验室界面） */
+.hatch-dialog.hatch-dialog-fullscreen {
+  padding: 0;
+  max-width: 100vw;
+  max-height: 100vh;
+  width: 100vw;
+  height: 100vh;
+  background: var(--bg, #1a1a2e);
+  border: none;
+  border-radius: 0;
 }
-.hatch-dialog .dialog-body {
-  padding: 12px;
+.hatch-dialog.hatch-dialog-fullscreen::backdrop {
+  background: rgba(10, 10, 20, 0.85);
+  backdrop-filter: blur(6px);
+}
+.hatch-dialog.hatch-dialog-fullscreen .hatch-fs-content {
+  max-width: 100% !important;
+  max-height: 100% !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg, #1a1a2e);
+}
+.hatch-dialog .hatch-fs-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border, rgba(255,255,255,0.08));
+  background: linear-gradient(180deg, rgba(124,92,255,0.06), transparent);
+}
+.hatch-fs-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.hatch-fs-logo {
+  font-size: 28px;
+  display: inline-block;
+  animation: hatch-logo-wiggle 2.4s ease-in-out infinite;
+}
+@keyframes hatch-logo-wiggle {
+  0%, 100% { transform: rotate(-6deg); }
+  50% { transform: rotate(6deg); }
+}
+.hatch-fs-header h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+}
+.hatch-fs-subtitle {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.hatch-fs-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.hatch-fs-status {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(124,92,255,0.12);
+  color: var(--text-muted);
+  border: 1px solid rgba(124,92,255,0.2);
+  white-space: nowrap;
+  transition: all 0.3s ease;
+}
+.hatch-fs-status.running {
+  background: rgba(255,200,80,0.15);
+  color: #ffc850;
+  border-color: rgba(255,200,80,0.4);
+}
+.hatch-fs-status.running::before {
+  content: "● ";
+  animation: hatch-pulse 1s ease-in-out infinite;
+}
+@keyframes hatch-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.hatch-fs-status.done { background: rgba(80,220,120,0.15); color: #50dc78; border-color: rgba(80,220,120,0.4); }
+.hatch-fs-status.error { background: rgba(255,80,80,0.15); color: #ff5050; border-color: rgba(255,80,80,0.4); }
+
+.hatch-dialog .hatch-fs-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.hatch-dialog .hatch-fs-body .hatch-progress,
+.hatch-dialog .hatch-fs-body .hatch-result,
+.hatch-dialog .hatch-fs-body .hatch-error {
+  flex: 1;
+  min-height: 0;
+}
+.hatch-dialog .hatch-fs-body .hatch-lab {
+  min-height: 0;
+  height: 100%;
+}
+.hatch-dialog .hatch-fs-body .hatch-lab-right {
+  min-height: 360px;
+}
+@media (max-width: 720px) {
+  .hatch-dialog .hatch-fs-body .hatch-lab-right { min-height: 280px; }
+  .hatch-fs-header h3 { font-size: 15px; }
+  .hatch-fs-subtitle { display: none; }
+  .hatch-fs-header { padding: 10px 12px; }
+  .hatch-dialog .hatch-fs-body { padding: 10px; }
 }
 .hatch-meta {
   display: flex;

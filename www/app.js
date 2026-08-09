@@ -1518,6 +1518,8 @@
     // 任务孵化
     hatchBtn: document.getElementById("hatchBtn"),
     hatchDialog: document.getElementById("hatchDialog"),
+    hatchFsStatus: document.getElementById("hatchFsStatus"),
+    hatchFsSubtitle: document.getElementById("hatchFsSubtitle"),
     closeHatch: document.getElementById("closeHatch"),
     hatchTaskText: document.getElementById("hatchTaskText"),
     hatchMode: document.getElementById("hatchMode"),
@@ -3819,6 +3821,7 @@ ${recordItems.join("\n") || "（无）"}
     el.hatchProgress.hidden = true;
     el.hatchResult.hidden = false;
     el.hatchError.hidden = true;
+    setHatchFsStatus("done", `完成 · ${result.steps.length} 步`);
     // 过渡动画
     el.hatchResult.classList.remove("hatch-result-enter");
     void el.hatchResult.offsetWidth; // 触发重排
@@ -3895,6 +3898,7 @@ ${recordItems.join("\n") || "（无）"}
     else el.hatchError.textContent = msg;
     hideHatchStream();
     stopHatchTimer();
+    setHatchFsStatus("error", "出错");
   }
 
   async function runHatch(taskText, mode, scene, context, longTaskId, forceLLM) {
@@ -4068,27 +4072,51 @@ ${recordItems.join("\n") || "（无）"}
 
   function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
-  function openHatchDialog() {
-    // 取当前任务弹窗第一行任务文本作为孵化对象
-    const text = el.taskContent.value.split("\n").map((s) => s.trim()).filter(Boolean)[0] || "";
+  // 全屏孵化 header 状态徽标
+  function setHatchFsStatus(state, text) {
+    if (!el.hatchFsStatus) return;
+    el.hatchFsStatus.classList.remove("running", "done", "error");
+    if (state) el.hatchFsStatus.classList.add(state);
+    el.hatchFsStatus.textContent = text || "待命";
+  }
+
+  // 通用入口：可传入外部任务文本（来自长期任务/收集箱孵化按钮）
+  function openHatchDialog(opts) {
+    opts = opts || {};
+    let text = opts.text || "";
+    let longTaskId = opts.longTaskId || null;
+    let scene = opts.scene || "auto";
+    let sourceLabel = opts.sourceLabel || ""; // "长期任务" / "收集箱" / ""
+    if (!text) {
+      // 默认取当前任务弹窗第一行
+      text = el.taskContent.value.split("\n").map((s) => s.trim()).filter(Boolean)[0] || "";
+    }
     if (!text) {
       toast("请先输入任务内容", "error");
       return;
     }
     el.hatchTaskText.textContent = text;
     el.hatchMode.value = "auto";
-    el.hatchScene.value = "auto";
+    el.hatchScene.value = scene;
     el.hatchProgress.hidden = true;
     el.hatchResult.hidden = true;
     el.hatchError.hidden = true;
     el.hatchHistoryHint.hidden = true;
+    // 更新 header 副标题（来源标识）
+    if (el.hatchFsSubtitle) {
+      el.hatchFsSubtitle.textContent = sourceLabel
+        ? `${sourceLabel} · AI 实时拆解为可执行子步骤`
+        : "AI 实时拆解任务为可执行子步骤";
+    }
+    setHatchFsStatus("", "待命");
     el.hatchDialog.showModal();
     // 自动启动一次
     const mode = autoHatchMode(text);
-    const scene = detectHatchScene(text);
+    const finalScene = scene === "auto" ? detectHatchScene(text) : scene;
     el.hatchMode.value = mode;
-    el.hatchScene.value = scene;
-    runHatch(text, mode, scene, buildHatchContext());
+    el.hatchScene.value = finalScene;
+    setHatchFsStatus("running", "孵化中…");
+    runHatch(text, mode, finalScene, buildHatchContext(), longTaskId, finalScene === "drill");
   }
 
   // 构建孵化上下文（今日已做 + 关联长期任务）
@@ -5090,14 +5118,20 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     state.settings.soundEnabled = el.soundEnabled.checked;
     state.settings.accentColor = el.accentColor.value !== "#7c5cff" ? el.accentColor.value : "";
     save(SETTINGS_KEY, state.settings);
+    // Hermes 同步状态实时更新
+    if (el.syncStatus) {
+      el.syncStatus.textContent = state.settings.syncEnabled
+        ? "已启用 → " + (state.settings.syncUrl || "/api/sync")
+        : "未启用";
+    }
     renderChatBadges();
   }
   // 监听所有设置字段变更（input/change），自动保存
-  ["apiUrl", "apiKey", "apiModel", "mcpConfig", "searchApiKey", "notifyLeadMin", "accentColor"].forEach((id) => {
+  ["apiUrl", "apiKey", "apiModel", "mcpConfig", "searchApiKey", "notifyLeadMin", "accentColor", "syncUrl"].forEach((id) => {
     const e = el[id];
     if (e) e.addEventListener("input", syncSettingsFromForm);
   });
-  ["mcpEnabled", "searchEnabled", "searchProvider", "searchAutoQuery", "soundEnabled"].forEach((id) => {
+  ["mcpEnabled", "searchEnabled", "searchProvider", "searchAutoQuery", "soundEnabled", "syncEnabled"].forEach((id) => {
     const e = el[id];
     if (e) e.addEventListener("change", syncSettingsFromForm);
   });
@@ -8130,6 +8164,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
           </div>
           ${t.note?`<div class="long-item-note">${escapeHtml(t.note)}</div>`:""}
         </div>
+        <button class="long-item-hatch" data-id="${t.id}" title="🥚 AI 孵化拆解为子步骤">🥚</button>
         <button class="long-item-eval" data-id="${t.id}" title="知识评估 7 维度">🧠</button>
         <button class="long-item-edit" data-id="${t.id}" title="详情/编辑">✏</button>
         <button class="long-item-del" data-id="${t.id}" title="删除">🗑</button>
@@ -8146,6 +8181,26 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     });
     el.longList.querySelectorAll(".long-item-eval").forEach((b) => {
       b.addEventListener("click", (e) => { e.stopPropagation(); openLongDetail(b.dataset.id, "eval"); });
+    });
+    el.longList.querySelectorAll(".long-item-hatch").forEach((b) => {
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const t = longTasks.find((x) => x.id === b.dataset.id);
+        if (!t) return;
+        const progress = t.progress || 0;
+        openHatchDialog({
+          text: t.title,
+          longTaskId: t.id,
+          scene: "drill",
+          sourceLabel: "长期任务",
+        });
+        // 传上下文给孵化
+        setTimeout(() => {
+          if (hatchState) {
+            hatchState.longTaskId = t.id;
+          }
+        }, 0);
+      });
     });
     el.longList.querySelectorAll(".long-item-edit").forEach((b) => {
       b.addEventListener("click", (e) => { e.stopPropagation(); openLongDetail(b.dataset.id); });
@@ -8493,6 +8548,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         <span class="inbox-item-text">${escapeHtml(item.text)}</span>
         ${item.tag ? `<span class="inbox-item-tag" style="background:${tagColor(item.tag)}20;color:${tagColor(item.tag)};">${escapeHtml(item.tag)}</span>` : ""}
         <span class="inbox-item-date">${dateStr}</span>
+        <button class="inbox-item-act" data-act="hatch" data-idx="${realIdx}" title="🥚 AI 孵化拆解为子步骤">🥚</button>
         <button class="inbox-item-act" data-act="tolong" data-idx="${realIdx}" title="转为长期任务">🗺️</button>
         <button class="inbox-item-del" data-idx="${realIdx}" title="删除">✕</button>
       </div>`;
@@ -8520,6 +8576,17 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         const idx = parseInt(btn.dataset.idx);
         const it = inboxItems[idx];
         if (!it) return;
+        const act = btn.dataset.act;
+        if (act === "hatch") {
+          // 关闭收集箱，打开孵化实验室
+          if (el.inboxDialog && el.inboxDialog.open) el.inboxDialog.close();
+          openHatchDialog({
+            text: it.text,
+            sourceLabel: "收集箱待办",
+          });
+          return;
+        }
+        // 默认行为：转为长期任务
         switchInboxMode("long");
         if (el.longTitle) {
           el.longTitle.value = it.text.slice(0, 60);
