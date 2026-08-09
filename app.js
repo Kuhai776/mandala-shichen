@@ -76,9 +76,17 @@
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.3.0";
-  const APP_VERSION_DATE = "2026-08-08";
+  const APP_VERSION = "2.3.4";
+  const APP_VERSION_DATE = "2026-08-09";
   const APP_CHANGELOG = [
+    { v: "2.3.4", date: "2026-08-09", items: [
+      "新增：🥚 任务孵化功能（任务弹窗孵化按钮，5场景4步流式拆解）",
+      "新增：🎯 7维度薄弱补强（drill场景，模板库0 token命中+维度徽章+完成回填闭环）",
+      "新增：长期任务详情页薄弱项高亮+🎯薄弱补强入口",
+      "修复：移除 capacitor server.url，APK 加载本地资源（根因修复，新功能可见）",
+      "修复：SW 缓存强制清理（v21→v23 + 内联脚本清 CacheStorage）",
+      "优化：origin 迁移检测，新域名无数据时引导用户通过同步服务器恢复",
+    ]},
     { v: "2.3.0", date: "2026-08-08", items: [
       "新增：长期任务时间地图（顶部甘特条）—— 跨日/周/月事项一眼可见",
       "新增：长期任务设定（收集箱 + AI 对话）—— 支持开始/截止日期、重复周期",
@@ -8829,6 +8837,10 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
 
   // ---------- 启动 ----------
   function init() {
+    // 版本指纹：启动时打印，用户可在 console 或设置里看到确认是否更新成功
+    console.log(`%c曼陀罗时辰 v${APP_VERSION} (${APP_VERSION_DATE})`, "color:#7c5cff;font-weight:bold;font-size:14px");
+    console.log(`%corigin: ${location.origin}`, "color:#666");
+    console.log(`%c孵化功能: ${typeof runHatch === "function" ? "已加载 ✓" : "未加载 ✗"}`, "color:" + (typeof runHatch === "function" ? "#3ecf8e" : "#e74c3c"));
     migrateOldData();
     checkOriginMigration(); // 检测 origin 变化（server.url 移除后数据隔离恢复引导）
     applyTheme();
