@@ -7,6 +7,28 @@
  *   done  = { "2026-07-28": { "0-0": true } }
  * ============================================================ */
 
+// ---------- 启动期 SW 强制清理（解决覆盖安装后仍加载旧资源的问题）----------
+// 必须在任何业务逻辑前执行，确保拿到最新代码
+(async () => {
+  try {
+    if ("serviceWorker" in navigator) {
+      // 1. 注销所有已注册的 Service Worker
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+      // 2. 清空所有 CacheStorage（含 mandala-v21/v22/v23 旧缓存）
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+      // 3. 重新注册最新 SW（sw.js 已是 v23）
+      await navigator.serviceWorker.register("./sw.js?v=20260809h", { scope: "./" });
+      console.log("[SW] 已清理旧缓存并重新注册");
+    }
+  } catch (e) {
+    console.warn("[SW] 清理失败（不影响功能）:", e);
+  }
+})();
+
 (function () {
   "use strict";
 
@@ -54,9 +76,28 @@
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.3.0";
-  const APP_VERSION_DATE = "2026-08-08";
+  const APP_VERSION = "2.3.6";
+  const APP_VERSION_DATE = "2026-08-09";
   const APP_CHANGELOG = [
+    { v: "2.3.6", date: "2026-08-09", items: [
+      "优化：🥚 孵化实验室界面（左右分栏+4步大图标+终端流式输出+实时计时）",
+      "优化：流式输出实时步骤数检测+token速率显示+智能滚动+复制原始输出",
+      "优化：流式中取消按钮+错误重试+降档重试（medium→lite）",
+      "优化：结果区过渡动画+总耗时记录+进度条流光效果",
+      "优化：移动端步骤2x2网格响应式布局",
+    ]},
+    { v: "2.3.5", date: "2026-08-09", items: [
+      "新增：🥚 孵化过程可视化（AI 流式输出实时呈现，逐字打印拆解过程）",
+      "新增：📥 收集箱入口移到底部导航栏（天地人右侧，分隔线+橙色调，I 键快捷打开）",
+    ]},
+    { v: "2.3.4", date: "2026-08-09", items: [
+      "新增：🥚 任务孵化功能（任务弹窗孵化按钮，5场景4步流式拆解）",
+      "新增：🎯 7维度薄弱补强（drill场景，模板库0 token命中+维度徽章+完成回填闭环）",
+      "新增：长期任务详情页薄弱项高亮+🎯薄弱补强入口",
+      "修复：移除 capacitor server.url，APK 加载本地资源（根因修复，新功能可见）",
+      "修复：SW 缓存强制清理（v21→v23 + 内联脚本清 CacheStorage）",
+      "优化：origin 迁移检测，新域名无数据时引导用户通过同步服务器恢复",
+    ]},
     { v: "2.3.0", date: "2026-08-08", items: [
       "新增：长期任务时间地图（顶部甘特条）—— 跨日/周/月事项一眼可见",
       "新增：长期任务设定（收集箱 + AI 对话）—— 支持开始/截止日期、重复周期",
@@ -185,6 +226,8 @@
   const HERMES_NOTES_KEY = "mandala-hermes-notes-v1";
   // Hermes 触发的 PWA 动作队列（L3 trigger_action 写入，pullSync 拉取后消费）
   const ACTIONS_KEY = "mandala-actions-v1";
+  // 任务孵化历史（完成率闭环用）
+  const HATCH_HISTORY_KEY = "mandala-hatch-history-v1";
 
   // ---------- 知识评估 7 维度 ----------
   // 标准 编号前缀 - 子维度 - 核心追问
@@ -261,63 +304,63 @@
   // 每个技能包含：方法论框架 + 曼陀罗时辰映射规则 + 具体执行指令
   const PRESET_SKILLS = [
     // ========== 天 · 计划环节技能 ==========
-    { id: "gtd", name: "GTD", desc: "收集→处理→组织→回顾→执行，把任务拆成可执行的下一步行动",
+    { id: "gtd", name: "GTD", group: "plan", desc: "收集→处理→组织→回顾→执行，把任务拆成可执行的下一步行动",
       prompt: "采用 GTD 方法论：把用户任务拆解为明确的「下一步行动」，区分项目/任务/日历项，确保每格任务是单一可执行动作。" },
-    { id: "eisenhower", name: "艾森豪威尔", desc: "按重要/紧急四象限分配，重要任务放高能时段",
+    { id: "eisenhower", name: "艾森豪威尔", group: "plan", desc: "按重要/紧急四象限分配，重要任务放高能时段",
       prompt: "使用艾森豪威尔矩阵：判断每个任务的重要/紧急程度。重要不紧急的任务优先安排在上午高能时段；紧急不重要任务集中批量处理；不重要不紧急任务可放晚上或省略。" },
-    { id: "pomodoro", name: "番茄工作法", desc: "25分钟专注+5分钟休息，2格≈1个番茄钟",
+    { id: "pomodoro", name: "番茄工作法", group: "plan", desc: "25分钟专注+5分钟休息，2格≈1个番茄钟",
       prompt: "采用番茄工作法：每 25 分钟专注 + 5 分钟休息为一个番茄钟。2 格（约26分钟）≈1个番茄钟。深度任务连续安排多个番茄钟，每 4 个番茄钟后安排较长休息。" },
-    { id: "energy", name: "能量管理", desc: "按生理节律分配：晨间高能做深度，午后低能做杂事",
+    { id: "energy", name: "能量管理", group: "plan", desc: "按生理节律分配：晨间高能做深度，午后低能做杂事",
       prompt: "按能量管理法：早晨（5-9点）和上午（9-11点）安排深度工作/学习；午饭后（13-15点）安排轻量沟通/邮件；下午（15-17点）安排创意/讨论；晚上安排放松/复盘。" },
-    { id: "timeblock", name: "时间块法", desc: "同类任务集中到同一时段，减少上下文切换",
+    { id: "timeblock", name: "时间块法", group: "plan", desc: "同类任务集中到同一时段，减少上下文切换",
       prompt: "采用时间块法：把同类任务集中安排在连续时段，减少上下文切换。例如所有会议放同一时辰，所有写作任务连续安排。" },
-    { id: "deepwork", name: "深度工作", desc: "保留 2-4 小时无干扰深度时段",
+    { id: "deepwork", name: "深度工作", group: "plan", desc: "保留 2-4 小时无干扰深度时段",
       prompt: "保留深度工作时段：每天安排至少 1-2 个连续时辰（2-4小时）的深度工作，不被会议/沟通打断，处理最重要的任务。" },
 
     // --- 天·计划：精细化专业技能 ---
-    { id: "morning_boot", name: "晨间启动", desc: "仪式化晨间规划，结合生物钟预测当日能量曲线，生成分层启动方案",
+    { id: "morning_boot", name: "晨间启动", group: "plan", desc: "仪式化晨间规划，结合生物钟预测当日能量曲线，生成分层启动方案",
       prompt: "【晨间启动规划法】\n你是晨间仪式设计专家。按以下框架规划：\n\n1. 能量预测：根据用户睡眠时长（询问）、昨日强度、季节光线，预测今日能量曲线（高/中/低三档映射到 9 时辰）\n2. 晨间仪式（第1时辰 5:00-7:00）：安排 3 格启动序列——\n   - 格0-1：唤醒过渡（拉伸/冥想/喝水，轻量活动）\n   - 格2-3：意图设定（写今日 3 个 MIT 最重要任务 + 一句正能量宣言）\n   - 格4-5：信息摄取（阅读 13 分钟 / 听播客 / 查看日程）\n   - 格6-8：第一个深度任务（趁皮质醇高峰，做最难的事）\n3. 能量映射规则：\n   - 高能时段（第1-3辰）：深度创作/学习/决策\n   - 中能时段（第4-6辰）：协作/会议/沟通\n   - 低能时段（第7-9辰）：整理/复盘/轻量阅读\n4. 缓冲设计：每时辰最后 1-2 格留空作为弹性缓冲，吸收超时\n5. 输出要求：每个任务标注预估能量消耗（高/中/低），确保高能任务不超过总高能时段的 70%" },
 
-    { id: "schedule_orchestration", name: "日程编排", desc: "基于任务依赖关系、认知负荷、缓冲区的多约束日程编排算法",
+    { id: "schedule_orchestration", name: "日程编排", group: "plan", desc: "基于任务依赖关系、认知负荷、缓冲区的多约束日程编排算法",
       prompt: "【多约束日程编排法】\n你是日程编排算法专家。按以下约束体系编排任务到曼陀罗格子：\n\n1. 依赖约束：识别任务间的依赖链（A 必须在 B 之前完成），按拓扑排序排列\n2. 认知负荷约束：\n   - 高负荷任务（写作/编程/数学）不连续超过 4 格（约 53 分钟），之后必须插入低负荷任务\n   - 同类型高负荷任务不背靠背安排，中间插入切换过渡（1 格轻量活动）\n3. 缓冲区设计：\n   - 每时辰预留最后 1 格作为「弹性缓冲」（处理超时/意外）\n   - 高密度日程（6 格以上有任务）在中间时辰强制插入 2 格休息\n4. 上下文切换最小化：\n   - 同项目/同工具的任务集中到同一时辰\n   - 不同上下文的切换至少间隔 1 格过渡\n5. 截止时间倒推：有 deadline 的任务从截止时间倒推，预留 20% 安全裕度\n6. 输出格式：每个任务标注 [负荷:高/中/低] [依赖:无/前置任务名] [缓冲:是/否]" },
 
-    { id: "goal_decomposition", name: "目标拆解", desc: "OKR 驱动的目标拆解：从季度目标到可执行的 13 分钟动作单元",
+    { id: "goal_decomposition", name: "目标拆解", group: "plan", desc: "OKR 驱动的目标拆解：从季度目标到可执行的 13 分钟动作单元",
       prompt: "【OKR 驱动目标拆解法】\n你是目标管理专家。按以下层级拆解用户目标：\n\n1. 目标层（Objective）：确认用户的周期目标（如「本周掌握 React Hooks」），1 句话定性描述\n2. 关键结果层（Key Results）：拆出 2-4 个可量化的关键结果（如「独立完成 3 个 Hooks 组件」「通过单元测试」），每个 KR 标注完成标准\n3. 里程碑层：每个 KR 拆为 2-3 个里程碑节点，标注预计完成日期\n4. 行动层（今日可执行）：\n   - 每个里程碑拆为可在 1-4 格内完成的行动单元\n   - 每个行动单元以动词开头，明确输入→处理→输出\n   - 标注预估格数和所属 KR\n5. 依赖排序：\n   - 基础概念类行动排在前面\n   - 实践类行动紧跟理论\n   - 综合应用排在最后\n6. 验证点：每个里程碑设置一个「检验动作」（如「不看教程手写一遍」），安排在里程碑末尾\n7. 输出要求：每个任务标注 [KR编号] [里程碑] [预估格数] [检验:是/否]" },
 
-    { id: "priority_matrix", name: "优先级矩阵", desc: "加权评分 + 艾森豪威尔双维分析，量化每个任务的优先级分数",
+    { id: "priority_matrix", name: "优先级矩阵", group: "plan", desc: "加权评分 + 艾森豪威尔双维分析，量化每个任务的优先级分数",
       prompt: "【加权优先级评分法】\n你是优先级决策分析专家。对每个任务进行多维度量化评分：\n\n1. 评分维度（每项 1-5 分）：\n   - 影响值：完成此任务对目标的推进程度\n   - 紧迫值：距 deadline 的剩余时间倒数（<1天=5分，1-3天=4分，3-7天=3分，>7天=2分，无截止=1分）\n   - 依赖值：被多少后续任务依赖（0=1分，1-2=3分，3+=5分）\n   - 能量匹配值：任务所需能量与安排时段能量曲线的匹配度\n   - 努力值（反向）：完成任务所需时间/精力（5分=轻松，1分=很重）\n2. 加权公式：优先级分数 = 影响值×0.30 + 紧迫值×0.25 + 依赖值×0.20 + 能量匹配×0.15 + 努力值×0.10\n3. 分档规则：\n   - 分数 ≥4.0 → 高优先级（priority:high），安排在每日前 1/3 时辰\n   - 分数 2.5-3.9 → 中优先级（priority:medium），安排在中段时辰\n   - 分数 <2.5 → 低优先级（priority:low），安排在末段或删除\n4. 艾森豪威尔交叉验证：对高分数任务再判断重要/紧急象限，重要不紧急的优先保护深度时段\n5. 输出要求：summary 中列出 TOP 3 任务及其分数明细，tasks 数组中每个任务标注 priority 和分数" },
 
     // ========== 地 · 记录环节技能 ==========
-    { id: "time_audit", name: "时间审计", desc: "精确追踪时间去向，按任务类型/项目/能量消耗分类统计",
+    { id: "time_audit", name: "时间审计", group: "record", desc: "精确追踪时间去向，按任务类型/项目/能量消耗分类统计",
       prompt: "【时间审计分析法】\n你是时间审计专家。指导用户进行精确的时间去向追踪：\n\n1. 记录规范：每格记录必须包含三要素——\n   - actual：实际做了什么（动词开头，如「写了报告第三章」）\n   - spent：实际花费时间（精确到分钟，如「25min」）\n   - note：附加信息（中断次数/分心原因/合作者）\n2. 分类标签体系（tag 字段）：\n   - [深度] 创作类：写作/编程/设计/学习\n   - [协作] 沟通类：会议/电话/邮件/即时消息\n   - [事务] 琐事类：整理/报销/审批/通勤\n   - [恢复] 休息类：午休/散步/冥想\n   - [消耗] 被动类：刷手机/无意义等待\n3. 偏差分析：对比计划与实际记录——\n   - 计划做A实际做了B → 标记「任务漂移」\n   - 计划 30min 实际 60min → 标记「时间膨胀」\n   - 计划有任务实际空格 → 标记「任务遗漏」\n4. 审计输出：在复盘环节生成时间审计报告——\n   - 各类别时间占比（饼图数据）\n   - 深度工作总时长 vs 协作总时长比值\n   - 被动消耗时间占比（目标 <10%）\n   - 任务漂移率（目标 <20%）\n5. 改进建议：针对最大偏差类别给出 1 条具体改进动作" },
 
-    { id: "focus_assessment", name: "专注度评估", desc: "评估每段时间的专注深度，识别心流状态与分心模式",
+    { id: "focus_assessment", name: "专注度评估", group: "record", desc: "评估每段时间的专注深度，识别心流状态与分心模式",
       prompt: "【专注度深度评估法】\n你是专注力分析专家。对用户的每段记录进行专注度量化：\n\n1. 专注度分级（每格评定）：\n   - L4 心流：完全沉浸，忘时间，产出高质量（标记 🟢）\n   - L3 专注：注意力集中，偶有走神但快速拉回（标记 🔵）\n   - L2 浅层：能完成任务但频繁看手机/走神（标记 🟡）\n   - L1 分散：多任务切换，碎片化处理（标记 🟠）\n   - L0 无效：名义在做但实际刷手机/发呆（标记 🔴）\n2. 评估信号（从记录中推断）：\n   - spent 时间与任务复杂度匹配 → 可能高专注\n   - note 中提到「被XX打断」→ 专注被中断\n   - actual 是简单任务但 spent 很长 → 可能低专注\n   - 连续多格同类任务 → 可能进入心流\n3. 分心模式识别：\n   - 频繁中断型：记录中多次出现「被打断」\n   - 任务跳跃型：相邻格子任务类型频繁切换\n   - 拖延型：困难任务被推迟到末段时辰\n   - 过度准备型：大量时间花在「准备」而非「执行」\n4. 心流条件分析：统计出现 L4 心流的格子，分析共性条件（时段/任务类型/前置活动）\n5. 输出建议：在复盘中给出「心流触发公式」（如「上午第2辰 + 编程类 + 前1格冥想 → 80%概率心流」）" },
 
-    { id: "interruption_mgmt", name: "中断管理", desc: "记录中断来源与恢复成本，建立中断防护策略",
+    { id: "interruption_mgmt", name: "中断管理", group: "record", desc: "记录中断来源与恢复成本，建立中断防护策略",
       prompt: "【中断管理分析法】\n你是中断管理专家。帮助用户追踪和分析工作中断：\n\n1. 中断记录格式（在 note 字段）：\n   - 来源标记：[P]人物中断 [M]消息中断 [E]外部事件 [I]内部冲动\n   - 恢复成本：记录从中断到重新专注的时间（如「恢复5min」）\n   - 示例：「[P]同事问问题，恢复8min」\n2. 中断分类统计：\n   - 可避免中断：社交媒体通知、无预约闲聊 → 应主动消除\n   - 不可避免中断：上级紧急需求、系统故障 → 应建立快速恢复机制\n   - 自发中断：突然想起其他事、习惯性看手机 → 应训练注意力\n3. 影响量化：\n   - 每次中断平均恢复成本 ≈ 15-23 分钟（根据 Gloria Mark 研究）\n   - 计算当日中断总成本 = 中断次数 × 平均恢复时间\n   - 与总可用时间对比，算出「中断损耗率」\n4. 防护策略建议：\n   - 高中断时段识别后，在下一日将深度任务避开该时段\n   - 设置「免打扰时辰」（连续 2 格不开消息通知）\n   - 建立中断缓冲：快速记录中断内容，5分钟内不处理，集中到低能时段批量回复\n5. 输出要求：在复盘中生成「中断热力图」——标注哪些时辰中断最多，给出针对性防护建议" },
 
     // ========== 人 · 复盘环节技能 ==========
-    { id: "grai_review", name: "GRAI复盘", desc: "Goal-Result-Analysis-Insight 四步深度复盘法",
+    { id: "grai_review", name: "GRAI复盘", group: "review", desc: "Goal-Result-Analysis-Insight 四步深度复盘法",
       prompt: "【GRAI 深度复盘法】\n你是复盘教练。按 GRAI 框架对今日数据进行四层递进分析：\n\n1. G - Goal 回顾目标：\n   - 提取今日计划中的 TOP 3 任务\n   - 列出每个任务的原始目标（完成标准/预期产出）\n   - 标注哪些是 MIT（最重要任务）\n\n2. R - Result 评估结果：\n   - 逐项对比「计划 vs 实际记录」\n   - 量化完成度：已完成格数/计划总格数 = 完成率\n   - 标注三类结果：✓ 达成  △ 部分达成  ✗ 未达成\n   - 对未达成的任务，从记录中找「时间去哪了」\n\n3. A - Analysis 分析原因：\n   - 成功因素：哪些条件促成了高效完成？（时段/顺序/前置准备/无中断）\n   - 失败因素：用 5-Why 追问法分析根因——\n     Why1: 为什么没完成A？→ 时间被B占了\n     Why2: 为什么B花了更多时间？→ 低估了B的复杂度\n     Why3: 为什么低估？→ 没有提前拆解B的步骤\n     → 根因：规划阶段缺少任务复杂度评估\n   - 偶然 vs 必然：区分哪些是偶发因素（临时会议），哪些是系统性问题（总是低估）\n\n4. I - Insight 提炼洞察：\n   - 1 条「成功公式」：今日最高效的时段+任务+条件组合\n   - 1 条「改进杠杆」：投入最小但效果最大的改进点\n   - 1 条「认知更新」：今天发现的关于自己工作模式的新认知\n   - 明日建议：基于以上洞察，给出明日 2-3 条具体调整建议\n\n5. 输出格式：按 GRAI 四段式输出，每段用数据支撑，避免空泛" },
 
-    { id: "efficiency_insight", name: "效率洞察", desc: "趋势分析与模式识别，发现个人效率周期律",
+    { id: "efficiency_insight", name: "效率洞察", group: "review", desc: "趋势分析与模式识别，发现个人效率周期律",
       prompt: "【效率趋势洞察法】\n你是数据分析专家。基于多日曼陀罗数据，识别用户的个人效率模式：\n\n1. 时段效率曲线：\n   - 统计每个时辰（9个）的近 7 日平均完成率\n   - 识别「黄金时段」（完成率 >80% 的时辰）\n   - 识别「低谷时段」（完成率 <40% 的时辰）\n   - 生成效率曲线描述（如「双峰型：上午第2-3辰峰值，下午第6辰回升」）\n\n2. 任务类型效率：\n   - 按 tag 分类统计各类任务的完成率\n   - 找出「最容易完成的任务类型」和「最容易拖延的任务类型」\n   - 分析高完成率任务的共性条件\n\n3. 效率周期识别：\n   - 周内规律：周一到周日的效率波动模式\n   - 能量周期：连续高效日后的效率衰减拐点\n   - 恢复模式：低效日后需要多少天恢复到高效\n\n4. 偏差模式库：\n   - 时间膨胀 TOP3：哪些任务类型最容易被低估时间\n   - 任务漂移 TOP3：哪些计划任务最容易被其他事情挤占\n   - 空格集中区：哪些时辰最容易空置无记录\n\n5. 洞察输出：\n   - 「你的效率画像」：一句话总结用户的工作风格（如「晨间型深度工作者，午后需要结构化安排防止涣散」）\n   - 「最大效率杠杆」：改变哪个变量能最大化提升整体效率\n   - 「效率陷阱」：最需要警惕的效率杀手\n   - 输出格式为结构化 JSON，包含 efficiency_curve、task_analysis、patterns、recommendations 四个字段" },
 
-    { id: "improvement_loop", name: "改进闭环", desc: "PDCA 循环改进：从复盘洞察到明日行动的闭环转化",
+    { id: "improvement_loop", name: "改进闭环", group: "review", desc: "PDCA 循环改进：从复盘洞察到明日行动的闭环转化",
       prompt: "【PDCA 改进闭环法】\n你是持续改进专家。将复盘洞察转化为可执行的明日改进方案：\n\n1. P - Plan 改进计划：\n   - 从今日复盘中提取 1-3 个具体改进点（不是「提高效率」而是「上午第2辰开始前先关掉微信通知」）\n   - 每个改进点设计可验证的成功标准（如「今日第2辰零中断」）\n   - 将改进点嵌入明日曼陀罗格子（在对应时段前置 1 格作为「改进准备」）\n\n2. D - Do 执行追踪：\n   - 在记录环节特别标注改进点的执行情况\n   - note 字段用 [改进] 前缀标记与改进相关的记录\n   - 追踪改进动作的执行率（计划改进 3 个，实际执行了几个）\n\n3. C - Check 检查验证：\n   - 对比「执行改进日」vs「未执行日」的效率数据\n   - 量化改进效果：完成率提升多少、中断减少多少、心流增加多少\n   - 判断改进是否有效，区分「真改进」和「安慰剂改进」\n\n4. A - Act 标准化固化：\n   - 有效的改进 → 固化为每日标准流程（写入对应时辰的固定任务）\n   - 无效的改进 → 废弃或重新设计\n   - 部分有效的改进 → 微调参数后继续试验\n   - 形成「个人最佳实践库」，每个有效改进用一句话记录\n\n5. 闭环输出：\n   - 今日改进执行率：X/Y\n   - 有效改进数：N 个（列出具体内容）\n   - 明日新改进：M 个（每个附验证标准）\n   - 已固化最佳实践：K 条（累计）\n   - 改进成熟度评级：探索期/验证期/固化期/优化期" },
 
     // ========== 跨环节综合技能 ==========
-    { id: "energy_rhythm", name: "能量节律", desc: "基于超昼夜节律（90分钟周期）匹配任务类型与能量波峰",
+    { id: "energy_rhythm", name: "能量节律", group: "cross", desc: "基于超昼夜节律（90分钟周期）匹配任务类型与能量波峰",
       prompt: "【超昼夜节律能量管理法】\n你是生理节律与任务匹配专家。基于超昼夜节律（Ultradian Rhythm）规划任务：\n\n1. 节律映射：\n   - 人体自然节律为 90 分钟高能 + 20 分钟低谷的循环\n   - 曼陀罗每时辰 = 120 分钟 ≈ 1 个完整节律周期 + 30 分钟过渡\n   - 时辰内格 0-5（前 80 分钟）≈ 高能期 → 安排深度任务\n   - 时辰内格 6-8（后 40 分钟）≈ 低谷过渡期 → 安排轻量/休息\n\n2. 能量分级与任务匹配：\n   - T1 超高能（晨起后第1-2辰，皮质醇峰值）：战略思考/创意发散/最难任务\n   - T2 高能（上午第3-4辰）：深度执行/编程/写作\n   - T3 中能（午后第5-6辰）：协作沟通/会议/审查\n   - T4 低能（傍晚第7-8辰）：整理归档/轻量阅读/事务处理\n   - T5 恢复期（晚间第9辰）：复盘冥想/放松/社交\n\n3. 能量保护策略：\n   - 高能时段不安排会议/电话/回复消息\n   - 低能时段不安排重要决策\n   - 连续 2 个高能时辰后强制插入 1 格恢复（散步/冥想/小睡）\n   - 午后第5辰前 3 格安排为「重启仪式」（午餐+散步+咖啡）\n\n4. 个性化校准：\n   - 询问用户的晨型/夜型偏好（MEQ 量表简化版）\n   - 夜型人将 T1/T2 时段后移 1 个时辰\n   - 根据记录数据持续校准个人能量曲线\n\n5. 输出要求：每个任务标注 [能量需求:T1-T5] [节律位置:高能期/低谷期/过渡期]，确保高能任务不安排在低谷期" },
 
-    { id: "habit_system", name: "习惯系统", desc: "基于行为设计学的习惯养成系统：触发-行动-奖励-追踪闭环",
+    { id: "habit_system", name: "习惯系统", group: "cross", desc: "基于行为设计学的习惯养成系统：触发-行动-奖励-追踪闭环",
       prompt: "【行为设计习惯系统】\n你是行为设计学（BJ Fogg 模型）专家。帮助用户设计和追踪习惯养成：\n\n1. 习惯设计框架（MAP 模型）：\n   - Motivation 动机：确认习惯的内在驱动力（不是「要运动」而是「想要精力充沛地工作」）\n   - Ability 能力：将习惯拆到极小（不是「健身1小时」而是「穿上跑鞋出门走5分钟」）\n   - Prompt 触发：绑定到已有锚点行为（如「刷牙后→冥想3分钟」）\n\n2. 曼陀罗习惯排布：\n   - 晨间习惯栈（第1时辰格0-3）：触发=起床 → 拉伸(1格)→喝水(1格)→冥想(1格)→写日记(1格)\n   - 工作启动习惯（第2时辰格0-1）：触发=坐到工位 → 清理桌面→查看MIT\n   - 午后重启习惯（第5时辰格0-2）：触发=午休结束 → 散步→深呼吸→设定下午目标\n   - 晚间复盘习惯（第9时辰格0-2）：触发=结束工作 → 回顾今日→规划明日→感恩记录\n\n3. 习惯追踪机制：\n   - 每个习惯任务用 tag 字段标记 [习惯]\n   - 连续打卡天数 = 连续有记录的天数\n   - 习惯强度 = 最近 7 天执行率\n   - 里程碑：7天→萌芽期 / 21天→巩固期 / 66天→稳定期 / 90天→自动化期\n\n4. 奖励设计：\n   - 即时奖励：完成习惯后立刻给予微奖励（听一首歌/伸展一下）\n   - 里程碑奖励：7天/21天/66天设定不同层级的自我奖励\n   - 在格子记录中用 note 标记 [奖励已领取]\n\n5. 习惯堆叠进阶：\n   - 已稳定的习惯（>21天）可以叠加新习惯（如「冥想后→读1页书」）\n   - 每次只叠加 1 个新习惯，避免过载\n   - 失败的习惯 → 降级到更小版本重新开始\n\n6. 输出要求：习惯任务标注 [习惯] [阶段:萌芽/巩固/稳定] [连续天数]，在复盘中生成习惯追踪仪表盘" },
 
-    { id: "weekly_strategy", name: "周度战略", desc: "周维度规划与回顾：主题日设计 + 周目标拆解 + 周复盘仪式",
+    { id: "weekly_strategy", name: "周度战略", group: "cross", desc: "周维度规划与回顾：主题日设计 + 周目标拆解 + 周复盘仪式",
       prompt: "【周度战略规划法】\n你是战略规划教练。以周为单位进行高层规划与回顾：\n\n1. 周一规划仪式（周一首时辰）：\n   - 回顾上周：完成率/未完成项/最大收获/最大教训\n   - 设定本周主题：用 1-3 个关键词概括本周重心（如「深度输出周」「关系建设周」）\n   - 确定本周 3 个 O（Objective）和每个 O 的 1-2 个 KR\n   - 将周目标拆解到 7 天的曼陀罗格子中\n\n2. 主题日设计（Theme Days）：\n   - 周一：规划+启动（深度任务）\n   - 周二：执行+产出（最高强度深度工作）\n   - 周三：协作+沟通（集中会议/1on1）\n   - 周四：执行+产出（第二深度日）\n   - 周五：收尾+复盘（完成遗留+周复盘）\n   - 周六：探索+学习（兴趣驱动的学习/尝试）\n   - 周日：恢复+规划（充分休息+轻量规划）\n   - 根据用户实际工作节奏调整主题日\n\n3. 周中检查点（周三晚间第8时辰）：\n   - 检查周目标进度：已完成/进行中/未开始\n   - 调整后半周计划：未启动的任务是否需要降级或委托\n   - 识别风险：哪些任务可能延期，提前应对\n\n4. 周五复盘仪式（周五末时辰）：\n   - 数据汇总：本周总完成率/深度工作总时长/中断总成本\n   - 目标达成评估：每个 O 和 KR 的完成度\n   - 精力回顾：哪天最高效/哪天最低效/原因分析\n   - 经验提炼：本周学到的 1 条工作方法改进\n   - 下周预告：下周的主题和核心目标方向\n\n5. 月度趋势（每月最后一周复盘时）：\n   - 4 周效率趋势曲线\n   - 习惯追踪月度总结\n   - 月度目标达成率\n   - 下月战略方向调整\n\n6. 输出要求：周规划生成 7 天概览，每天标注主题和核心任务数；周复盘生成结构化报告含数据/评估/洞察/调整" },
 
-    { id: "state_management", name: "状态管理", desc: "情绪与心理状态管理：压力监测 + 心理能量补给 + 心流触发",
+    { id: "state_management", name: "状态管理", group: "cross", desc: "情绪与心理状态管理：压力监测 + 心理能量补给 + 心流触发",
       prompt: "【心理状态与能量管理法】\n你是心理状态管理教练。关注用户的心理能量和情绪状态对效率的影响：\n\n1. 心理能量模型（Ego Depletion 理论）：\n   - 心理能量（意志力）是有限资源，每做一次决策/抵抗诱惑都消耗\n   - 高消耗活动：抗拒诱惑/控制情绪/复杂决策/社交表演\n   - 补给活动：独处/冥想/自然散步/兴趣爱好/深度睡眠\n   - 在格子中标注每个任务的心理消耗值（高/中/低）\n\n2. 压力监测信号：\n   - 从记录中识别压力信号——\n     · 任务密度突然增加（单时辰 8+ 格有任务）\n     · 连续多日无休息格\n     · note 中出现「累」「烦」「不想做」等情绪词\n     · 深度任务完成率下降趋势\n   - 压力分级：绿色（正常）/黄色（偏高）/红色（过载）\n\n3. 心理能量补给策略：\n   - 微补给（1格≈13分钟）：冥想/深呼吸/听音乐/看窗外\n   - 中补给（2-3格）：散步/小睡/聊天/茶歇\n   - 深度补给（1个时辰）：运动/兴趣时间/自然接触\n   - 补给时机：心理能量低于 30% 时强制插入补给格\n\n4. 心流触发设计（Flow State）：\n   - 心流前置条件：明确目标 + 即时反馈 + 挑战与技能匹配\n   - 触发仪式：固定前置动作（如清理桌面→倒水→戴耳机→开始）\n   - 在格子中设计「心流触发序列」：前1格做触发仪式→后4-6格做深度任务\n   - 挑战度匹配：任务难度略高于当前技能水平（约 4% 超出）\n\n5. 情绪管理策略：\n   - 低落时：安排低难度高完成感的任务（整理/回复邮件/简单执行）\n   - 焦虑时：安排结构化任务（有明确步骤的执行类）\n   - 高昂时：安排创意类/挑战类任务（趁势突破）\n   - 拖延时：拆分任务到极小（1格即可完成的最小动作）\n\n6. 输出要求：\n   - 每个任务标注 [心理消耗:高/中/低] [情绪适配:低落/焦虑/高昂/平稳]\n   - 复盘中增加「心理状态评估」段落\n   - 高压力日自动建议插入补给格\n   - 生成「个人心流档案」：记录心流出现的条件组合" },
   ];
 
@@ -825,7 +868,22 @@
     if (items[idx]) {
       items[idx].done = !items[idx].done;
       setCellChecklist(period, cell, items);
+      // 完成时若带 dim 标记（孵化产出），提示去评分
+      const it = items[idx];
+      if (it.done && it.dim) {
+        promptDimScore(it.dim, it.dimGoal);
+      }
     }
+  }
+
+  // 维度评分提示（孵化完成回填闭环）
+  function promptDimScore(dim, goal) {
+    const [dc, sk] = dim.split(".");
+    const meta = lookupDim(dc, sk);
+    if (!meta) return;
+    const goalTxt = goal ? `目标 ${goal} 星` : "自评 1-5 星";
+    toast(`${dim} 练习完成（${goalTxt}）。${meta.question}`, "success", 5000);
+    if (navigator.vibrate) navigator.vibrate([10, 30, 10, 30, 10]);
   }
   function checklistProgress(period, cell) {
     const items = getCellChecklist(period, cell);
@@ -1432,6 +1490,7 @@
     inboxFilter: document.getElementById("inboxFilter"),
     inboxTimeFilter: document.getElementById("inboxTimeFilter"),
     inboxTagList: document.getElementById("inboxTagList"),
+    inboxTagChips: document.getElementById("inboxTagChips"),
     // 长期任务时间地图
     longtaskBar: document.getElementById("longtaskBar"),
     longtaskTimeline: document.getElementById("longtaskTimeline"),
@@ -1456,6 +1515,43 @@
     // 知识评估 7 维度参考卡
     knowledgeDimDialog: document.getElementById("knowledgeDimDialog"),
     kdimGrid: document.getElementById("kdimGrid"),
+    // 任务孵化
+    hatchBtn: document.getElementById("hatchBtn"),
+    hatchDialog: document.getElementById("hatchDialog"),
+    closeHatch: document.getElementById("closeHatch"),
+    hatchTaskText: document.getElementById("hatchTaskText"),
+    hatchMode: document.getElementById("hatchMode"),
+    hatchScene: document.getElementById("hatchScene"),
+    hatchHistoryHint: document.getElementById("hatchHistoryHint"),
+    hatchProgress: document.getElementById("hatchProgress"),
+    hatchProgressFill: document.getElementById("hatchProgressFill"),
+    hatchProgressText: document.getElementById("hatchProgressText"),
+    hatchLabTaskText: document.getElementById("hatchLabTaskText"),
+    hatchLabTimer: document.getElementById("hatchLabTimer"),
+    hatchStream: document.getElementById("hatchStream"),
+    hatchStreamBody: document.getElementById("hatchStreamBody"),
+    hatchStreamCount: document.getElementById("hatchStreamCount"),
+    hatchStreamTag: document.getElementById("hatchStreamTag"),
+    hatchStreamRate: document.getElementById("hatchStreamRate"),
+    hatchStreamCopy: document.getElementById("hatchStreamCopy"),
+    hatchStreamFoot: document.getElementById("hatchStreamFoot"),
+    hatchStreamSteps: document.getElementById("hatchStreamSteps"),
+    hatchStreamHint: document.getElementById("hatchStreamHint"),
+    hatchProgressActions: document.getElementById("hatchProgressActions"),
+    hatchCancelStream: document.getElementById("hatchCancelStream"),
+    hatchErrorMsg: document.getElementById("hatchErrorMsg"),
+    hatchRetryBtn: document.getElementById("hatchRetryBtn"),
+    hatchDowngradeBtn: document.getElementById("hatchDowngradeBtn"),
+    hatchResult: document.getElementById("hatchResult"),
+    hatchSummary: document.getElementById("hatchSummary"),
+    hatchShortcut: document.getElementById("hatchShortcut"),
+    hatchList: document.getElementById("hatchList"),
+    hatchError: document.getElementById("hatchError"),
+    hatchSelectAll: document.getElementById("hatchSelectAll"),
+    hatchInvert: document.getElementById("hatchInvert"),
+    hatchRegen: document.getElementById("hatchRegen"),
+    hatchApply: document.getElementById("hatchApply"),
+    hatchCancelBtn: document.getElementById("hatchCancelBtn"),
     // 复盘汇总
     reviewSummary: document.getElementById("reviewSummary"),
     reviewPeriodNav: document.getElementById("reviewPeriodNav"),
@@ -2033,8 +2129,8 @@
       cellEl.addEventListener("touchmove", () => { if (pressTimer) clearTimeout(pressTimer); });
       cellEl.addEventListener("contextmenu", (e) => { e.preventDefault(); toggleDone(period, cell); });
 
-      // 拖拽（仅当格子有任务时）
-      if (tasks.length) attachDragHandlers(cellEl, period, cell);
+      // 拖拽：所有格子都要绑定 drop 监听器，否则空格子接收不到拖入的任务
+      attachDragHandlers(cellEl, period, cell);
 
       el.mandalaGrid.appendChild(cellEl);
     }
@@ -2234,6 +2330,10 @@
     if (state.realm === realm) return;
     const oldRealm = state.realm;
     state.realm = realm;
+    // 进入/离开复盘 realm 时重置复盘对话阶段
+    if (realm === "review") {
+      state.reviewChatStage = state.reviewChatStage || "entry";
+    }
 
     // 简化切换：直接更新容器属性，CSS 处理过渡
     if (el.realmContainer) {
@@ -3128,39 +3228,70 @@ ${recordItems.join("\n") || "（无）"}
   // ---------- 快捷切换栏 ----------
   function renderQuickToggle() {
     el.quickToggle.innerHTML = "";
-    const label = document.createElement("span");
-    label.className = "quick-toggle-label";
-    label.textContent = "增强:";
-    el.quickToggle.appendChild(label);
-
-    // Skill 复选框
-    PRESET_SKILLS.forEach((skill) => {
-      const active = state.settings.skills.includes(skill.id);
-      const chip = document.createElement("span");
-      chip.className = "qt-chip" + (active ? " active" : "");
-      chip.innerHTML = `<span class="qt-dot"></span>${escapeHtml(skill.name)}`;
-      chip.title = skill.desc;
-      chip.addEventListener("click", () => {
-        let skills = state.settings.skills.slice();
-        if (active) {
-          skills = skills.filter((s) => s !== skill.id);
-        } else {
-          skills.push(skill.id);
-        }
-        state.settings.skills = skills;
-        save(SETTINGS_KEY, state.settings);
-        renderQuickToggle();
-        renderChatBadges();
-        toast(active ? `已关闭 ${skill.name}` : `已启用 ${skill.name}`, "info");
-      });
-      el.quickToggle.appendChild(chip);
+    // 组块化：按「天/地/人/跨环节」分组，去掉每个 chip 的小圆点（晃眼）
+    const GROUPS = [
+      { id: "plan",   label: "天·计划", icon: "☀" },
+      { id: "record", label: "地·记录", icon: "◎" },
+      { id: "review", label: "人·复盘", icon: "✦" },
+      { id: "cross",  label: "跨环节",  icon: "⇄" },
+    ];
+    const byGroup = { plan: [], record: [], review: [], cross: [] };
+    PRESET_SKILLS.forEach((s) => {
+      const g = byGroup[s.group] ? s.group : "cross";
+      byGroup[g].push(s);
     });
 
-    // MCP 开关
+    const toggleSkill = (skill, active) => {
+      let skills = state.settings.skills.slice();
+      if (active) {
+        skills = skills.filter((x) => x !== skill.id);
+      } else {
+        skills.push(skill.id);
+      }
+      state.settings.skills = skills;
+      save(SETTINGS_KEY, state.settings);
+      renderQuickToggle();
+      renderChatBadges();
+      toast(active ? `已关闭 ${skill.name}` : `已启用 ${skill.name}`, "info");
+    };
+
+    GROUPS.forEach((g) => {
+      const items = byGroup[g.id];
+      if (!items.length) return;
+      const groupEl = document.createElement("div");
+      groupEl.className = "qt-group";
+      const labelEl = document.createElement("span");
+      labelEl.className = "qt-group-label";
+      labelEl.innerHTML = `<span class="qt-group-icon">${g.icon}</span>${g.label}`;
+      groupEl.appendChild(labelEl);
+      const chipsEl = document.createElement("div");
+      chipsEl.className = "qt-group-chips";
+      items.forEach((skill) => {
+        const active = state.settings.skills.includes(skill.id);
+        const chip = document.createElement("span");
+        chip.className = "qt-chip" + (active ? " active" : "");
+        chip.textContent = skill.name;
+        chip.title = skill.desc;
+        chip.addEventListener("click", () => toggleSkill(skill, active));
+        chipsEl.appendChild(chip);
+      });
+      groupEl.appendChild(chipsEl);
+      el.quickToggle.appendChild(groupEl);
+    });
+
+    // MCP 独立一块
+    const mcpGroup = document.createElement("div");
+    mcpGroup.className = "qt-group qt-group-mcp";
+    const mcpLabel = document.createElement("span");
+    mcpLabel.className = "qt-group-label";
+    mcpLabel.innerHTML = `<span class="qt-group-icon">⌘</span>外部`;
+    mcpGroup.appendChild(mcpLabel);
+    const mcpChips = document.createElement("div");
+    mcpChips.className = "qt-group-chips";
     const mcpActive = state.settings.mcpEnabled && state.settings.mcpConfig;
     const mcpChip = document.createElement("span");
     mcpChip.className = "qt-chip" + (mcpActive ? " active" : "");
-    mcpChip.innerHTML = `<span class="qt-dot"></span>MCP`;
+    mcpChip.textContent = "MCP";
     mcpChip.title = "Model Context Protocol";
     mcpChip.addEventListener("click", () => {
       if (!state.settings.mcpConfig) {
@@ -3173,7 +3304,9 @@ ${recordItems.join("\n") || "（无）"}
       renderChatBadges();
       toast(state.settings.mcpEnabled ? "已启用 MCP" : "已关闭 MCP", "info");
     });
-    el.quickToggle.appendChild(mcpChip);
+    mcpChips.appendChild(mcpChip);
+    mcpGroup.appendChild(mcpChips);
+    el.quickToggle.appendChild(mcpGroup);
   }
 
   // ---------- 任务编辑弹窗（多任务） ----------
@@ -3191,7 +3324,11 @@ ${recordItems.join("\n") || "（无）"}
     el.taskEstimate.value = first?.estimate || "";
     el.taskDeadline.value = first?.deadline || "";
     const checklist = getCellChecklist(period, cell);
-    el.taskChecklist.value = checklist.map((i) => (i.done ? "☑ " : "☐ ") + i.text).join("\n");
+    el.taskChecklist.value = checklist.map((i) => {
+      let line = (i.done ? "☑ " : "☐ ") + i.text;
+      if (i.dim) line += ` #${i.dim}${i.dimGoal ? `→${i.dimGoal}` : ""}#`;
+      return line;
+    }).join("\n");
     // 重复规则
     const rpt = getRepeatRuleForCell(state.currentDate, period, cell);
     el.taskRepeat.value = rpt ? rpt.rule : "";
@@ -3219,12 +3356,26 @@ ${recordItems.join("\n") || "（无）"}
     // 子任务清单：支持 ☑/☐/✓/x 前缀标记完成状态
     const clLines = el.taskChecklist.value.split("\n").map((s) => s.trim()).filter(Boolean);
     const checklist = clLines.map((line) => {
-      const m = line.match(/^([☑☐✓√xX])\s*(.*)$/);
-      if (m) {
-        const done = /[☑✓√]/.test(m[1]);
-        return { text: m[2], done };
+      // 解析维度标记 ` #Cl.def→3#`（孵化写入，完成时可回填评分）
+      let dim = null, dimGoal = null, text = line;
+      const dimMatch = line.match(/\s*#(\w+)\.(\w+)(?:→(\d+))?#\s*$/);
+      if (dimMatch) {
+        dim = `${dimMatch[1]}.${dimMatch[2]}`;
+        dimGoal = dimMatch[3] ? parseInt(dimMatch[3], 10) : null;
+        text = line.replace(/\s*#\w+\.\w+(?:→\d+)?#\s*$/, "");
       }
-      return { text: line, done: false };
+      const m = text.match(/^([☑☐✓√xX])\s*(.*)$/);
+      let done = false;
+      if (m) {
+        done = /[☑✓√]/.test(m[1]);
+        text = m[2];
+      }
+      const item = { text, done };
+      if (dim) {
+        item.dim = dim;
+        if (dimGoal) item.dimGoal = dimGoal;
+      }
+      return item;
     });
     setCellChecklist(period, cell, checklist);
     // 重复规则：先清旧的，再按选择加新的
@@ -3262,6 +3413,828 @@ ${recordItems.join("\n") || "（无）"}
   el.closeTaskDialog.addEventListener("click", closeTaskDialog);
   el.taskDialog.addEventListener("click", (e) => { if (e.target === el.taskDialog) closeTaskDialog(); });
 
+  // ---------- 任务孵化（Hatch）----------
+  // 复用 TJ decompose 的编排哲学：estimate → main → grow → risk 四步流式
+  // 输出有序可执行动作链（带 est_min/depends_on/risk），写入 checklist
+  const HATCH_MODE_CFG = {
+    lite:   { min: 3, max: 5,  label: "lite" },
+    medium: { min: 5, max: 8,  label: "medium" },
+    zen:    { min: 8, max: 12, label: "zen" },
+  };
+  const HATCH_SCENES = {
+    learn: {
+      label: "学习",
+      focus: "理解性步骤：先建立认知框架再深入细节",
+      rules: "步骤要包含「检索/对比/复述/应用」四类学习动作；每步标注预期理解的深度（表面/机制/迁移）",
+    },
+    exec: {
+      label: "执行",
+      focus: "顺序动作链：每步可独立产出物",
+      rules: "每步必须是具体动作（动词开头）；单步 15-30 分钟可完成；产出可验证",
+    },
+    decide: {
+      label: "决策",
+      focus: "信息收集 → 选项对比 → 决策标准 → 选择",
+      rules: "前 2 步聚焦信息收集和选项列举；中间步骤列利弊和决策标准；最后 1 步是明确选择动作",
+    },
+    checklist: {
+      label: "清单",
+      focus: "并列检查项，无严格顺序",
+      rules: "步骤之间无依赖（depends_on 一律 null）；每步是一个独立检查项；总数偏多没关系",
+    },
+    drill: {
+      label: "薄弱补强",
+      focus: "针对 7 维度薄弱子维度生成定向练习",
+      rules: "每个薄弱子维度生成 1-2 个步骤；步骤必须直接回应该子维度的核心追问；target_dim 必填；dim_goal = 当前分+1（封顶5）",
+    },
+  };
+
+  // 自动识别场景（关键词路由）
+  function detectHatchScene(taskText) {
+    const t = taskText.toLowerCase();
+    if (/(学|读|研究|理解|掌握|弄懂|搞懂|复习|预习)/.test(t)) return "learn";
+    if (/(选|决定|对比|选择|评估.*方案|权衡)/.test(t)) return "decide";
+    if (/(准备|组织|策划|整理|检查|盘点|核对)/.test(t)) return "checklist";
+    return "exec";
+  }
+
+  // 7 维度薄弱项识别（≤ threshold 视为薄弱）
+  function findWeakDims(evalObj, threshold = 2) {
+    if (!evalObj) return [];
+    const weak = [];
+    KNOWLEDGE_DIMENSIONS.forEach((d) => {
+      d.subs.forEach((s) => {
+        const v = evalObj[s.key] || 0;
+        if (v <= threshold && v >= 0) {
+          weak.push({
+            dim: d.code, dimName: d.name, dimColor: d.color,
+            sub: s.key, subName: s.name, question: s.q,
+            score: v, goal: Math.min(5, v + 1),
+          });
+        }
+      });
+    });
+    return weak.sort((a, b) => a.score - b.score).slice(0, 5);
+  }
+
+  // 根据维度 code+sub 查找维度元信息
+  function lookupDim(dimCode, subKey) {
+    const d = KNOWLEDGE_DIMENSIONS.find((x) => x.code === dimCode);
+    if (!d) return null;
+    const s = d.subs.find((x) => x.key === subKey);
+    if (!s) return null;
+    return { dim: d.code, dimName: d.name, dimColor: d.color, sub: s.key, subName: s.name, question: s.q };
+  }
+
+  // 7 维度标准练习模板（0 token 命中即用，未命中走 LLM）
+  const HATCH_DIM_TEMPLATES = {
+    "Cl.def": (task) => `用一句话定义「${task}」，再对比一个最易混淆的概念，说清两者区别`,
+    "Cl.boundary": (task) => `列举「${task}」的 3 个边界条件：什么情况下它成立/不成立`,
+    "Cl.repr": (task) => `用图形或比喻重新表达「${task}」，画一张示意图或找一个生活类比`,
+    "Cp.structure": (task) => `画出「${task}」的知识结构树（根干枝叶），检查是否有遗漏子知识`,
+    "Cp.steps": (task) => `闭卷写出「${task}」的完整操作链，每步不能跳过`,
+    "B.condition": (task) => `列出「${task}」的 3 个适用条件，每条配一个真实例子`,
+    "B.fail": (task) => `列举「${task}」失效的 3 种场景，分析为什么失效`,
+    "B.limit": (task) => `把「${task}」推到极端参数，观察它还成立吗，记录临界点`,
+    "L.upstream": (task) => `梳理「${task}」的前置知识（必须先会什么）和后续应用（能做什么）`,
+    "L.isomorphic": (task) => `找出一个和「${task}」共享相同底层骨架的知识，对比结构`,
+    "L.crossdomain": (task) => `把「${task}」迁移到另一个领域或生活场景，给出具体应用`,
+    "Ev.version": (task) => `记录你对「${task}」理解的 3 个版本（过去/现在/预期未来），对比深化点`,
+    "Ev.iteration": (task) => `判断「${task}」下一步该修正、升级还是淘汰，给出理由`,
+    "P.chunk": (task) => `把「${task}」压缩成一句口诀或一个记忆钩子，越短越好`,
+    "P.fluency": (task) => `对「${task}」做 3 次闭卷快速复述，记录从刻意回忆到自动执行的转变点`,
+    "Rh.cycle": (task) => `为「${task}」设定检索周期（如 1/3/7 天），写下第一次复习日期`,
+    "Rh.freq": (task) => `统计本周「${task}」的练习次数，若 <3 次则排进下周计划`,
+    "Rh.predict": (task) => `预判「${task}」中你最可能卡住的 2 个点，各写一个应急方案`,
+    "Rh.duration": (task) => `评估「${task}」每次训练的合理时长，过短/过长都调整`,
+    "Rh.timing": (task) => `找出你训练「${task}」状态最好的时段（如清晨/夜深），固定下来`,
+  };
+
+  // 自动选档（基于任务文本长度 + 关键词）
+  function autoHatchMode(taskText) {
+    const len = taskText.length;
+    if (/(论文|项目|设计|重构|策划|开发|搭建)/.test(taskText)) return "zen";
+    if (len < 8) return "lite";
+    if (len > 20) return "zen";
+    return "medium";
+  }
+
+  // 任务文本哈希（历史命中用，简易 djb2）
+  function hashTaskText(text) {
+    let h = 5381;
+    for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0;
+    return "h" + (h >>> 0).toString(36);
+  }
+
+  // 孵化历史读写
+  function loadHatchHistory() { return load(HATCH_HISTORY_KEY, []); }
+  function saveHatchHistory(list) { save(HATCH_HISTORY_KEY, list); }
+  function findHatchHistory(taskHash) {
+    const list = loadHatchHistory();
+    return list.find((h) => h.task_hash === taskHash);
+  }
+  function recordHatchHistory(taskHash, taskText, result, acceptedCount) {
+    const list = loadHatchHistory();
+    const existing = list.find((h) => h.task_hash === taskHash);
+    const entry = {
+      task_hash: taskHash,
+      task_text: taskText,
+      last_mode: result.mode,
+      last_scene: result.scene,
+      accepted_count: acceptedCount,
+      total_count: (result.steps || []).length,
+      est_total_min: result.est_total_min || 0,
+      created_at: Date.now(),
+    };
+    if (existing) Object.assign(existing, entry);
+    else list.push(entry);
+    // 只保留最近 50 条
+    while (list.length > 50) list.shift();
+    saveHatchHistory(list);
+  }
+
+  // 核心 LLM 调用（不走 chat 历史，独立请求）
+  async function callHatchLLM(systemPrompt, userPrompt, signal, onChunk) {
+    const { apiUrl, apiKey, apiModel } = state.settings;
+    if (!apiUrl || !apiKey) throw new Error("请先在设置中配置 AI API");
+    // 优先流式请求（让用户实时看到 AI 拆解过程）；不支持时自动降级为非流式
+    const useStream = typeof onChunk === "function";
+    const resp = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: apiModel,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.5,
+        stream: useStream,
+      }),
+      signal,
+    });
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => "");
+      throw new Error(formatApiError(resp.status, errText));
+    }
+    // 非流式：直接读取 JSON
+    if (!useStream || !resp.body) {
+      const data = await resp.json();
+      const content = data.choices?.[0]?.message?.content || "";
+      if (useStream) onChunk(content); // 一次性回放给回调
+      return content;
+    }
+    // 流式：解析 SSE data: {...} 行
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+    let full = "";
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // 按行处理 SSE
+        let nl;
+        while ((nl = buffer.indexOf("\n")) !== -1) {
+          let line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (!line || line.startsWith(":")) continue; // 注释/心跳
+          if (line.startsWith("data:")) line = line.slice(5).trim();
+          if (line === "[DONE]") { buffer = ""; return full; }
+          try {
+            const obj = JSON.parse(line);
+            const delta = obj.choices?.[0]?.delta?.content || obj.choices?.[0]?.message?.content || "";
+            if (delta) { full += delta; onChunk(full); }
+          } catch (e) { /* 跳过非 JSON 行 */ }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    return full;
+  }
+
+  // 从 LLM 输出中提取 JSON（容错：去 markdown 围栏 + 找第一个 { 到最后 }）
+  function extractJSON(text) {
+    if (!text) return null;
+    let t = text.trim();
+    // 去掉 ```json ... ``` 围栏
+    t = t.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+    const start = t.indexOf("{");
+    const end = t.lastIndexOf("}");
+    if (start === -1 || end === -1 || end <= start) return null;
+    try { return JSON.parse(t.slice(start, end + 1)); }
+    catch (e) { return null; }
+  }
+
+  // 单次合并调用（4 步合一，省 token，速度更快）
+  function buildHatchPrompt(taskText, mode, scene, context, weakDims) {
+    const cfg = HATCH_MODE_CFG[mode];
+    const sc = HATCH_SCENES[scene];
+    const isDrill = scene === "drill";
+
+    const schemaFields = [
+      '"text":"具体动作"',
+      '"est_min":15',
+      '"depends_on":null',
+      '"risk":"low"',
+      '"risk_note":""',
+      '"why":"为什么必要"',
+    ];
+    if (isDrill || scene === "learn") {
+      schemaFields.push('"target_dim":"维度.子维度（如 Cl.def，drill 必填，learn 选填）"');
+      schemaFields.push('"dim_goal":3');
+      schemaFields.push('"verify":"完成自检标准（如：能脱稿讲2分钟）"');
+    }
+
+    const systemPrompt = [
+      "你是任务拆解专家。把用户的粗粒度任务拆成可执行子任务。",
+      "只输出 JSON，不要解释、不要 markdown 围栏。",
+      "",
+      "【硬规则】",
+      "1. 每个子任务必须是具体动作（动词开头：写/查/调/发/对齐/读/列...）",
+      `2. 总步数 ${cfg.min}-${cfg.max}，单步可在 15-30 分钟完成（超了继续拆）`,
+      "3. 按执行顺序排列，标注依赖（depends_on 为前一步的 index，从 0 开始；无依赖为 null）",
+      "4. 标注 est_min（预估分钟，15-30）、risk（low/med/high）",
+      "5. risk=med/high 时 risk_note 必填（说明卡点和应急方案）",
+      "6. why 一句话说明这步为什么必要",
+      "",
+      `【场景：${sc.label}】`,
+      `重点：${sc.focus}`,
+      `附加规则：${sc.rules}`,
+    ];
+
+    if (isDrill && weakDims && weakDims.length) {
+      systemPrompt.push("");
+      systemPrompt.push("【该任务当前 7 维度薄弱项（每步必须针对其中一项）】");
+      weakDims.forEach((w) => {
+        systemPrompt.push(`- ${w.dim}.${w.sub}=${w.score}（${w.dimName}·${w.subName}）：${w.question} → 目标提升到 ${w.goal} 分`);
+      });
+      systemPrompt.push("每个薄弱项生成 1-2 个步骤，步骤的 target_dim 和 dim_goal 必须对应上述薄弱项。");
+      systemPrompt.push("verify 字段给出可自检的完成标准（达成即可认为该子维度提升到 dim_goal）。");
+    } else if (scene === "learn") {
+      systemPrompt.push("");
+      systemPrompt.push("【学习场景可选标注】若步骤明显对应某 7 维度（Cl清晰度/Cp完整性/B边界感/L关联度/Ev进化感/P精炼度/Rh节奏感），可填 target_dim 帮助后续评估。");
+    }
+
+    systemPrompt.push("");
+    systemPrompt.push("【输出 schema】");
+    systemPrompt.push(`{"complexity":"simple|standard|complex","est_total_min":数字,"first_blocker":"最可能卡住的点","shortcut":"可选捷径（可空）","steps":[{${schemaFields.join(",")}}]}`);
+
+    const userPrompt = [
+      `任务：${taskText}`,
+      context ? `背景：${context}` : "",
+      `档位：${mode}（目标 ${cfg.min}-${cfg.max} 步）`,
+      `场景：${scene}（${sc.label}）`,
+      "",
+      "请按 schema 输出。",
+    ].filter(Boolean).join("\n");
+
+    return { systemPrompt: systemPrompt.join("\n"), userPrompt };
+  }
+
+  // 孵化状态
+  const hatchState = {
+    running: false,
+    abortController: null,
+    taskText: "",
+    taskHash: "",
+    mode: "medium",
+    scene: "exec",
+    result: null,
+    acceptedSet: null, // Set of selected step indices
+    longTaskId: null,  // 关联长期任务 id（drill 模式用）
+    weakDims: null,    // 薄弱维度列表（drill 模式用）
+  };
+
+  // 孵化计时器（实时显示已用时长）
+  let hatchTimerId = 0;
+  let hatchTimerStart = 0;
+  function startHatchTimer() {
+    stopHatchTimer();
+    hatchTimerStart = Date.now();
+    if (el.hatchLabTimer) el.hatchLabTimer.textContent = "00:00";
+    hatchTimerId = setInterval(() => {
+      if (!el.hatchLabTimer) return;
+      const sec = Math.floor((Date.now() - hatchTimerStart) / 1000);
+      const m = String(Math.floor(sec / 60)).padStart(2, "0");
+      const s = String(sec % 60).padStart(2, "0");
+      el.hatchLabTimer.textContent = `${m}:${s}`;
+    }, 1000);
+  }
+  function stopHatchTimer() {
+    if (hatchTimerId) { clearInterval(hatchTimerId); hatchTimerId = 0; }
+  }
+
+  function showHatchProgress(step, text) {
+    el.hatchProgress.hidden = false;
+    el.hatchResult.hidden = true;
+    el.hatchError.hidden = true;
+    el.hatchProgressFill.style.width = (step * 25) + "%";
+    el.hatchProgressText.textContent = text;
+    // 操作新的实验室步骤卡片
+    el.hatchProgress.querySelectorAll(".hatch-lab-step").forEach((s) => {
+      const n = parseInt(s.dataset.step, 10);
+      s.classList.toggle("active", n === step);
+      s.classList.toggle("done", n < step);
+    });
+  }
+
+  // 显示/清理 AI 流式输出区
+  let hatchStreamRAF = 0;
+  let hatchStreamStart = 0;       // 流式开始时间（用于计算速率）
+  let hatchStreamLen = 0;         // 上次长度（用于增量步骤检测）
+  let hatchUserScrolled = false;  // 用户是否手动上滚（暂停自动滚动）
+  function showHatchStream() {
+    if (!el.hatchStream) return;
+    el.hatchStream.hidden = false;
+    el.hatchStreamBody.textContent = "";
+    el.hatchStreamCount.textContent = "0 字";
+    hatchStreamStart = Date.now();
+    hatchStreamLen = 0;
+    hatchUserScrolled = false;
+    if (el.hatchStreamRate) el.hatchStreamRate.hidden = false;
+    if (el.hatchStreamFoot) el.hatchStreamFoot.hidden = false;
+    if (el.hatchStreamCopy) el.hatchStreamCopy.hidden = true; // 流式结束才显示
+    if (el.hatchStreamSteps) el.hatchStreamSteps.textContent = "已识别 0 步";
+    if (el.hatchStreamHint) el.hatchStreamHint.textContent = "解析中…";
+    // 监听手动滚动（智能暂停自动滚动）
+    if (el.hatchStreamBody && !el.hatchStreamBody._scrollBound) {
+      el.hatchStreamBody._scrollBound = true;
+      el.hatchStreamBody.addEventListener("scroll", () => {
+        const atBottom = el.hatchStreamBody.scrollHeight - el.hatchStreamBody.scrollTop - el.hatchStreamBody.clientHeight < 30;
+        hatchUserScrolled = !atBottom;
+      }, { passive: true });
+    }
+  }
+  function hideHatchStream() {
+    if (!el.hatchStream) return;
+    el.hatchStream.hidden = true;
+    if (hatchStreamRAF) cancelAnimationFrame(hatchStreamRAF);
+    hatchStreamRAF = 0;
+    if (el.hatchProgressActions) el.hatchProgressActions.hidden = true;
+  }
+  // 节流更新流式文本（避免每个 chunk 都触发 DOM 重排）
+  function updateHatchStream(fullText) {
+    if (!el.hatchStreamBody) return;
+    // 增量检测已识别步骤数（统计 "text": 出现次数）
+    if (fullText.length > hatchStreamLen + 8) {
+      hatchStreamLen = fullText.length;
+      const stepMatches = fullText.match(/"text"\s*:/g);
+      const stepCount = stepMatches ? stepMatches.length : 0;
+      if (el.hatchStreamSteps) el.hatchStreamSteps.textContent = `已识别 ${stepCount} 步`;
+      // 速率计算
+      const elapsed = (Date.now() - hatchStreamStart) / 1000;
+      if (elapsed > 0.5 && el.hatchStreamRate) {
+        const rate = Math.round(fullText.length / elapsed);
+        el.hatchStreamRate.textContent = `${rate} 字/s`;
+      }
+    }
+    if (hatchStreamRAF) return; // 已有挂起的渲染
+    hatchStreamRAF = requestAnimationFrame(() => {
+      hatchStreamRAF = 0;
+      el.hatchStreamBody.textContent = fullText;
+      el.hatchStreamCount.textContent = fullText.length + " 字";
+      // 智能自动滚动：用户未上滚时才跟随
+      if (!hatchUserScrolled) {
+        el.hatchStreamBody.scrollTop = el.hatchStreamBody.scrollHeight;
+      }
+    });
+  }
+  // 流式结束：显示复制按钮 + 完成提示
+  function finishHatchStream(fullText) {
+    if (el.hatchStreamCopy) el.hatchStreamCopy.hidden = !fullText;
+    if (el.hatchStreamHint) el.hatchStreamHint.textContent = "✓ 输出完成";
+    if (el.hatchStreamRate) el.hatchStreamRate.hidden = true;
+  }
+
+  function renderHatchResult(result) {
+    hatchState.result = result;
+    // 流式结束前保留终端输出，标记完成
+    finishHatchStream(el.hatchStreamBody ? el.hatchStreamBody.textContent : "");
+    // 记录总耗时
+    const elapsedSec = hatchTimerStart ? Math.round((Date.now() - hatchTimerStart) / 1000) : 0;
+    stopHatchTimer();
+    el.hatchProgress.hidden = true;
+    el.hatchResult.hidden = false;
+    el.hatchError.hidden = true;
+    // 过渡动画
+    el.hatchResult.classList.remove("hatch-result-enter");
+    void el.hatchResult.offsetWidth; // 触发重排
+    el.hatchResult.classList.add("hatch-result-enter");
+
+    // 摘要（含总耗时）
+    const totalMin = result.est_total_min || (result.steps || []).reduce((s, x) => s + (x.est_min || 0), 0);
+    const highRisk = (result.steps || []).filter((s) => s.risk === "high").length;
+    const medRisk = (result.steps || []).filter((s) => s.risk === "med").length;
+    const riskClass = highRisk ? "hatch-summary-risk-high" : (medRisk ? "hatch-summary-risk-med" : "hatch-summary-risk-low");
+    const riskText = highRisk ? `高 ${highRisk}` : (medRisk ? `中 ${medRisk}` : "低");
+    el.hatchSummary.innerHTML = `
+      <div class="hatch-summary-row"><span class="hatch-summary-label">总步数</span><span class="hatch-summary-value">${(result.steps || []).length}</span></div>
+      <div class="hatch-summary-row"><span class="hatch-summary-label">预估时长</span><span class="hatch-summary-value">${totalMin} 分钟（约 ${(totalMin / 60).toFixed(1)}h）</span></div>
+      <div class="hatch-summary-row"><span class="hatch-summary-label">风险等级</span><span class="hatch-summary-value ${riskClass}">${riskText}</span></div>
+      ${result.first_blocker ? `<div class="hatch-summary-row"><span class="hatch-summary-label">最可能卡点</span><span class="hatch-summary-value">${escapeHtml(result.first_blocker)}</span></div>` : ""}
+      <div class="hatch-summary-row"><span class="hatch-summary-label">拆解耗时</span><span class="hatch-summary-value">${elapsedSec}s</span></div>
+    `;
+
+    // 捷径
+    if (result.shortcut && result.shortcut.trim()) {
+      el.hatchShortcut.hidden = false;
+      el.hatchShortcut.textContent = result.shortcut;
+    } else {
+      el.hatchShortcut.hidden = true;
+    }
+
+    // 步骤列表
+    hatchState.acceptedSet = new Set((result.steps || []).map((_, i) => i)); // 默认全选
+    el.hatchList.innerHTML = "";
+    (result.steps || []).forEach((step, idx) => {
+      const item = document.createElement("label");
+      item.className = "hatch-item";
+      const riskTag = step.risk ? `<span class="hatch-tag hatch-tag-risk-${step.risk}">${({low:"低风险",med:"中风险",high:"高风险"})[step.risk] || step.risk}</span>` : "";
+      const depTag = (step.depends_on !== null && step.depends_on !== undefined) ? `<span class="hatch-tag hatch-tag-dep">← 依赖${step.depends_on + 1}</span>` : "";
+      const minTag = step.est_min ? `<span class="hatch-tag">${step.est_min}min</span>` : "";
+      // 维度徽章（带颜色）
+      let dimTag = "";
+      if (step.target_dim) {
+        const [dc, sk] = step.target_dim.split(".");
+        const meta = lookupDim(dc, sk);
+        if (meta) {
+          const goalTxt = step.dim_goal ? `→${step.dim_goal}` : "";
+          dimTag = `<span class="hatch-tag hatch-tag-dim" style="background:${meta.dimColor}22;color:${meta.dimColor};" title="${meta.dimName}·${meta.subName}：${meta.question}">${step.target_dim}${goalTxt}</span>`;
+        }
+      }
+      item.innerHTML = `
+        <input type="checkbox" checked data-idx="${idx}" />
+        <div class="hatch-item-body">
+          <div class="hatch-item-head">
+            <span class="hatch-item-idx">${idx + 1}</span>
+            <span class="hatch-item-text">${escapeHtml(step.text)}</span>
+          </div>
+          <div class="hatch-item-meta">${minTag}${depTag}${riskTag}${dimTag}</div>
+          ${step.verify ? `<div class="hatch-item-verify">✓ ${escapeHtml(step.verify)}</div>` : ""}
+          ${step.risk_note && (step.risk === "med" || step.risk === "high") ? `<div class="hatch-item-risk-note">⚠ ${escapeHtml(step.risk_note)}</div>` : ""}
+          ${step.why ? `<div class="hatch-item-meta" style="margin-top:2px;color:var(--text-muted);">为什么：${escapeHtml(step.why)}</div>` : ""}
+        </div>
+      `;
+      const cb = item.querySelector("input");
+      cb.addEventListener("change", () => {
+        if (cb.checked) hatchState.acceptedSet.add(idx);
+        else hatchState.acceptedSet.delete(idx);
+      });
+      el.hatchList.appendChild(item);
+    });
+  }
+
+  function showHatchError(msg) {
+    el.hatchProgress.hidden = true;
+    el.hatchResult.hidden = true;
+    el.hatchError.hidden = false;
+    if (el.hatchErrorMsg) el.hatchErrorMsg.textContent = msg;
+    else el.hatchError.textContent = msg;
+    hideHatchStream();
+    stopHatchTimer();
+  }
+
+  async function runHatch(taskText, mode, scene, context, longTaskId, forceLLM) {
+    if (hatchState.running) return;
+    if (!state.settings.apiUrl || !state.settings.apiKey) {
+      showHatchError("请先在设置中配置 AI API（apiUrl + apiKey）");
+      return;
+    }
+    hatchState.running = true;
+    hatchState.taskText = taskText;
+    hatchState.taskHash = hashTaskText(taskText);
+    hatchState.mode = mode;
+    hatchState.scene = scene;
+    hatchState.longTaskId = longTaskId || null;
+    el.hatchBtn.disabled = true;
+    el.hatchBtn.classList.add("loading");
+    // 实验室界面：同步任务文本到左侧卡片，并启动计时器
+    if (el.hatchLabTaskText) el.hatchLabTaskText.textContent = taskText || "—";
+    startHatchTimer();
+
+    // drill 场景：读关联长期任务的 eval，识别薄弱维度
+    let weakDims = null;
+    if (scene === "drill") {
+      if (!longTaskId) {
+        showHatchError("drill 场景需要关联长期任务");
+        hatchState.running = false;
+        el.hatchBtn.disabled = false;
+        el.hatchBtn.classList.remove("loading");
+        return;
+      }
+      const lt = longTasks.find((x) => x.id === longTaskId);
+      if (!lt) {
+        showHatchError("未找到关联的长期任务");
+        hatchState.running = false;
+        el.hatchBtn.disabled = false;
+        el.hatchBtn.classList.remove("loading");
+        return;
+      }
+      if (!lt.eval) lt.eval = emptyEval();
+      weakDims = findWeakDims(lt.eval, 2);
+      hatchState.weakDims = weakDims;
+      if (!weakDims.length) {
+        // 全维度 ≥3，提示已掌握
+        showHatchError(`「${lt.title}」7 维度评分均 ≥3，无明显薄弱项。建议归档或提升到 4-5 分精通。`);
+        hatchState.running = false;
+        el.hatchBtn.disabled = false;
+        el.hatchBtn.classList.remove("loading");
+        return;
+      }
+      // 模板库优先：若薄弱维度都能命中模板，0 token 直接生成（forceLLM 时跳过，走个性化）
+      const templated = forceLLM ? null : tryTemplateHatch(taskText, weakDims);
+      if (templated) {
+        showHatchProgress(4, "④ 模板命中（0 token）…");
+        await sleep(300);
+        templated.mode = mode;
+        templated.scene = scene;
+        renderHatchResult(templated);
+        if (navigator.vibrate) navigator.vibrate(30);
+        hatchState.running = false;
+        el.hatchBtn.disabled = false;
+        el.hatchBtn.classList.remove("loading");
+        return;
+      }
+    }
+
+    // 历史提示
+    const hist = findHatchHistory(hatchState.taskHash);
+    if (hist) {
+      el.hatchHistoryHint.hidden = false;
+      const completionRate = hist.total_count ? Math.round(hist.accepted_count / hist.total_count * 100) : 0;
+      const ageHours = Math.round((Date.now() - hist.created_at) / 3600000);
+      let suggestion = "";
+      if (completionRate < 50) suggestion = " · 上次拆得太细，建议这次降档";
+      else if (completionRate === 100) suggestion = " · 上次拆得很准，可复用";
+      el.hatchHistoryHint.textContent = `📊 上次孵化（${ageHours}h 前）：${hist.total_count} 步，接受 ${hist.accepted_count} 条，完成率 ${completionRate}%${suggestion}`;
+    } else {
+      el.hatchHistoryHint.hidden = true;
+    }
+
+    try {
+      showHatchProgress(1, "① 估时判级…");
+      await sleep(150);
+      showHatchProgress(2, "② 主干拆分…");
+      await sleep(150);
+      showHatchProgress(3, "③ 步骤细化…");
+
+      const { systemPrompt, userPrompt } = buildHatchPrompt(taskText, mode, scene, context, weakDims);
+      hatchState.abortController = new AbortController();
+      const timeoutId = setTimeout(() => hatchState.abortController.abort(), 60000);
+
+      // 开启流式可视化（AI 逐字输出拆解过程）
+      showHatchStream();
+      // 显示当前场景/模式标签
+      if (el.hatchStreamTag) {
+        const sceneLabels = { learn:"📖 学习", exec:"⚙️ 执行", decide:"⚖️ 决策", checklist:"📋 清单", drill:"🎯 薄弱补强" };
+        const modeLabels = { lite:"lite", medium:"medium", zen:"zen" };
+        el.hatchStreamTag.textContent = `${sceneLabels[scene] || scene} · ${modeLabels[mode] || mode}`;
+        el.hatchStreamTag.hidden = false;
+      }
+      // 显示取消按钮
+      if (el.hatchProgressActions) el.hatchProgressActions.hidden = false;
+      updateHatchStream("⏳ 连接 AI 中…");
+      const raw = await callHatchLLM(systemPrompt, userPrompt, hatchState.abortController.signal, (full) => {
+        updateHatchStream(full);
+      });
+      clearTimeout(timeoutId);
+      // 隐藏取消按钮
+      if (el.hatchProgressActions) el.hatchProgressActions.hidden = true;
+
+      showHatchProgress(4, "④ 风险预判…");
+      await sleep(200);
+
+      const parsed = extractJSON(raw);
+      if (!parsed || !Array.isArray(parsed.steps) || !parsed.steps.length) {
+        throw new Error("AI 输出格式异常，未能解析出步骤。请重试或换档位。");
+      }
+      parsed.mode = mode;
+      parsed.scene = scene;
+      parsed.longTaskId = longTaskId || null;
+
+      renderHatchResult(parsed);
+      // 轻震动反馈
+      if (navigator.vibrate) navigator.vibrate(30);
+    } catch (err) {
+      if (err.name === "AbortError") {
+        showHatchError("请求已取消或超时（60秒）。可降档重试。");
+      } else {
+        showHatchError(err.message || "孵化失败，请重试");
+      }
+    } finally {
+      hatchState.running = false;
+      hatchState.abortController = null;
+      el.hatchBtn.disabled = false;
+      el.hatchBtn.classList.remove("loading");
+    }
+  }
+
+  // 模板库优先命中：薄弱维度全部有模板时，0 token 生成
+  function tryTemplateHatch(taskText, weakDims) {
+    if (!weakDims || !weakDims.length) return null;
+    const steps = [];
+    let totalMin = 0;
+    weakDims.forEach((w, idx) => {
+      const key = `${w.dim}.${w.sub}`;
+      const tpl = HATCH_DIM_TEMPLATES[key];
+      if (!tpl) return; // 有未命中的，整体回退 LLM
+      const text = tpl(taskText);
+      const est = 20;
+      totalMin += est;
+      steps.push({
+        text,
+        est_min: est,
+        depends_on: null,
+        risk: w.score <= 1 ? "med" : "low",
+        risk_note: w.score <= 1 ? `${w.dimName}·${w.subName} 仅 ${w.score} 分，可能需要先补前置知识` : "",
+        why: `${w.dim}.${w.sub} 当前 ${w.score} 分，目标 ${w.goal}`,
+        target_dim: key,
+        dim_goal: w.goal,
+        verify: `完成后到长期任务详情页给 ${w.dim}.${w.sub} 评 ${w.goal} 星自检`,
+      });
+    });
+    if (steps.length !== weakDims.length) return null; // 未全部命中
+    return {
+      complexity: weakDims.length > 3 ? "complex" : "standard",
+      est_total_min: totalMin,
+      first_blocker: weakDims[0] ? `${weakDims[0].dimName}·${weakDims[0].subName}（${weakDims[0].score}分）` : "",
+      shortcut: "全部命中 7 维度标准模板，0 token 生成。可点「重新生成」走 LLM 个性化。",
+      steps,
+    };
+  }
+
+  function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+  function openHatchDialog() {
+    // 取当前任务弹窗第一行任务文本作为孵化对象
+    const text = el.taskContent.value.split("\n").map((s) => s.trim()).filter(Boolean)[0] || "";
+    if (!text) {
+      toast("请先输入任务内容", "error");
+      return;
+    }
+    el.hatchTaskText.textContent = text;
+    el.hatchMode.value = "auto";
+    el.hatchScene.value = "auto";
+    el.hatchProgress.hidden = true;
+    el.hatchResult.hidden = true;
+    el.hatchError.hidden = true;
+    el.hatchHistoryHint.hidden = true;
+    el.hatchDialog.showModal();
+    // 自动启动一次
+    const mode = autoHatchMode(text);
+    const scene = detectHatchScene(text);
+    el.hatchMode.value = mode;
+    el.hatchScene.value = scene;
+    runHatch(text, mode, scene, buildHatchContext());
+  }
+
+  // 构建孵化上下文（今日已做 + 关联长期任务）
+  function buildHatchContext() {
+    const parts = [];
+    const todayTasks = getCellTasks ? getDayTasks(state.currentDate) : null;
+    if (todayTasks) {
+      const doneCount = Object.values(getDayDone(state.currentDate) || {}).reduce((s, arr) => s + (Array.isArray(arr) ? arr.length : 0), 0);
+      if (doneCount) parts.push(`今日已完成 ${doneCount} 项任务`);
+    }
+    return parts.join("；");
+  }
+
+  function closeHatchDialog() {
+    if (hatchState.abortController) {
+      try { hatchState.abortController.abort(); } catch (e) {}
+    }
+    el.hatchDialog.close();
+  }
+
+  // 加入清单：追加到 taskChecklist 末尾，保留原有内容
+  // 带 target_dim 的步骤在行尾追加 ` #Cl.def→3#` 标记，saveTask 时解析为 item.dim
+  function applyHatchToChecklist() {
+    if (!hatchState.result || !hatchState.acceptedSet) return;
+    const acceptedSteps = (hatchState.result.steps || [])
+      .filter((_, i) => hatchState.acceptedSet.has(i));
+    if (!acceptedSteps.length) {
+      toast("未选择任何步骤", "info");
+      return;
+    }
+    // 编码：纯文本步骤直接用；带 target_dim 的追加 ` #Dim.Sub→goal#`
+    const newLines = acceptedSteps.map((s) => {
+      let line = s.text;
+      if (s.target_dim) {
+        const goal = s.dim_goal ? `→${s.dim_goal}` : "";
+        line += ` #${s.target_dim}${goal}#`;
+      }
+      return line;
+    });
+    const existing = el.taskChecklist.value.split("\n").map((s) => s.trim()).filter(Boolean);
+    const before = existing.length;
+    // 去重（按纯文本，忽略 dim 标记和完成前缀）
+    const existingSet = new Set(existing.map((s) => s.replace(/^[☑☐✓√xX]\s*/, "").replace(/\s*#\w+\.\w+(→\d+)?#\s*$/, "")));
+    const newOnes = newLines.filter((t) => !existingSet.has(t.replace(/\s*#\w+\.\w+(→\d+)?#\s*$/, "")));
+    if (!newOnes.length) {
+      toast("所选步骤已在清单中", "info");
+      return;
+    }
+    el.taskChecklist.value = [...existing, ...newOnes].join("\n");
+    // 记录历史（用于完成率闭环）
+    recordHatchHistory(hatchState.taskHash, hatchState.taskText, hatchState.result, newOnes.length);
+    const dimCount = acceptedSteps.filter((s) => s.target_dim).length;
+    toast(`已加入 ${newOnes.length} 条到清单${dimCount ? `（含 ${dimCount} 条维度练习）` : ""}`, "success");
+    if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+    closeHatchDialog();
+  }
+
+  el.hatchBtn.addEventListener("click", openHatchDialog);
+  el.closeHatch.addEventListener("click", closeHatchDialog);
+  el.hatchCancelBtn.addEventListener("click", closeHatchDialog);
+  el.hatchDialog.addEventListener("click", (e) => { if (e.target === el.hatchDialog) closeHatchDialog(); });
+
+  // 流式中取消（仅中止请求，不关闭弹窗）
+  if (el.hatchCancelStream) el.hatchCancelStream.addEventListener("click", () => {
+    if (hatchState.abortController) {
+      try { hatchState.abortController.abort(); } catch (e) {}
+    }
+  });
+  // 复制原始 AI 输出
+  if (el.hatchStreamCopy) el.hatchStreamCopy.addEventListener("click", () => {
+    const text = el.hatchStreamBody ? el.hatchStreamBody.textContent : "";
+    if (!text) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => toast("已复制 AI 原始输出", "success"));
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); toast("已复制 AI 原始输出", "success"); }
+      catch (e) { toast("复制失败，请手动选择", "error"); }
+      document.body.removeChild(ta);
+    }
+  });
+  // 错误区：重试 / 降档重试
+  const HATCH_MODE_ORDER = ["lite", "medium", "zen"];
+  function rerunHatch(modeOverride) {
+    if (!hatchState.taskText) return;
+    const scene = el.hatchScene.value === "auto" ? detectHatchScene(hatchState.taskText) : el.hatchScene.value;
+    const mode = modeOverride || (el.hatchMode.value === "auto" ? autoHatchMode(hatchState.taskText) : el.hatchMode.value);
+    const forceLLM = scene === "drill";
+    runHatch(hatchState.taskText + (forceLLM ? "（重试）" : " "), mode, scene, buildHatchContext(), hatchState.longTaskId, forceLLM);
+  }
+  if (el.hatchRetryBtn) el.hatchRetryBtn.addEventListener("click", () => rerunHatch());
+  if (el.hatchDowngradeBtn) el.hatchDowngradeBtn.addEventListener("click", () => {
+    const cur = el.hatchMode.value === "auto" ? autoHatchMode(hatchState.taskText) : el.hatchMode.value;
+    const idx = HATCH_MODE_ORDER.indexOf(cur);
+    const down = idx > 0 ? HATCH_MODE_ORDER[idx - 1] : "lite";
+    el.hatchMode.value = down;
+    toast(`已降档至 ${down}，重试中…`, "info");
+    rerunHatch(down);
+  });
+
+  el.hatchSelectAll.addEventListener("click", () => {
+    if (!hatchState.result) return;
+    hatchState.acceptedSet = new Set((hatchState.result.steps || []).map((_, i) => i));
+    el.hatchList.querySelectorAll("input[type=checkbox]").forEach((cb) => { cb.checked = true; });
+  });
+  el.hatchInvert.addEventListener("click", () => {
+    if (!hatchState.result) return;
+    const newSet = new Set();
+    el.hatchList.querySelectorAll("input[type=checkbox]").forEach((cb, i) => {
+      cb.checked = !cb.checked;
+      if (cb.checked) newSet.add(i);
+    });
+    hatchState.acceptedSet = newSet;
+  });
+  el.hatchRegen.addEventListener("click", () => {
+    // 重新生成：温度通过加随机后缀变相提升（避免完全相同结果）
+    if (!hatchState.taskText) return;
+    const mode = el.hatchMode.value === "auto" ? autoHatchMode(hatchState.taskText) : el.hatchMode.value;
+    const scene = el.hatchScene.value === "auto" ? detectHatchScene(hatchState.taskText) : el.hatchScene.value;
+    // 降档重试逻辑：如果上次失败过，这里不变档；正常重新生成保持同档
+    // drill 场景强制走 LLM（绕过模板库），便于个性化
+    const forceLLM = scene === "drill";
+    runHatch(hatchState.taskText + (forceLLM ? "（个性化）" : " "), mode, scene, buildHatchContext(), hatchState.longTaskId, forceLLM);
+  });
+  el.hatchApply.addEventListener("click", applyHatchToChecklist);
+
+  // 模式/场景手动切换后自动重跑
+  el.hatchMode.addEventListener("change", () => {
+    if (!hatchState.taskText || hatchState.running) return;
+    const mode = el.hatchMode.value === "auto" ? autoHatchMode(hatchState.taskText) : el.hatchMode.value;
+    const scene = el.hatchScene.value === "auto" ? detectHatchScene(hatchState.taskText) : el.hatchScene.value;
+    runHatch(hatchState.taskText, mode, scene, buildHatchContext());
+  });
+  el.hatchScene.addEventListener("change", () => {
+    if (!hatchState.taskText || hatchState.running) return;
+    const scene = el.hatchScene.value === "auto" ? detectHatchScene(hatchState.taskText) : el.hatchScene.value;
+    if (scene === "drill" && !hatchState.longTaskId) {
+      toast("🎯 薄弱补强需从长期任务详情页进入（需读取 7 维度评分）", "info", 4000);
+      el.hatchScene.value = "auto";
+      return;
+    }
+    const mode = el.hatchMode.value === "auto" ? autoHatchMode(hatchState.taskText) : el.hatchMode.value;
+    runHatch(hatchState.taskText, mode, scene, buildHatchContext(), hatchState.longTaskId);
+  });
+
   // ---------- 子任务清单弹出层 ----------
   let activePopover = null;
   function openChecklistPopover(period, cell, anchorEl) {
@@ -3274,7 +4247,16 @@ ${recordItems.join("\n") || "（无）"}
     items.forEach((it, idx) => {
       const row = document.createElement("label");
       row.className = "checklist-row" + (it.done ? " done" : "");
-      row.innerHTML = `<input type="checkbox" ${it.done ? "checked" : ""}><span>${escapeHtml(it.text)}</span>`;
+      let dimBadge = "";
+      if (it.dim) {
+        const [dc, sk] = it.dim.split(".");
+        const meta = lookupDim(dc, sk);
+        if (meta) {
+          const goalTxt = it.dimGoal ? `→${it.dimGoal}` : "";
+          dimBadge = `<span class="hatch-tag hatch-tag-dim" style="background:${meta.dimColor}22;color:${meta.dimColor};font-size:10px;" title="${meta.dimName}·${meta.subName}：${meta.question}">${it.dim}${goalTxt}</span>`;
+        }
+      }
+      row.innerHTML = `<input type="checkbox" ${it.done ? "checked" : ""}><span>${escapeHtml(it.text)}</span>${dimBadge}`;
       row.querySelector("input").addEventListener("change", () => {
         toggleChecklistItem(period, cell, idx);
         row.classList.toggle("done");
@@ -3539,13 +4521,17 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   if (el.realmFab) {
     el.realmFab.dataset.active = "plan";
     el.realmFab.querySelectorAll(".realm-fab-btn").forEach((btn) => {
+      const target = btn.dataset.realm;
+      if (!target) return; // 收集箱按钮无 data-realm，跳过三才切换逻辑
       btn.addEventListener("click", () => {
-        const target = btn.dataset.realm;
         const order = ["plan", "record", "review"];
         const reverse = order.indexOf(target) < order.indexOf(state.realm);
         setRealm(target, reverse);
       });
     });
+    // 收集箱入口（天地人右边）：点击跳转到收集箱弹窗
+    const fabInbox = document.getElementById("realmFabInbox");
+    if (fabInbox) fabInbox.addEventListener("click", openInbox);
   }
   // 三才页左右滑动手势切换
   if (el.realmContainer) {
@@ -5123,8 +6109,98 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     return cats.find((c) => c.id === state.settings.activePromptId) || cats[0] || PRESET_PROMPT_CATEGORIES[0];
   }
 
+  // ---------- 复盘专属系统提示词（不复用计划页的拆解流程） ----------
+  function buildReviewSystemPrompt(chatState) {
+    const date = state.currentDate;
+    const stats = computeReviewStats();
+    const dayReview = getDayReview(date) || {};
+
+    // 复盘对话的三种模式
+    const reviewStage = state.reviewChatStage || "entry"; // entry / insight / tomorrow
+
+    const parts = [];
+    parts.push("【角色】你是曼陀罗时辰的复盘教练。当前在「人·复盘」环节，与用户进行复盘对话。");
+    parts.push("注意：此处不是计划拆解，不要输出 tasks/alternatives 等 JSON 字段。");
+
+    // 当前复盘对话阶段
+    const STAGE_DESC = {
+      entry:    "阶段：复盘启动。引导用户回顾今日数据，识别执行偏差与亮点。可以反问：今天最满意/最遗憾的事是什么？",
+      insight:  "阶段：深度洞察。基于数据做 5-Why 根因分析，区分偶发 vs 系统性问题。提供 1 条「成功公式」+ 1 条「改进杠杆」。",
+      tomorrow: "阶段：明日转化。把洞察落到明日具体行动（2-3 条可执行改进点，每条附验证标准）。",
+    };
+    parts.push("【当前对话阶段】\n" + (STAGE_DESC[reviewStage] || STAGE_DESC.entry));
+
+    // 今日数据摘要（精简版，省 token）
+    const dayTasks = state.tasks[date] || {};
+    const dayDone = state.done[date] || {};
+    const dayRecords = state.records[date] || {};
+    const planSummary = [];
+    const recordSummary = [];
+    let doneCount = 0;
+    for (let p = 0; p < PERIOD_COUNT; p++) {
+      for (let c = 0; c < CELLS_PER_PERIOD; c++) {
+        const key = p + "-" + c;
+        const tasks = (dayTasks[key] || []).map(taskText);
+        const done = !!dayDone[key];
+        const rec = dayRecords[key];
+        if (tasks.length) {
+          doneCount += done ? 1 : 0;
+          planSummary.push(`第${p+1}辰格${c}: ${tasks.join(";")}${done ? "(✓)" : "(✗)"}`);
+        }
+        if (rec && (rec.actual || rec.spent)) {
+          recordSummary.push(`第${p+1}辰格${c}: ${rec.actual || "-"}(${rec.spent || "-"}${rec.note ? "/" + rec.note : ""})`);
+        }
+      }
+    }
+
+    parts.push(`【今日数据摘要】`);
+    parts.push(`- 日期：${date}`);
+    parts.push(`- 计划格数：${stats.plannedCells}，完成：${doneCount}，完成率：${stats.plannedCells ? Math.round(doneCount/stats.plannedCells*100) : 0}%`);
+    parts.push(`- 记录格数：${stats.recordedCells}`);
+    parts.push(`- 计划详情：\n${planSummary.slice(0, 15).join("\n") || "（无）"}`);
+    parts.push(`- 记录详情：\n${recordSummary.slice(0, 15).join("\n") || "（无）"}`);
+
+    // 已有的 AI 复盘结果（如果有）
+    if (dayReview.summary) {
+      parts.push(`【已生成复盘摘要】${dayReview.summary}`);
+    }
+
+    // 复盘技能注入
+    const reviewSkills = PRESET_SKILLS.filter((s) => s.group === "review" && state.settings.skills.includes(s.id));
+    if (reviewSkills.length) {
+      parts.push("【已激活复盘技能】");
+      reviewSkills.forEach((s) => parts.push(`## ${s.name}\n${s.prompt}`));
+    }
+
+    // 输出格式（与计划页完全不同）
+    parts.push(`
+【输出要求】
+严格按以下 JSON 格式回复（只输出 JSON，不要其他文字、不要 markdown 代码块）：
+{
+  "stage": "entry" | "insight" | "tomorrow",
+  "reply": "对话回复正文（Markdown，可含标题/列表/加粗）",
+  "probes": ["追问1", "追问2"],
+  "insights": ["洞察（可选，深度洞察阶段填）"],
+  "tomorrow_actions": [{"action": "具体改进动作", "verify": "验证标准"}],
+  "stage_next": "entry" | "insight" | "tomorrow"
+}
+
+【对话风格】
+- 简洁直接，每轮 reply 不超过 300 字
+- 数据驱动：用今日数据支撑每个判断
+- 不空泛：不说「要注意休息」而说「今日第7辰空置，明日该时段先安排 1 格恢复活动」
+- 共情但不煽情：承认困难，重点放在可改进的杠杆点
+`);
+
+    return parts.join("\n\n");
+  }
+
   // ---------- 构建系统提示词（多轮确认机制 + 分类 + 递归拆解） ----------
   function buildSystemPrompt(chatState) {
+    // 复盘 realm 用专属流程，不复用计划页的拆解 prompt
+    if (state.realm === "review") {
+      return buildReviewSystemPrompt(chatState);
+    }
     let parts = [];
 
     // 按当前状态机环节选择对应分类的提示词（核心改造）
@@ -5450,12 +6526,93 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     };
   }
 
+  // ---------- 解析复盘 AI 响应（review realm 专属） ----------
+  function parseReviewResponse(parsed) {
+    const reply = parsed.reply || parsed.summary || "";
+    const probes = parsed.probes || [];
+    const insights = parsed.insights || [];
+    const tomorrowActions = parsed.tomorrow_actions || parsed.tomorrowActions || [];
+    const stageNext = parsed.stage_next || parsed.stage || state.reviewChatStage || "entry";
+
+    let html = "";
+    if (reply) {
+      // 简易 markdown 渲染（标题/列表/加粗/换行）
+      let md = escapeHtml(reply);
+      md = md.replace(/^### (.+)$/gm, '<h4 style="margin:8px 0 4px;">$1</h4>');
+      md = md.replace(/^## (.+)$/gm, '<h3 style="margin:10px 0 6px;">$1</h3>');
+      md = md.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      md = md.replace(/^[-*] (.+)$/gm, '<li>$1</li>');
+      md = md.replace(/(<li>[\s\S]+?<\/li>)/g, '<ul>$1</ul>');
+      md = md.replace(/\n{2,}/g, '<br><br>').replace(/\n/g, '<br>');
+      html += md;
+    }
+    if (insights.length) {
+      html += '<div class="review-insights-box"><div class="rib-title">💡 洞察</div><ul>';
+      insights.forEach((i) => { html += `<li>${escapeHtml(i)}</li>`; });
+      html += '</ul></div>';
+    }
+    if (tomorrowActions.length) {
+      html += '<div class="review-tomorrow-box"><div class="rtb-title">📅 明日改进</div><ul>';
+      tomorrowActions.forEach((a) => {
+        const action = typeof a === "string" ? a : (a.action || "");
+        const verify = (typeof a === "object" && a.verify) ? a.verify : "";
+        html += `<li><strong>${escapeHtml(action)}</strong>${verify ? `<div class="rtb-verify">验证：${escapeHtml(verify)}</div>` : ""}</li>`;
+      });
+      html += '</ul></div>';
+    }
+
+    // 追问按钮（点击带回到输入框）
+    const suggestions = probes.map((q) => ({
+      label: q.length > 18 ? q.slice(0, 18) + "…" : q,
+      action: () => fillInput(q),
+    }));
+    // 阶段切换按钮
+    if (stageNext !== state.reviewChatStage) {
+      suggestions.push({
+        label: stageNext === "insight" ? "🔍 进入深度洞察" :
+               stageNext === "tomorrow" ? "📅 转明日行动" : "↩ 回到复盘启动",
+        primary: true,
+        action: () => {
+          state.reviewChatStage = stageNext;
+          fillInput(stageNext === "insight" ? "请做 5-Why 根因分析" :
+                    stageNext === "tomorrow" ? "把洞察转为明日具体行动" :
+                    "重新回顾今日数据");
+        },
+      });
+    } else {
+      // 提供阶段切换的快捷按钮
+      suggestions.push({ label: "🔍 深度洞察", action: () => { state.reviewChatStage = "insight"; fillInput("请基于数据做深度洞察"); } });
+      suggestions.push({ label: "📅 明日行动", action: () => { state.reviewChatStage = "tomorrow"; fillInput("把洞察转为明日 2-3 条具体改进"); } });
+    }
+
+    // 记录到复盘数据
+    if (insights.length || tomorrowActions.length) {
+      const date = state.currentDate;
+      const review = getDayReview(date) || {};
+      if (insights.length) review.insights = (review.insights || []).concat(insights).slice(-10);
+      if (tomorrowActions.length) review.tomorrowPlan = { items: tomorrowActions, tip: review.tomorrowPlan?.tip || "" };
+      review.aiGeneratedAt = new Date().toLocaleString("zh-CN");
+      setDayReview(date, review);
+      renderReview();
+    }
+
+    return {
+      html: html || "（AI 未返回有效内容）",
+      nextState: state.chatState,
+      suggestions,
+    };
+  }
+
   function parseAiResponse(content) {
     let jsonStr = content.trim();
     const fenceMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (fenceMatch) jsonStr = fenceMatch[1].trim();
     try {
       const parsed = JSON.parse(jsonStr);
+      // 复盘 realm 走专属渲染（不复用计划页的 action/tasks 渲染）
+      if (state.realm === "review") {
+        return parseReviewResponse(parsed);
+      }
       const action = parsed.action || "clarify";
       const tasks = (parsed.tasks || []).map(normalizeAiTask);
       const summary = escapeHtml(parsed.summary || "");
@@ -6374,6 +7531,9 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         e.preventDefault(); showKeyHint("L", "地 · 记录"); setRealm("record"); break;
       case "r": case "R":
         e.preventDefault(); showKeyHint("R", "人 · 复盘"); setRealm("review"); break;
+      // 助记快捷键：I=Inbox 收集箱
+      case "i": case "I":
+        e.preventDefault(); showKeyHint("I", "📥 收集箱"); openInbox(); break;
     }
   });
 
@@ -7020,12 +8180,15 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       KNOWLEDGE_DIMENSIONS.reduce((sum, d) => sum + dimScore(t.eval, d), 0) / KNOWLEDGE_DIMENSIONS.length
     );
 
-    // 7 维度评分表
+    // 7 维度评分表（薄弱项 ≤2 分高亮）
+    const weakSet = new Set(findWeakDims(t.eval, 2).map((w) => w.sub));
+    const weakCount = weakSet.size;
     const dimsHtml = KNOWLEDGE_DIMENSIONS.map((d) => {
       const score = dimScore(t.eval, d);
       const subs = d.subs.map((s) => {
         const v = t.eval[s.key] || 0;
-        return `<div class="eval-sub">
+        const weak = weakSet.has(s.key);
+        return `<div class="eval-sub ${weak ? "weak" : ""}">
           <span class="eval-sub-name">${s.name}</span>
           <span class="eval-sub-q">${s.q}</span>
           <div class="eval-stars" data-key="${s.key}">
@@ -7079,9 +8242,41 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
           <span class="ltd-overall">综合 ${overall} / 5</span>
         </div>
         <p class="panel-desc">标准 编号前缀 · 子维度 · 核心追问。点击星标打分（1-5），用于追踪长线学习/任务的理解深度。</p>
+        <div class="ltd-row" style="margin-bottom:8px;">
+          <button class="tool-btn" id="ltdDrillHatch" style="background:linear-gradient(135deg,rgba(255,200,80,0.2),rgba(124,92,255,0.2));">
+            🎯 薄弱补强孵化${weakCount ? `（${weakCount} 项薄弱）` : "（无薄弱，已掌握）"}
+          </button>
+        </div>
         <div class="eval-grid">${dimsHtml}</div>
       </div>
     `;
+
+    // 薄弱补强孵化按钮
+    const drillBtn = el.ltdBody.querySelector("#ltdDrillHatch");
+    if (drillBtn) {
+      drillBtn.addEventListener("click", () => {
+        if (!weakCount) {
+          toast("7 维度评分均 ≥3，无明显薄弱项", "info");
+          return;
+        }
+        if (!state.settings.apiUrl || !state.settings.apiKey) {
+          toast("请先在设置中配置 AI API", "error");
+          return;
+        }
+        // 关闭详情弹窗，打开孵化弹窗（drill 场景）
+        el.longtaskDetailDialog.close();
+        const mode = weakCount > 4 ? "zen" : (weakCount > 2 ? "medium" : "lite");
+        el.hatchTaskText.textContent = t.title;
+        el.hatchMode.value = mode;
+        el.hatchScene.value = "drill";
+        el.hatchProgress.hidden = true;
+        el.hatchResult.hidden = true;
+        el.hatchError.hidden = true;
+        el.hatchHistoryHint.hidden = true;
+        el.hatchDialog.showModal();
+        runHatch(t.title, mode, "drill", `长期任务：${t.title}（进度 ${progress}%）`, t.id);
+      });
+    }
 
     el.longtaskDetailDialog.showModal();
 
@@ -7194,9 +8389,24 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   }
 
   function updateInboxTagDatalist() {
-    if (!el.inboxTagList) return;
     const tags = getInboxTags();
-    el.inboxTagList.innerHTML = tags.map((t) => `<option value="${escapeHtml(t)}">`).join("");
+    if (el.inboxTagList) {
+      el.inboxTagList.innerHTML = tags.map((t) => `<option value="${escapeHtml(t)}">`).join("");
+    }
+    // 渲染可点击的 tag chips（datalist 原生 UX 差，点不开）
+    if (el.inboxTagChips) {
+      el.inboxTagChips.innerHTML = tags.length
+        ? tags.map((t) => `<span class="inbox-tag-chip" data-tag="${escapeHtml(t)}" style="background:${tagColor(t)}20;color:${tagColor(t)};">${escapeHtml(t)}</span>`).join("")
+        : '<span class="inbox-tag-chip-empty">尚无标签</span>';
+      el.inboxTagChips.querySelectorAll(".inbox-tag-chip").forEach((chip) => {
+        chip.addEventListener("click", () => {
+          if (el.inboxCategory) {
+            el.inboxCategory.value = chip.dataset.tag;
+            el.inboxInput.focus();
+          }
+        });
+      });
+    }
   }
 
   function openInbox() {
@@ -7283,6 +8493,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         <span class="inbox-item-text">${escapeHtml(item.text)}</span>
         ${item.tag ? `<span class="inbox-item-tag" style="background:${tagColor(item.tag)}20;color:${tagColor(item.tag)};">${escapeHtml(item.tag)}</span>` : ""}
         <span class="inbox-item-date">${dateStr}</span>
+        <button class="inbox-item-act" data-act="tolong" data-idx="${realIdx}" title="转为长期任务">🗺️</button>
         <button class="inbox-item-del" data-idx="${realIdx}" title="删除">✕</button>
       </div>`;
     }).join("");
@@ -7302,6 +8513,21 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         updateInboxTagDatalist();
         renderInboxFilter();
         renderInboxList();
+      });
+    });
+    el.inboxList.querySelectorAll(".inbox-item-act").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = parseInt(btn.dataset.idx);
+        const it = inboxItems[idx];
+        if (!it) return;
+        switchInboxMode("long");
+        if (el.longTitle) {
+          el.longTitle.value = it.text.slice(0, 60);
+          el.longTitle.focus();
+        }
+        if (!el.longStart.value) el.longStart.value = state.currentDate;
+        if (it.tag && el.longNote) el.longNote.value = "来源：速记 #" + (it.tag || "");
+        toast("已填入长期任务表单，补充日期后保存", "info");
       });
     });
     el.inboxList.querySelectorAll(".inbox-item-text").forEach((txt) => {
@@ -7795,9 +9021,57 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     });
   }
 
+  // ---------- origin 迁移检测 ----------
+  // 背景：旧版 APK 的 capacitor.config.json 配了 server.url=https://mandala.lz-oc.xyz
+  // 导致 WebView 加载远程站点，localStorage 存在 mandala.lz-oc.xyz 域名下
+  // 新版移除 server.url 后，APK 用 https://localhost，两个域名的 localStorage 隔离
+  // 此函数检测是否为新 origin 首次启动，提示用户通过同步服务器恢复数据
+  function checkOriginMigration() {
+    try {
+      const MIGRATION_KEY = "mandala-origin-migrated-v1";
+      const currentOrigin = location.origin;
+      const tasks = load(STORAGE_KEY, {});
+      const taskCount = Object.keys(tasks).length;
+      const settings = load(SETTINGS_KEY, {});
+      const hasSyncUrl = !!settings.syncUrl;
+      const migrated = sessionStorage.getItem(MIGRATION_KEY);
+
+      // 只在 localhost origin 且无任务数据且未提示过时触发
+      if (migrated) return;
+      sessionStorage.setItem(MIGRATION_KEY, "1");
+
+      if (!currentOrigin.includes("localhost") && !currentOrigin.includes("capacitor")) return;
+      if (taskCount > 0) return; // 有数据，不需要迁移
+
+      // 新 origin 无数据，提示用户
+      setTimeout(() => {
+        const msg = hasSyncUrl
+          ? "检测到本地无任务数据，但有同步地址配置。点击「确定」立即从云端拉取数据。"
+          : "检测到本地无任务数据。\n\n如果之前使用过旧版本 APK（通过 mandala.lz-oc.xyz 加载），数据存储在旧域名下，需要通过同步服务器恢复。\n\n请到「设置」→ 填写同步地址（如 https://mandala.lz-oc.xyz/api/sync）→ 勾选自动同步 → 重启应用。\n\n如果没有同步服务器，数据将无法恢复，但新功能可正常使用。";
+        if (confirm(msg)) {
+          if (hasSyncUrl) {
+            pullSync();
+            toast("正在从云端拉取数据…", "info");
+          } else {
+            // 打开设置
+            const settingsBtn = document.getElementById("settingsBtn");
+            if (settingsBtn) settingsBtn.click();
+          }
+        }
+      }, 1500);
+    } catch (e) {
+      console.warn("[migration] 检测失败:", e);
+    }
+  }
+
   // ---------- 启动 ----------
   function init() {
+    // 版本指纹：启动时打印，用户可在 console 或设置里看到确认是否更新成功
+    console.log(`%c曼陀罗时辰 v${APP_VERSION} (${APP_VERSION_DATE})`, "color:#7c5cff;font-weight:bold;font-size:14px");
+    console.log(`%corigin: ${location.origin}`, "color:#666");
+    console.log(`%c孵化功能: ${typeof runHatch === "function" ? "已加载 ✓" : "未加载 ✗"}`, "color:" + (typeof runHatch === "function" ? "#3ecf8e" : "#e74c3c"));
     migrateOldData();
+    checkOriginMigration(); // 检测 origin 变化（server.url 移除后数据隔离恢复引导）
     applyTheme();
     applyAccentColor(state.settings.accentColor);
     applyNotifyBtn();
@@ -7829,7 +9103,49 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     setupImmersiveMode();
     // 注册 Service Worker（PWA 离线，network-first 策略避免缓存问题）
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("./sw.js?v=3").catch((e) => console.warn("SW 注册失败", e));
+      navigator.serviceWorker.register("./sw.js?v=4").catch((e) => console.warn("SW 注册失败", e));
+    }
+    // 系统对接：处理 share_target 分享内容 / shortcuts 快捷入口
+    handleLaunchParams();
+  }
+
+  // 处理启动 URL 参数（share_target 分享 / shortcuts 快捷方式）
+  function handleLaunchParams() {
+    const params = new URLSearchParams(window.location.search);
+    const action = params.get("action");
+    const sharedText = params.get("text");
+    const sharedTitle = params.get("title");
+    const sharedUrl = params.get("url");
+
+    // 来自系统分享菜单（share_target）
+    if (sharedText || sharedUrl) {
+      let composed = "";
+      if (sharedTitle) composed += sharedTitle + "：";
+      if (sharedText) composed += sharedText;
+      if (sharedUrl) composed += (composed ? " " : "") + sharedUrl;
+      // 直接写入速记收集箱
+      inboxItems = load(INBOX_KEY, []);
+      inboxItems.unshift({
+        id: "in-" + Date.now().toString(36),
+        text: composed.slice(0, 200),
+        tag: "分享",
+        createdAt: Date.now(),
+        done: false,
+      });
+      saveInbox();
+      toast("已从分享收入收集箱", "success");
+      // 清理 URL，避免刷新重复添加
+      history.replaceState({}, document.title, "./");
+      return;
+    }
+
+    // 来自 shortcuts 快捷方式
+    if (action === "inbox") {
+      setTimeout(() => { if (el.inboxBtn) el.inboxBtn.click(); }, 300);
+      history.replaceState({}, document.title, "./");
+    } else if (action === "plan") {
+      setTimeout(() => setRealm("plan"), 300);
+      history.replaceState({}, document.title, "./");
     }
   }
 

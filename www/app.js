@@ -76,9 +76,20 @@
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.3.4";
+  const APP_VERSION = "2.3.6";
   const APP_VERSION_DATE = "2026-08-09";
   const APP_CHANGELOG = [
+    { v: "2.3.6", date: "2026-08-09", items: [
+      "优化：🥚 孵化实验室界面（左右分栏+4步大图标+终端流式输出+实时计时）",
+      "优化：流式输出实时步骤数检测+token速率显示+智能滚动+复制原始输出",
+      "优化：流式中取消按钮+错误重试+降档重试（medium→lite）",
+      "优化：结果区过渡动画+总耗时记录+进度条流光效果",
+      "优化：移动端步骤2x2网格响应式布局",
+    ]},
+    { v: "2.3.5", date: "2026-08-09", items: [
+      "新增：🥚 孵化过程可视化（AI 流式输出实时呈现，逐字打印拆解过程）",
+      "新增：📥 收集箱入口移到底部导航栏（天地人右侧，分隔线+橙色调，I 键快捷打开）",
+    ]},
     { v: "2.3.4", date: "2026-08-09", items: [
       "新增：🥚 任务孵化功能（任务弹窗孵化按钮，5场景4步流式拆解）",
       "新增：🎯 7维度薄弱补强（drill场景，模板库0 token命中+维度徽章+完成回填闭环）",
@@ -1515,6 +1526,22 @@
     hatchProgress: document.getElementById("hatchProgress"),
     hatchProgressFill: document.getElementById("hatchProgressFill"),
     hatchProgressText: document.getElementById("hatchProgressText"),
+    hatchLabTaskText: document.getElementById("hatchLabTaskText"),
+    hatchLabTimer: document.getElementById("hatchLabTimer"),
+    hatchStream: document.getElementById("hatchStream"),
+    hatchStreamBody: document.getElementById("hatchStreamBody"),
+    hatchStreamCount: document.getElementById("hatchStreamCount"),
+    hatchStreamTag: document.getElementById("hatchStreamTag"),
+    hatchStreamRate: document.getElementById("hatchStreamRate"),
+    hatchStreamCopy: document.getElementById("hatchStreamCopy"),
+    hatchStreamFoot: document.getElementById("hatchStreamFoot"),
+    hatchStreamSteps: document.getElementById("hatchStreamSteps"),
+    hatchStreamHint: document.getElementById("hatchStreamHint"),
+    hatchProgressActions: document.getElementById("hatchProgressActions"),
+    hatchCancelStream: document.getElementById("hatchCancelStream"),
+    hatchErrorMsg: document.getElementById("hatchErrorMsg"),
+    hatchRetryBtn: document.getElementById("hatchRetryBtn"),
+    hatchDowngradeBtn: document.getElementById("hatchDowngradeBtn"),
     hatchResult: document.getElementById("hatchResult"),
     hatchSummary: document.getElementById("hatchSummary"),
     hatchShortcut: document.getElementById("hatchShortcut"),
@@ -3527,9 +3554,11 @@ ${recordItems.join("\n") || "（无）"}
   }
 
   // 核心 LLM 调用（不走 chat 历史，独立请求）
-  async function callHatchLLM(systemPrompt, userPrompt, signal) {
+  async function callHatchLLM(systemPrompt, userPrompt, signal, onChunk) {
     const { apiUrl, apiKey, apiModel } = state.settings;
     if (!apiUrl || !apiKey) throw new Error("请先在设置中配置 AI API");
+    // 优先流式请求（让用户实时看到 AI 拆解过程）；不支持时自动降级为非流式
+    const useStream = typeof onChunk === "function";
     const resp = await fetch(apiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
@@ -3540,7 +3569,7 @@ ${recordItems.join("\n") || "（无）"}
           { role: "user", content: userPrompt },
         ],
         temperature: 0.5,
-        stream: false,
+        stream: useStream,
       }),
       signal,
     });
@@ -3548,8 +3577,42 @@ ${recordItems.join("\n") || "（无）"}
       const errText = await resp.text().catch(() => "");
       throw new Error(formatApiError(resp.status, errText));
     }
-    const data = await resp.json();
-    return data.choices?.[0]?.message?.content || "";
+    // 非流式：直接读取 JSON
+    if (!useStream || !resp.body) {
+      const data = await resp.json();
+      const content = data.choices?.[0]?.message?.content || "";
+      if (useStream) onChunk(content); // 一次性回放给回调
+      return content;
+    }
+    // 流式：解析 SSE data: {...} 行
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+    let full = "";
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // 按行处理 SSE
+        let nl;
+        while ((nl = buffer.indexOf("\n")) !== -1) {
+          let line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (!line || line.startsWith(":")) continue; // 注释/心跳
+          if (line.startsWith("data:")) line = line.slice(5).trim();
+          if (line === "[DONE]") { buffer = ""; return full; }
+          try {
+            const obj = JSON.parse(line);
+            const delta = obj.choices?.[0]?.delta?.content || obj.choices?.[0]?.message?.content || "";
+            if (delta) { full += delta; onChunk(full); }
+          } catch (e) { /* 跳过非 JSON 行 */ }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    return full;
   }
 
   // 从 LLM 输出中提取 JSON（容错：去 markdown 围栏 + 找第一个 { 到最后 }）
@@ -3645,26 +3708,123 @@ ${recordItems.join("\n") || "（无）"}
     weakDims: null,    // 薄弱维度列表（drill 模式用）
   };
 
+  // 孵化计时器（实时显示已用时长）
+  let hatchTimerId = 0;
+  let hatchTimerStart = 0;
+  function startHatchTimer() {
+    stopHatchTimer();
+    hatchTimerStart = Date.now();
+    if (el.hatchLabTimer) el.hatchLabTimer.textContent = "00:00";
+    hatchTimerId = setInterval(() => {
+      if (!el.hatchLabTimer) return;
+      const sec = Math.floor((Date.now() - hatchTimerStart) / 1000);
+      const m = String(Math.floor(sec / 60)).padStart(2, "0");
+      const s = String(sec % 60).padStart(2, "0");
+      el.hatchLabTimer.textContent = `${m}:${s}`;
+    }, 1000);
+  }
+  function stopHatchTimer() {
+    if (hatchTimerId) { clearInterval(hatchTimerId); hatchTimerId = 0; }
+  }
+
   function showHatchProgress(step, text) {
     el.hatchProgress.hidden = false;
     el.hatchResult.hidden = true;
     el.hatchError.hidden = true;
     el.hatchProgressFill.style.width = (step * 25) + "%";
     el.hatchProgressText.textContent = text;
-    el.hatchProgress.querySelectorAll(".hatch-step").forEach((s) => {
+    // 操作新的实验室步骤卡片
+    el.hatchProgress.querySelectorAll(".hatch-lab-step").forEach((s) => {
       const n = parseInt(s.dataset.step, 10);
       s.classList.toggle("active", n === step);
       s.classList.toggle("done", n < step);
     });
   }
 
+  // 显示/清理 AI 流式输出区
+  let hatchStreamRAF = 0;
+  let hatchStreamStart = 0;       // 流式开始时间（用于计算速率）
+  let hatchStreamLen = 0;         // 上次长度（用于增量步骤检测）
+  let hatchUserScrolled = false;  // 用户是否手动上滚（暂停自动滚动）
+  function showHatchStream() {
+    if (!el.hatchStream) return;
+    el.hatchStream.hidden = false;
+    el.hatchStreamBody.textContent = "";
+    el.hatchStreamCount.textContent = "0 字";
+    hatchStreamStart = Date.now();
+    hatchStreamLen = 0;
+    hatchUserScrolled = false;
+    if (el.hatchStreamRate) el.hatchStreamRate.hidden = false;
+    if (el.hatchStreamFoot) el.hatchStreamFoot.hidden = false;
+    if (el.hatchStreamCopy) el.hatchStreamCopy.hidden = true; // 流式结束才显示
+    if (el.hatchStreamSteps) el.hatchStreamSteps.textContent = "已识别 0 步";
+    if (el.hatchStreamHint) el.hatchStreamHint.textContent = "解析中…";
+    // 监听手动滚动（智能暂停自动滚动）
+    if (el.hatchStreamBody && !el.hatchStreamBody._scrollBound) {
+      el.hatchStreamBody._scrollBound = true;
+      el.hatchStreamBody.addEventListener("scroll", () => {
+        const atBottom = el.hatchStreamBody.scrollHeight - el.hatchStreamBody.scrollTop - el.hatchStreamBody.clientHeight < 30;
+        hatchUserScrolled = !atBottom;
+      }, { passive: true });
+    }
+  }
+  function hideHatchStream() {
+    if (!el.hatchStream) return;
+    el.hatchStream.hidden = true;
+    if (hatchStreamRAF) cancelAnimationFrame(hatchStreamRAF);
+    hatchStreamRAF = 0;
+    if (el.hatchProgressActions) el.hatchProgressActions.hidden = true;
+  }
+  // 节流更新流式文本（避免每个 chunk 都触发 DOM 重排）
+  function updateHatchStream(fullText) {
+    if (!el.hatchStreamBody) return;
+    // 增量检测已识别步骤数（统计 "text": 出现次数）
+    if (fullText.length > hatchStreamLen + 8) {
+      hatchStreamLen = fullText.length;
+      const stepMatches = fullText.match(/"text"\s*:/g);
+      const stepCount = stepMatches ? stepMatches.length : 0;
+      if (el.hatchStreamSteps) el.hatchStreamSteps.textContent = `已识别 ${stepCount} 步`;
+      // 速率计算
+      const elapsed = (Date.now() - hatchStreamStart) / 1000;
+      if (elapsed > 0.5 && el.hatchStreamRate) {
+        const rate = Math.round(fullText.length / elapsed);
+        el.hatchStreamRate.textContent = `${rate} 字/s`;
+      }
+    }
+    if (hatchStreamRAF) return; // 已有挂起的渲染
+    hatchStreamRAF = requestAnimationFrame(() => {
+      hatchStreamRAF = 0;
+      el.hatchStreamBody.textContent = fullText;
+      el.hatchStreamCount.textContent = fullText.length + " 字";
+      // 智能自动滚动：用户未上滚时才跟随
+      if (!hatchUserScrolled) {
+        el.hatchStreamBody.scrollTop = el.hatchStreamBody.scrollHeight;
+      }
+    });
+  }
+  // 流式结束：显示复制按钮 + 完成提示
+  function finishHatchStream(fullText) {
+    if (el.hatchStreamCopy) el.hatchStreamCopy.hidden = !fullText;
+    if (el.hatchStreamHint) el.hatchStreamHint.textContent = "✓ 输出完成";
+    if (el.hatchStreamRate) el.hatchStreamRate.hidden = true;
+  }
+
   function renderHatchResult(result) {
     hatchState.result = result;
+    // 流式结束前保留终端输出，标记完成
+    finishHatchStream(el.hatchStreamBody ? el.hatchStreamBody.textContent : "");
+    // 记录总耗时
+    const elapsedSec = hatchTimerStart ? Math.round((Date.now() - hatchTimerStart) / 1000) : 0;
+    stopHatchTimer();
     el.hatchProgress.hidden = true;
     el.hatchResult.hidden = false;
     el.hatchError.hidden = true;
+    // 过渡动画
+    el.hatchResult.classList.remove("hatch-result-enter");
+    void el.hatchResult.offsetWidth; // 触发重排
+    el.hatchResult.classList.add("hatch-result-enter");
 
-    // 摘要
+    // 摘要（含总耗时）
     const totalMin = result.est_total_min || (result.steps || []).reduce((s, x) => s + (x.est_min || 0), 0);
     const highRisk = (result.steps || []).filter((s) => s.risk === "high").length;
     const medRisk = (result.steps || []).filter((s) => s.risk === "med").length;
@@ -3675,6 +3835,7 @@ ${recordItems.join("\n") || "（无）"}
       <div class="hatch-summary-row"><span class="hatch-summary-label">预估时长</span><span class="hatch-summary-value">${totalMin} 分钟（约 ${(totalMin / 60).toFixed(1)}h）</span></div>
       <div class="hatch-summary-row"><span class="hatch-summary-label">风险等级</span><span class="hatch-summary-value ${riskClass}">${riskText}</span></div>
       ${result.first_blocker ? `<div class="hatch-summary-row"><span class="hatch-summary-label">最可能卡点</span><span class="hatch-summary-value">${escapeHtml(result.first_blocker)}</span></div>` : ""}
+      <div class="hatch-summary-row"><span class="hatch-summary-label">拆解耗时</span><span class="hatch-summary-value">${elapsedSec}s</span></div>
     `;
 
     // 捷径
@@ -3730,7 +3891,10 @@ ${recordItems.join("\n") || "（无）"}
     el.hatchProgress.hidden = true;
     el.hatchResult.hidden = true;
     el.hatchError.hidden = false;
-    el.hatchError.textContent = msg;
+    if (el.hatchErrorMsg) el.hatchErrorMsg.textContent = msg;
+    else el.hatchError.textContent = msg;
+    hideHatchStream();
+    stopHatchTimer();
   }
 
   async function runHatch(taskText, mode, scene, context, longTaskId, forceLLM) {
@@ -3747,6 +3911,9 @@ ${recordItems.join("\n") || "（无）"}
     hatchState.longTaskId = longTaskId || null;
     el.hatchBtn.disabled = true;
     el.hatchBtn.classList.add("loading");
+    // 实验室界面：同步任务文本到左侧卡片，并启动计时器
+    if (el.hatchLabTaskText) el.hatchLabTaskText.textContent = taskText || "—";
+    startHatchTimer();
 
     // drill 场景：读关联长期任务的 eval，识别薄弱维度
     let weakDims = null;
@@ -3818,8 +3985,24 @@ ${recordItems.join("\n") || "（无）"}
       hatchState.abortController = new AbortController();
       const timeoutId = setTimeout(() => hatchState.abortController.abort(), 60000);
 
-      const raw = await callHatchLLM(systemPrompt, userPrompt, hatchState.abortController.signal);
+      // 开启流式可视化（AI 逐字输出拆解过程）
+      showHatchStream();
+      // 显示当前场景/模式标签
+      if (el.hatchStreamTag) {
+        const sceneLabels = { learn:"📖 学习", exec:"⚙️ 执行", decide:"⚖️ 决策", checklist:"📋 清单", drill:"🎯 薄弱补强" };
+        const modeLabels = { lite:"lite", medium:"medium", zen:"zen" };
+        el.hatchStreamTag.textContent = `${sceneLabels[scene] || scene} · ${modeLabels[mode] || mode}`;
+        el.hatchStreamTag.hidden = false;
+      }
+      // 显示取消按钮
+      if (el.hatchProgressActions) el.hatchProgressActions.hidden = false;
+      updateHatchStream("⏳ 连接 AI 中…");
+      const raw = await callHatchLLM(systemPrompt, userPrompt, hatchState.abortController.signal, (full) => {
+        updateHatchStream(full);
+      });
       clearTimeout(timeoutId);
+      // 隐藏取消按钮
+      if (el.hatchProgressActions) el.hatchProgressActions.hidden = true;
 
       showHatchProgress(4, "④ 风险预判…");
       await sleep(200);
@@ -3967,6 +4150,45 @@ ${recordItems.join("\n") || "（无）"}
   el.closeHatch.addEventListener("click", closeHatchDialog);
   el.hatchCancelBtn.addEventListener("click", closeHatchDialog);
   el.hatchDialog.addEventListener("click", (e) => { if (e.target === el.hatchDialog) closeHatchDialog(); });
+
+  // 流式中取消（仅中止请求，不关闭弹窗）
+  if (el.hatchCancelStream) el.hatchCancelStream.addEventListener("click", () => {
+    if (hatchState.abortController) {
+      try { hatchState.abortController.abort(); } catch (e) {}
+    }
+  });
+  // 复制原始 AI 输出
+  if (el.hatchStreamCopy) el.hatchStreamCopy.addEventListener("click", () => {
+    const text = el.hatchStreamBody ? el.hatchStreamBody.textContent : "";
+    if (!text) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => toast("已复制 AI 原始输出", "success"));
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); toast("已复制 AI 原始输出", "success"); }
+      catch (e) { toast("复制失败，请手动选择", "error"); }
+      document.body.removeChild(ta);
+    }
+  });
+  // 错误区：重试 / 降档重试
+  const HATCH_MODE_ORDER = ["lite", "medium", "zen"];
+  function rerunHatch(modeOverride) {
+    if (!hatchState.taskText) return;
+    const scene = el.hatchScene.value === "auto" ? detectHatchScene(hatchState.taskText) : el.hatchScene.value;
+    const mode = modeOverride || (el.hatchMode.value === "auto" ? autoHatchMode(hatchState.taskText) : el.hatchMode.value);
+    const forceLLM = scene === "drill";
+    runHatch(hatchState.taskText + (forceLLM ? "（重试）" : " "), mode, scene, buildHatchContext(), hatchState.longTaskId, forceLLM);
+  }
+  if (el.hatchRetryBtn) el.hatchRetryBtn.addEventListener("click", () => rerunHatch());
+  if (el.hatchDowngradeBtn) el.hatchDowngradeBtn.addEventListener("click", () => {
+    const cur = el.hatchMode.value === "auto" ? autoHatchMode(hatchState.taskText) : el.hatchMode.value;
+    const idx = HATCH_MODE_ORDER.indexOf(cur);
+    const down = idx > 0 ? HATCH_MODE_ORDER[idx - 1] : "lite";
+    el.hatchMode.value = down;
+    toast(`已降档至 ${down}，重试中…`, "info");
+    rerunHatch(down);
+  });
 
   el.hatchSelectAll.addEventListener("click", () => {
     if (!hatchState.result) return;
@@ -4299,13 +4521,17 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   if (el.realmFab) {
     el.realmFab.dataset.active = "plan";
     el.realmFab.querySelectorAll(".realm-fab-btn").forEach((btn) => {
+      const target = btn.dataset.realm;
+      if (!target) return; // 收集箱按钮无 data-realm，跳过三才切换逻辑
       btn.addEventListener("click", () => {
-        const target = btn.dataset.realm;
         const order = ["plan", "record", "review"];
         const reverse = order.indexOf(target) < order.indexOf(state.realm);
         setRealm(target, reverse);
       });
     });
+    // 收集箱入口（天地人右边）：点击跳转到收集箱弹窗
+    const fabInbox = document.getElementById("realmFabInbox");
+    if (fabInbox) fabInbox.addEventListener("click", openInbox);
   }
   // 三才页左右滑动手势切换
   if (el.realmContainer) {
@@ -7305,6 +7531,9 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         e.preventDefault(); showKeyHint("L", "地 · 记录"); setRealm("record"); break;
       case "r": case "R":
         e.preventDefault(); showKeyHint("R", "人 · 复盘"); setRealm("review"); break;
+      // 助记快捷键：I=Inbox 收集箱
+      case "i": case "I":
+        e.preventDefault(); showKeyHint("I", "📥 收集箱"); openInbox(); break;
     }
   });
 

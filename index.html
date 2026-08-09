@@ -6,8 +6,35 @@
   <meta name="theme-color" content="#1a1a2e" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>曼陀罗时辰 · AI 日程规划</title>
-  <link rel="stylesheet" href="styles.css?v=20260808h" />
+  <!-- 强制清理旧 SW 缓存（内联，确保即使旧 SW 拦截也能执行）-->
+  <script>
+    (async function () {
+      try {
+        if ("serviceWorker" in navigator) {
+          var regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map(function (r) { return r.unregister(); }));
+        }
+        if ("caches" in window) {
+          var keys = await caches.keys();
+          await Promise.all(keys.map(function (k) { return caches.delete(k); }));
+        }
+        // 检测当前 app.js 版本，若仍是旧的则强制带时间戳 reload
+        var APP_VERSION = "20260809j";
+        if (sessionStorage.getItem("mandala-app-ver") !== APP_VERSION) {
+          sessionStorage.setItem("mandala-app-ver", APP_VERSION);
+          if (!location.search || location.search.indexOf("t=") === -1) {
+            location.replace(location.pathname + "?t=" + Date.now());
+            return;
+          }
+        }
+      } catch (e) { console.warn("SW 清理失败:", e); }
+    })();
+  </script>
+  <link rel="stylesheet" href="styles.css?v=20260809j" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
 </head>
@@ -234,7 +261,7 @@
   <!-- 浮动添加按钮 -->
   <button class="fab" id="fabAdd" title="快速添加到下一空格 (+)">+</button>
 
-  <!-- 底部浮动三才快速切换条 -->
+  <!-- 底部浮动三才快速切换条 + 收集箱入口 -->
   <div class="realm-fab" id="realmFab">
     <button class="realm-fab-btn" data-realm="plan" title="天 · 计划 (P)">
       <span class="rf-icon">天</span><span class="rf-name">计划</span>
@@ -244,6 +271,9 @@
     </button>
     <button class="realm-fab-btn" data-realm="review" title="人 · 复盘 (R)">
       <span class="rf-icon">人</span><span class="rf-name">复盘</span>
+    </button>
+    <button class="realm-fab-btn realm-fab-inbox" id="realmFabInbox" title="收集箱 (I)">
+      <span class="rf-icon">📥</span><span class="rf-name">收集箱</span>
     </button>
   </div>
 
@@ -709,7 +739,12 @@
         </div>
         <div class="form-group">
           <label>子任务清单（可选，每行一个步骤）</label>
-          <textarea id="taskChecklist" rows="3" placeholder="如：&#10;收集资料&#10;写大纲&#10;填充内容"></textarea>
+          <div class="checklist-toolbar">
+            <textarea id="taskChecklist" rows="3" placeholder="如：&#10;收集资料&#10;写大纲&#10;填充内容"></textarea>
+            <button type="button" class="hatch-btn" id="hatchBtn" title="AI 拆解当前任务为可执行子步骤">
+              <span class="hatch-icon">🥚</span><span>孵化</span>
+            </button>
+          </div>
           <small>保存后可在格子上看到完成进度，点击进度徽章可快速勾选</small>
         </div>
         <div class="form-group">
@@ -735,6 +770,139 @@
           <button class="danger-btn" id="deleteTask">删除</button>
           <button class="tool-btn" id="startPomoBtn">🍅 开始专注</button>
           <button class="primary-btn" id="saveTask">保存</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 孵化预览弹窗 -->
+  <dialog class="hatch-dialog" id="hatchDialog">
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <h3 id="hatchDialogTitle">🥚 任务孵化</h3>
+        <button class="icon-btn" id="closeHatch" aria-label="关闭">✕</button>
+      </div>
+      <div class="dialog-body">
+        <div class="hatch-meta" id="hatchMeta">
+          <div class="hatch-meta-row">
+            <span class="hatch-meta-label">任务</span>
+            <span class="hatch-meta-value" id="hatchTaskText">—</span>
+          </div>
+          <div class="hatch-meta-row">
+            <span class="hatch-meta-label">模式</span>
+            <select id="hatchMode" class="hatch-mode-select">
+              <option value="auto">自动</option>
+              <option value="lite">lite · 3-5 步</option>
+              <option value="medium">medium · 5-8 步</option>
+              <option value="zen">zen · 8-12 步</option>
+            </select>
+          </div>
+          <div class="hatch-meta-row">
+            <span class="hatch-meta-label">场景</span>
+            <select id="hatchScene" class="hatch-mode-select">
+              <option value="auto">自动识别</option>
+              <option value="learn">📖 学习</option>
+              <option value="exec">⚙️ 执行</option>
+              <option value="decide">⚖️ 决策</option>
+              <option value="checklist">📋 清单</option>
+              <option value="drill">🎯 薄弱补强</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="hatch-history-hint" id="hatchHistoryHint" hidden></div>
+
+        <div class="hatch-progress" id="hatchProgress" hidden>
+          <!-- 孵化实验室界面：左侧任务+步骤 / 右侧 AI 终端 -->
+          <div class="hatch-lab">
+            <div class="hatch-lab-left">
+              <!-- 任务卡片 -->
+              <div class="hatch-lab-task">
+                <div class="hatch-lab-task-label">🥚 正在孵化</div>
+                <div class="hatch-lab-task-text" id="hatchLabTaskText">—</div>
+              </div>
+              <!-- 4 步流程可视化（大图标） -->
+              <div class="hatch-lab-steps">
+                <div class="hatch-lab-step" data-step="1">
+                  <div class="hatch-lab-step-icon">⏱️</div>
+                  <div class="hatch-lab-step-name">估时判级</div>
+                  <div class="hatch-lab-step-desc">判断任务量级与时长</div>
+                </div>
+                <div class="hatch-lab-step-connector"></div>
+                <div class="hatch-lab-step" data-step="2">
+                  <div class="hatch-lab-step-icon">🌳</div>
+                  <div class="hatch-lab-step-name">主干拆分</div>
+                  <div class="hatch-lab-step-desc">分解核心动作模块</div>
+                </div>
+                <div class="hatch-lab-step-connector"></div>
+                <div class="hatch-lab-step" data-step="3">
+                  <div class="hatch-lab-step-icon">🔬</div>
+                  <div class="hatch-lab-step-name">步骤细化</div>
+                  <div class="hatch-lab-step-desc">每步可 15-30 分钟完成</div>
+                </div>
+                <div class="hatch-lab-step-connector"></div>
+                <div class="hatch-lab-step" data-step="4">
+                  <div class="hatch-lab-step-icon">⚠️</div>
+                  <div class="hatch-lab-step-name">风险预判</div>
+                  <div class="hatch-lab-step-desc">标注卡点与依赖</div>
+                </div>
+              </div>
+              <!-- 进度条 + 当前状态 -->
+              <div class="hatch-lab-bar">
+                <div class="hatch-lab-bar-track">
+                  <div class="hatch-lab-bar-fill" id="hatchProgressFill"></div>
+                </div>
+                <div class="hatch-lab-bar-row">
+                  <span class="hatch-lab-bar-text" id="hatchProgressText">准备中…</span>
+                  <span class="hatch-lab-bar-timer" id="hatchLabTimer">00:00</span>
+                </div>
+              </div>
+            </div>
+            <!-- 右侧：AI 终端流式输出 -->
+            <div class="hatch-lab-right">
+              <div class="hatch-stream" id="hatchStream">
+                <div class="hatch-stream-header">
+                  <span class="hatch-stream-dot"></span>
+                  <span class="hatch-stream-title">AI 拆解终端</span>
+                  <span class="hatch-stream-tag" id="hatchStreamTag" hidden></span>
+                  <span class="hatch-stream-rate" id="hatchStreamRate" hidden>0 字/s</span>
+                  <span class="hatch-stream-count" id="hatchStreamCount">0 字</span>
+                  <button class="hatch-stream-copy" id="hatchStreamCopy" title="复制原始输出" hidden>📋</button>
+                </div>
+                <pre class="hatch-stream-body" id="hatchStreamBody"></pre>
+                <div class="hatch-stream-foot" id="hatchStreamFoot" hidden>
+                  <span class="hatch-stream-steps" id="hatchStreamSteps">已识别 0 步</span>
+                  <span class="hatch-stream-hint" id="hatchStreamHint">解析中…</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- 流式中取消按钮 -->
+          <div class="hatch-progress-actions" id="hatchProgressActions" hidden>
+            <button class="tool-btn hatch-cancel-stream" id="hatchCancelStream" title="中止当前请求">⏹ 取消</button>
+          </div>
+        </div>
+
+        <div class="hatch-result" id="hatchResult" hidden>
+          <div class="hatch-summary" id="hatchSummary"></div>
+          <div class="hatch-shortcut" id="hatchShortcut" hidden></div>
+          <div class="hatch-list" id="hatchList"></div>
+          <div class="hatch-actions">
+            <button class="tool-btn" id="hatchSelectAll">全选</button>
+            <button class="tool-btn" id="hatchInvert">反选</button>
+            <button class="tool-btn" id="hatchRegen">🔄 重新生成</button>
+            <span class="hatch-spacer"></span>
+            <button class="danger-btn" id="hatchCancelBtn">取消</button>
+            <button class="primary-btn" id="hatchApply">✓ 加入清单</button>
+          </div>
+        </div>
+
+        <div class="hatch-error" id="hatchError" hidden>
+          <div class="hatch-error-msg" id="hatchErrorMsg"></div>
+          <div class="hatch-error-actions">
+            <button class="tool-btn" id="hatchRetryBtn" title="相同参数重试">🔄 重试</button>
+            <button class="tool-btn" id="hatchDowngradeBtn" title="降一档重试（如 medium→lite）">⬇ 降档重试</button>
+          </div>
         </div>
       </div>
     </div>
@@ -822,6 +990,7 @@
             <datalist id="inboxTagList"></datalist>
             <button class="tool-btn" id="inboxAddBtn" style="background:var(--accent);color:#fff;">＋ 添加</button>
           </div>
+          <div class="inbox-tag-chips" id="inboxTagChips"></div>
           <div class="inbox-filter-row">
             <div class="inbox-filter" id="inboxFilter"></div>
             <select id="inboxTimeFilter" style="padding:4px 8px;background:var(--input-bg);border:1px solid var(--input-border);border-radius:8px;color:var(--text-primary);font-size:11px;">
@@ -882,6 +1051,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=20260808h" defer></script>
+  <script src="app.js?v=20260809h" defer></script>
 </body>
 </html>
