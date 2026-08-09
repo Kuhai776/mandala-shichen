@@ -8784,9 +8784,53 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     });
   }
 
+  // ---------- origin 迁移检测 ----------
+  // 背景：旧版 APK 的 capacitor.config.json 配了 server.url=https://mandala.lz-oc.xyz
+  // 导致 WebView 加载远程站点，localStorage 存在 mandala.lz-oc.xyz 域名下
+  // 新版移除 server.url 后，APK 用 https://localhost，两个域名的 localStorage 隔离
+  // 此函数检测是否为新 origin 首次启动，提示用户通过同步服务器恢复数据
+  function checkOriginMigration() {
+    try {
+      const MIGRATION_KEY = "mandala-origin-migrated-v1";
+      const currentOrigin = location.origin;
+      const tasks = load(STORAGE_KEY, {});
+      const taskCount = Object.keys(tasks).length;
+      const settings = load(SETTINGS_KEY, {});
+      const hasSyncUrl = !!settings.syncUrl;
+      const migrated = sessionStorage.getItem(MIGRATION_KEY);
+
+      // 只在 localhost origin 且无任务数据且未提示过时触发
+      if (migrated) return;
+      sessionStorage.setItem(MIGRATION_KEY, "1");
+
+      if (!currentOrigin.includes("localhost") && !currentOrigin.includes("capacitor")) return;
+      if (taskCount > 0) return; // 有数据，不需要迁移
+
+      // 新 origin 无数据，提示用户
+      setTimeout(() => {
+        const msg = hasSyncUrl
+          ? "检测到本地无任务数据，但有同步地址配置。点击「确定」立即从云端拉取数据。"
+          : "检测到本地无任务数据。\n\n如果之前使用过旧版本 APK（通过 mandala.lz-oc.xyz 加载），数据存储在旧域名下，需要通过同步服务器恢复。\n\n请到「设置」→ 填写同步地址（如 https://mandala.lz-oc.xyz/api/sync）→ 勾选自动同步 → 重启应用。\n\n如果没有同步服务器，数据将无法恢复，但新功能可正常使用。";
+        if (confirm(msg)) {
+          if (hasSyncUrl) {
+            pullSync();
+            toast("正在从云端拉取数据…", "info");
+          } else {
+            // 打开设置
+            const settingsBtn = document.getElementById("settingsBtn");
+            if (settingsBtn) settingsBtn.click();
+          }
+        }
+      }, 1500);
+    } catch (e) {
+      console.warn("[migration] 检测失败:", e);
+    }
+  }
+
   // ---------- 启动 ----------
   function init() {
     migrateOldData();
+    checkOriginMigration(); // 检测 origin 变化（server.url 移除后数据隔离恢复引导）
     applyTheme();
     applyAccentColor(state.settings.accentColor);
     applyNotifyBtn();

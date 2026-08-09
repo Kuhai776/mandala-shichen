@@ -3,7 +3,6 @@
   "appName": "曼陀罗时辰",
   "webDir": "www",
   "server": {
-    "url": "https://mandala.lz-oc.xyz",
     "cleartext": false
   },
   "android": {
