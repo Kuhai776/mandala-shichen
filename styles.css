@@ -5987,10 +5987,117 @@ dialog.inbox-dialog-fullscreen::backdrop {
   border-radius: 8px;
   margin-bottom: 10px;
 }
-.hatch-meta-row {
+.hatch-task-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.hatch-task-input:focus {
+  outline: none;
+  border-color: var(--accent, #7c5cff);
+  box-shadow: 0 0 0 2px rgba(124,92,255,0.15);
+}
+/* 基石问询面板 */
+.hatch-onboard {
+  margin-bottom: 12px;
+  border: 1px solid rgba(255,200,80,0.25);
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(255,200,80,0.06), rgba(124,92,255,0.04));
+  overflow: hidden;
+}
+.hatch-onboard-head {
   display: flex;
   align-items: center;
   gap: 8px;
+  padding: 10px 12px;
+  background: rgba(255,200,80,0.08);
+  border-bottom: 1px solid rgba(255,200,80,0.2);
+  cursor: pointer;
+  user-select: none;
+}
+.hatch-onboard-icon { font-size: 16px; }
+.hatch-onboard-title { font-size: 13px; font-weight: 700; color: var(--text); }
+.hatch-onboard-hint { font-size: 11px; color: var(--text-muted); flex: 1; }
+.hatch-onboard-toggle {
+  background: none; border: none; color: var(--text-muted);
+  font-size: 14px; cursor: pointer; padding: 2px 6px;
+  transition: transform 0.2s;
+}
+.hatch-onboard.collapsed .hatch-onboard-toggle { transform: rotate(-90deg); }
+.hatch-onboard.collapsed .hatch-onboard-body,
+.hatch-onboard.collapsed .hatch-onboard-actions { display: none; }
+.hatch-onboard-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+.hatch-onboard-q label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  line-height: 1.5;
+}
+.hoq-num {
+  color: #ffc850;
+  font-weight: 700;
+  margin-right: 2px;
+}
+.hoq-q { color: var(--text); font-weight: 500; }
+.hatch-onboard-q input {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+}
+.hatch-onboard-q input:focus {
+  outline: none;
+  border-color: rgba(255,200,80,0.5);
+  box-shadow: 0 0 0 2px rgba(255,200,80,0.12);
+}
+.hoq-optional label { opacity: 0.75; }
+.hatch-onboard-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-top: 1px solid rgba(255,200,80,0.15);
+  background: rgba(255,200,80,0.04);
+}
+.hatch-onboard-tip { font-size: 11px; color: var(--text-muted); }
+.hatch-onboard-actions .primary-btn {
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #ffc850, #7c5cff);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(124,92,255,0.3);
+  transition: all 0.2s;
+}
+.hatch-onboard-actions .primary-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(124,92,255,0.4); }
+.hatch-onboard-actions .primary-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+/* 工具栏孵化按钮高亮 */
+.hatch-tool-btn {
+  background: linear-gradient(135deg, rgba(255,200,80,0.15), rgba(124,92,255,0.12)) !important;
+  border: 1px solid rgba(255,200,80,0.3) !important;
+  font-weight: 600;
+}
+@media (max-width: 720px) {
+  .hatch-onboard-hint { display: none; }
 }
 .hatch-meta-label {
   flex-shrink: 0;
