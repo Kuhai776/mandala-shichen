@@ -250,3 +250,116 @@ Hermes ↔ mandala-mcp.py
 - 同步防抖 3 秒，避免高频写
 - MCP 读多写少，锁仅写时持有
 - 不为联动添加无关多余功能
+
+## 八、Hermes 自动化 Workflow（共享模板）
+
+> 三个标准 cron workflow，Hermes 侧直接复用。每个 workflow 的步骤都对应上文的 MCP 工具调用。
+> 更新规则：仓库优先，Hermes 侧 `bash ~/.hermes/skills/mandala/install.sh` 同步。
+
+### 8.1 晨间简报（L4 cron，0 token）
+
+```yaml
+# 文件位置：~/.hermes/workflows/mandala-morning-brief.yaml
+name: 曼陀罗晨间简报
+trigger:
+  cron: "0 7 * * *"   # 每日 07:00
+steps:
+  - name: 拉取今日计划
+    tool: mandala.get_today_plan
+    input: {}
+  - name: 识别 MIT（最重要 3 任务）
+    script: |
+      const plan = $prev.topics.flatMap(t => t.tasks)
+        .filter(t => t.priority === 'high')
+        .slice(0, 3);
+      return { mit: plan, period: $prev.current_name };
+  - name: 推送微信/PWA 通知
+    tool: hermes.notify
+    input:
+      message: "🌅 {{period}}早安。今日 MIT：\n{{#mit}}- {{content}}（第{{period}}辰格{{cell}}）\n{{/mit}}"
+```
+
+### 8.2 晚间复盘（L4 cron，低档模型）
+
+```yaml
+# 文件位置：~/.hermes/workflows/mandala-evening-review.yaml
+name: 曼陀罗晚间复盘
+trigger:
+  cron: "30 21 * * *"   # 每日 21:30
+steps:
+  - name: 拉取今日任务与完成状态
+    tool: mandala.get_tasks
+    input: { date: "{{today}}" }
+  - name: 计算完成率与偏差
+    script: |
+      const all = $prev.tasks;
+      const done = all.filter(t => t.done).length;
+      const drift = all.filter(t => !t.done && t.priority === 'high');
+      return { total: all.length, done, rate: all.length ? done/all.length : 0, drift };
+  - name: AI 生成复盘（低档模型）
+    tool: hermes.llm
+    input:
+      model: qwen2.5:7b    # 或 gpt-4o-mini
+      prompt: |
+        今日 {{done}}/{{total}} 完成（{{rate}}），未完成高优：{{drift}}。
+        按 GRAI 框架生成一句话洞察 + 1 条明日改进杠杆。
+  - name: 写入曼陀罗复盘
+    tool: mandala.add_hermes_note
+    input:
+      type: summary
+      text: "{{prev}}"
+      date: "{{today}}"
+```
+
+### 8.3 周度 7 维度检查（L4 cron，针对长期任务）
+
+```yaml
+# 文件位置：~/.hermes/workflows/mandala-weekly-eval.yaml
+name: 曼陀罗周度知识评估
+trigger:
+  cron: "0 22 * * 0"   # 每周日 22:00
+steps:
+  - name: 拉取所有长期任务及 7 维度评估
+    tool: mandala.get_long_tasks
+    input: {}
+  - name: 筛选薄弱维度
+    script: |
+      const weak = $prev.longTasks.map(lt => ({
+        title: lt.title,
+        weak_dims: Object.entries(lt.eval || {})
+          .flatMap(([dim, subs]) => Object.entries(subs)
+            .filter(([k, v]) => v <= 2)
+            .map(([k, v]) => `${dim}.${k}=${v}`))
+      })).filter(x => x.weak_dims.length);
+      return { weak };
+  - name: 生成复习建议
+    tool: hermes.llm
+    input:
+      model: qwen2.5:7b
+      prompt: "针对以下薄弱维度，给出下周 3 条检索练习计划：\n{{weak}}"
+  - name: 写入 PWA 提示队列
+    tool: mandala.trigger_action
+    input:
+      type: toast
+      message: "📚 周度评估完成，建议复习：{{weak}}"
+```
+
+### 8.4 一键部署所有 workflow
+
+```bash
+# 在 Hermes 侧执行
+mkdir -p ~/.hermes/workflows
+for wf in mandala-morning-brief mandala-evening-review mandala-weekly-eval; do
+  hermes workflow install ~/.hermes/skills/mandala/workflows/${wf}.yaml
+done
+hermes workflow list   # 确认三个 workflow 已激活
+```
+
+### 8.5 Skill 双向同步
+
+| 方向 | 触发 | 命令 |
+|---|---|---|
+| 仓库 → Hermes | 仓库 SKILL.md 更新后 | `bash ~/.hermes/skills/mandala/install.sh` |
+| Hermes → 仓库 | Hermes 侧修改 workflow 后 | `cp -r ~/.hermes/skills/mandala/mcp/* /workspace/mcp/ && cp ~/.hermes/skills/mandala/SKILL.md /workspace/docs/` |
+
+约定：**仓库为单一可信源**。Hermes 侧的临时修改必须回写到仓库再提交 git，否则下次 install 会被覆盖。
