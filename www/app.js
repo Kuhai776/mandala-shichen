@@ -7,6 +7,28 @@
  *   done  = { "2026-07-28": { "0-0": true } }
  * ============================================================ */
 
+// ---------- 启动期 SW 强制清理（解决覆盖安装后仍加载旧资源的问题）----------
+// 必须在任何业务逻辑前执行，确保拿到最新代码
+(async () => {
+  try {
+    if ("serviceWorker" in navigator) {
+      // 1. 注销所有已注册的 Service Worker
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+      // 2. 清空所有 CacheStorage（含 mandala-v21/v22/v23 旧缓存）
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+      // 3. 重新注册最新 SW（sw.js 已是 v23）
+      await navigator.serviceWorker.register("./sw.js?v=20260809h", { scope: "./" });
+      console.log("[SW] 已清理旧缓存并重新注册");
+    }
+  } catch (e) {
+    console.warn("[SW] 清理失败（不影响功能）:", e);
+  }
+})();
+
 (function () {
   "use strict";
 
