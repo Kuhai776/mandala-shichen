@@ -460,6 +460,145 @@ def step_subdivide(field, current_problem, node, existing_children_titles, llm_k
     return parse_json_response(raw)
 
 
+def step_multi_angle_subdivide(field, current_problem, node, angles, llm_kwargs,
+                               existing_titles=None, per_angle_child_count=4):
+    """
+    步骤 6：多角度细分——按用户指定的多个角度一次性把当前节点全部拆开。
+    - angles: 角度短词数组，如 ['构成组成', '指标评估']
+    - 输出 groups 数组，长度 = angles 长度，顺序对应
+    - 每个 group 包含 middle_title + middle_summary + children[]
+    """
+    prompt = load_prompt("multi_angle_subdivide_default")
+    volatile = {
+        "field": field,
+        "current_problem": current_problem,
+        "current_node": {"title": node["title"], "summary": node.get("summary", "")},
+        "angles": angles,
+        "existing_titles": (existing_titles or [])[:12],  # 截断省 token
+        "per_angle_child_count": per_angle_child_count,
+    }
+    schema = (
+        '{"groups": [{"middle_title": str, "middle_summary": str, "children": '
+        '[{"id": str, "title": str, "summary": str, "importance": int, '
+        '"relevance_score": int, "difficulty": int}]}], "reply": str}'
+    )
+    messages = build_messages(prompt, volatile, schema)
+    raw = llm_chat(messages, max_tokens=6144, **llm_kwargs)
+    result = parse_json_response(raw)
+    # 补 id + parent_id
+    for group in result.get("groups", []):
+        for child in group.get("children", []):
+            child["id"] = child.get("id") or _gen_id("n")
+            child["parent_id"] = node["id"]
+    return result
+
+
+def step_deep_reanswer(field, current_problem, original_user_message, node, llm_kwargs):
+    """
+    步骤 7：深度重答——基于深度搜索资料重新回答用户问题。
+    - 先 Exa 深度搜索（5 条），把资料拼进 volatile
+    - 综合成更可靠、更具体的回答，资料矛盾时指出不确定性
+    - 顶层 reply 字段承载完整回答文本
+    """
+    prompt = load_prompt("deep_reanswer_default")
+    # 深度搜索：节点标题 + 用户问题
+    search_query = f"{field} {node['title']} {original_user_message}"
+    search_results = search_exa(search_query, num_results=5)
+    volatile = {
+        "field": field,
+        "current_problem": current_problem,
+        "original_user_message": original_user_message,
+        "current_node": {"title": node["title"], "summary": node.get("summary", "")},
+        "deep_search_sources": search_results,
+    }
+    schema = '{"reply": str, "sources": [{"title": str, "url": str}]}'
+    messages = build_messages(prompt, volatile, schema)
+    raw = llm_chat(messages, max_tokens=3072, **llm_kwargs)
+    return parse_json_response(raw)
+
+
+def step_peek(field, current_problem, node, followup_question, background_text,
+              mode, llm_kwargs, char_limit=400):
+    """
+    步骤 8：Peek Definition——快速定义/追问，把答案带到原文旁边。
+    - 控制在 char_limit 字以内（Lite 短答，Zen 充分）
+    - 严禁主语替换：必须围绕 followup_question 里的主语回答
+    - 不知道就承认，不硬编数据
+    """
+    prompt = load_prompt("peek_default")
+    cfg = MODE_CONFIG[mode]
+    volatile = {
+        "field": field,
+        "current_problem": current_problem,
+        "current_node": {"title": node["title"], "summary": node.get("summary", "")},
+        "followup_question": followup_question,
+        "learning_background": background_text,
+        "char_limit": char_limit,
+        "mode": cfg["name"],
+    }
+    schema = '{"answer": str, "sources": [{"title": str, "url": str}]}'
+    messages = build_messages(prompt, volatile, schema)
+    raw = llm_chat(messages, max_tokens=1024, **llm_kwargs)
+    return parse_json_response(raw)
+
+
+def step_explain(field, current_problem, node, background_text, mode, llm_kwargs,
+                 existing_children=None, sibling_titles=None):
+    """
+    步骤 9：深入讲解——叶子节点的详细解释（Markdown）。
+    - 分组节点(is_grouping_node=true)：只做导览，不展开 child 内容
+    - 叶子节点(is_grouping_node=false)：按 A/B 规则讲（术语短答 vs 深入讨论）
+    - 顶层 reply 字段承载完整回答，禁止用 answer/sections 等其他字段
+    - 篇幅按档位：Lite 短答，Medium 充分，Zen 深度
+    """
+    prompt = load_prompt("explain_default")
+    cfg = MODE_CONFIG[mode]
+    # 判断是否分组节点：有 children 就是分组节点
+    children = existing_children or node.get("children", [])
+    is_grouping = bool(children)
+
+    # 篇幅目标按档位
+    char_targets = {
+        "lite":   {"term": 200, "deep": 400,  "grouping": 300},
+        "medium": {"term": 400, "deep": 800,  "grouping": 500},
+        "zen":    {"term": 700, "deep": 1500, "grouping": 800},
+    }
+    targets = char_targets[mode]
+
+    # 节点路径（从根到它）
+    node_path = node.get("path", node["title"])
+
+    volatile = {
+        "field": field,
+        "current_problem": current_problem,
+        "current_node": {
+            "title": node["title"],
+            "summary": node.get("summary", ""),
+            "is_grouping_node": is_grouping,
+        },
+        "node_path": node_path,
+        "sibling_titles": (sibling_titles or [])[:8],
+        "existing_child_titles": [c.get("title", c) if isinstance(c, dict) else c for c in children][:12],
+        "existing_children_with_summary": [
+            {"title": c.get("title", ""), "summary": c.get("summary", "")}
+            for c in children if isinstance(c, dict)
+        ][:12],
+        "learning_background": background_text,
+        "mode": cfg["name"],
+        "is_grouping_node": is_grouping,
+        "term_target": targets["term"],
+        "deep_target": targets["deep"],
+        "grouping_target": targets["grouping"],
+    }
+    schema = (
+        '{"reply": str, "next_actions": [{"kind": str, "label": str, '
+        '"target_title": str, "payload": str}]}'
+    )
+    messages = build_messages(prompt, volatile, schema)
+    raw = llm_chat(messages, max_tokens=2048, **llm_kwargs)
+    return parse_json_response(raw)
+
+
 # ---------- 工具函数 ----------
 def _gen_id(prefix="n"):
     return f"{prefix}-{int(time.time() * 1000) % 1000000}-{hash(str(time.time())) % 10000}"
@@ -624,27 +763,76 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 示例：
-  python3 decompose.py "AI Agent" --mode medium
-  python3 decompose.py "AI Agent" --mode medium --write
-  python3 decompose.py "机器学习" --mode zen --provider openai --model gpt-4o
-  python3 decompose.py "护城河" --problem "如何判断一家公司有没有护城河" --mode lite --write
+  python3 decompose.py decompose "AI Agent" --mode medium
+  python3 decompose.py decompose "AI Agent" --mode medium --write
+  python3 decompose.py explain "AI Agent" --node "ReAct 模式" --mode medium
+  python3 decompose.py peek "AI Agent" --node "ReAct" --question "ReAct 和 Reflexion 区别"
+  python3 decompose.py subdivide "AI Agent" --node "工具调用" --existing "规划,执行"
+  python3 decompose.py multi-angle "AI Agent" --node "工具调用" --angles "构成组成" "风险失败模式"
+  python3 decompose.py deep-reanswer "AI Agent" --node "ReAct" --message "ReACT 的最新进展"
 """,
     )
-    parser.add_argument("field", help="要拆解的主题")
-    parser.add_argument("--mode", choices=["lite", "medium", "zen"], default="medium",
-                        help="思维档位（默认 medium）")
-    parser.add_argument("--problem", "-p", default="", help="用户当前要解决的问题（影响 relevance_score）")
-    parser.add_argument("--background", "-b", default="", help="学习背景描述")
-    parser.add_argument("--provider", default="deepseek",
-                        choices=list(DEFAULT_PROVIDERS.keys()),
-                        help="LLM provider（默认 deepseek）")
-    parser.add_argument("--model", default=None, help="覆盖默认模型名")
-    parser.add_argument("--api-key", default=None, help="覆盖环境变量的 API key")
-    parser.add_argument("--base-url", default=None, help="覆盖默认 base_url")
-    parser.add_argument("--write", action="store_true", help="双写到 wiki + 曼陀罗 inbox")
-    parser.add_argument("--mcp-data", default="~/.mandala/data.json",
-                        help="曼陀罗 data.json 路径（--write 时生效）")
-    parser.add_argument("--output", "-o", default=None, help="输出 JSON 文件路径（默认 stdout）")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    # 公共参数函数
+    def add_common(p):
+        p.add_argument("field", help="主题")
+        p.add_argument("--problem", "-p", default="", help="用户当前要解决的问题")
+        p.add_argument("--background", "-b", default="", help="学习背景")
+        p.add_argument("--provider", default="deepseek", choices=list(DEFAULT_PROVIDERS.keys()))
+        p.add_argument("--model", default=None)
+        p.add_argument("--api-key", default=None)
+        p.add_argument("--base-url", default=None)
+        p.add_argument("--output", "-o", default=None)
+
+    # decompose：完整流程
+    p_dec = sub.add_parser("decompose", help="完整拆解流程（preview→map→grow→fp）")
+    add_common(p_dec)
+    p_dec.add_argument("--mode", choices=["lite", "medium", "zen"], default="medium")
+    p_dec.add_argument("--write", action="store_true")
+    p_dec.add_argument("--mcp-data", default="~/.mandala/data.json")
+
+    # peek：快速定义/追问
+    p_peek = sub.add_parser("peek", help="Peek 快速定义/追问")
+    add_common(p_peek)
+    p_peek.add_argument("--mode", choices=["lite", "medium", "zen"], default="medium")
+    p_peek.add_argument("--node", required=True, help="当前节点标题")
+    p_peek.add_argument("--node-summary", default="")
+    p_peek.add_argument("--question", required=True, help="追问问题")
+    p_peek.add_argument("--char-limit", type=int, default=400)
+
+    # explain：深入讲解
+    p_exp = sub.add_parser("explain", help="深入讲解（Markdown）")
+    add_common(p_exp)
+    p_exp.add_argument("--mode", choices=["lite", "medium", "zen"], default="medium")
+    p_exp.add_argument("--node", required=True, help="当前节点标题")
+    p_exp.add_argument("--node-summary", default="")
+    p_exp.add_argument("--children", nargs="*", default=[], help="已有 children 标题（逗号分隔或多个）")
+
+    # subdivide：细分节点
+    p_sub = sub.add_parser("subdivide", help="细分节点为中间分支+子节点")
+    add_common(p_sub)
+    p_sub.add_argument("--node", required=True, help="当前节点标题")
+    p_sub.add_argument("--node-summary", default="")
+    p_sub.add_argument("--existing", nargs="*", default=[], help="已有 children 标题")
+    p_sub.add_argument("--target", type=int, default=4, help="目标 children 数量")
+
+    # multi-angle：多角度细分
+    p_ma = sub.add_parser("multi-angle", help="多角度一次性拆开")
+    add_common(p_ma)
+    p_ma.add_argument("--node", required=True, help="当前节点标题")
+    p_ma.add_argument("--node-summary", default="")
+    p_ma.add_argument("--angles", nargs="+", required=True, help="角度短词数组")
+    p_ma.add_argument("--existing", nargs="*", default=[])
+    p_ma.add_argument("--per-angle", type=int, default=4)
+
+    # deep-reanswer：深度重答
+    p_dr = sub.add_parser("deep-reanswer", help="基于深度搜索重新回答")
+    add_common(p_dr)
+    p_dr.add_argument("--node", required=True, help="当前节点标题")
+    p_dr.add_argument("--node-summary", default="")
+    p_dr.add_argument("--message", required=True, help="原始用户消息")
+
     args = parser.parse_args()
 
     llm_kwargs = {
@@ -655,15 +843,39 @@ def main():
     }
 
     try:
-        tree = run_decompose(
-            field=args.field,
-            mode=args.mode,
-            current_problem=args.problem,
-            background_text=args.background,
-            do_write=args.write,
-            mcp_data_file=os.path.expanduser(args.mcp_data) if args.write else None,
-            llm_kwargs=llm_kwargs,
-        )
+        if args.cmd == "decompose":
+            result = run_decompose(
+                field=args.field,
+                mode=args.mode,
+                current_problem=args.problem,
+                background_text=args.background,
+                do_write=args.write,
+                mcp_data_file=os.path.expanduser(args.mcp_data) if args.write else None,
+                llm_kwargs=llm_kwargs,
+            )
+        elif args.cmd == "peek":
+            node = {"title": args.node, "summary": args.node_summary}
+            result = step_peek(args.field, args.problem, node, args.question,
+                               args.background, args.mode, llm_kwargs, args.char_limit)
+        elif args.cmd == "explain":
+            children = [{"title": c} for c in args.children] if args.children else []
+            node = {"title": args.node, "summary": args.node_summary}
+            result = step_explain(args.field, args.problem, node, args.background,
+                                  args.mode, llm_kwargs, existing_children=children)
+        elif args.cmd == "subdivide":
+            node = {"title": args.node, "summary": args.node_summary}
+            result = step_subdivide(args.field, args.problem, node, args.existing,
+                                    llm_kwargs, target_child_count=args.target)
+        elif args.cmd == "multi-angle":
+            node = {"title": args.node, "summary": args.node_summary}
+            result = step_multi_angle_subdivide(args.field, args.problem, node, args.angles,
+                                                llm_kwargs, existing_titles=args.existing,
+                                                per_angle_child_count=args.per_angle)
+        elif args.cmd == "deep-reanswer":
+            node = {"title": args.node, "summary": args.node_summary}
+            result = step_deep_reanswer(args.field, args.problem, args.message, node, llm_kwargs)
+        else:
+            parser.error(f"未知子命令：{args.cmd}")
     except KeyboardInterrupt:
         sys.stderr.write("\n已中断\n")
         sys.exit(130)
@@ -671,7 +883,7 @@ def main():
         sys.stderr.write(f"\n✗ 失败：{e}\n")
         sys.exit(1)
 
-    output = json.dumps(tree, ensure_ascii=False, indent=2)
+    output = json.dumps(result, ensure_ascii=False, indent=2)
     if args.output:
         Path(args.output).write_text(output, encoding="utf-8")
         sys.stderr.write(f"\n✓ 已输出到 {args.output}\n")
