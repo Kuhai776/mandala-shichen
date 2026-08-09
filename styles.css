@@ -1161,6 +1161,30 @@ textarea, input, select {
 
 .realm-fab-btn:active { transform: scale(0.92); }
 
+/* 收集箱按钮（天地人右边，分隔线 + 橙色调） */
+.realm-fab-btn.realm-fab-inbox {
+  position: relative;
+  margin-left: 4px;
+  padding-left: 12px;
+}
+.realm-fab-btn.realm-fab-inbox::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 18%;
+  bottom: 18%;
+  width: 1px;
+  background: var(--border-light, rgba(255,255,255,0.12));
+}
+.realm-fab-btn.realm-fab-inbox .rf-icon {
+  background: linear-gradient(135deg, rgba(255,159,67,0.15), rgba(255,159,67,0.08));
+  color: #ff9f43;
+}
+.realm-fab-btn.realm-fab-inbox:active .rf-icon {
+  background: linear-gradient(135deg, #ff9f43, #ffa94d);
+  color: #fff;
+}
+
 /* 番茄钟激活时让位 */
 body:has(.pomodoro-bar[style*="display:flex"]) .realm-fab,
 body:has(.pomodoro-bar[style*="display: block"]) .realm-fab {
@@ -5822,10 +5846,14 @@ dialog.inbox-dialog-fullscreen::backdrop {
   50% { transform: rotate(8deg); }
 }
 
-/* 孵化弹窗 */
+/* 孵化弹窗（实验室界面，接近全屏） */
 .hatch-dialog .dialog-content {
-  max-width: 560px;
-  max-height: 88vh;
+  max-width: 920px;
+  max-height: 92vh;
+  width: 94vw;
+}
+.hatch-dialog .dialog-body {
+  padding: 12px;
 }
 .hatch-meta {
   display: flex;
@@ -5874,51 +5902,332 @@ dialog.inbox-dialog-fullscreen::backdrop {
   color: var(--text-muted);
 }
 
-/* 进度区 */
+/* 进度区（孵化实验室界面） */
 .hatch-progress {
-  padding: 16px 12px;
-  text-align: center;
+  padding: 0;
 }
-.hatch-progress-steps {
+/* 左右分栏布局 */
+.hatch-lab {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) 1.4fr;
+  gap: 12px;
+  align-items: stretch;
+}
+@media (max-width: 720px) {
+  .hatch-lab {
+    grid-template-columns: 1fr; /* 窄屏堆叠 */
+  }
+  .hatch-lab-right { min-height: 240px; }
+}
+.hatch-lab-left {
   display: flex;
-  justify-content: space-between;
-  gap: 4px;
-  margin-bottom: 12px;
+  flex-direction: column;
+  gap: 12px;
 }
-.hatch-step {
+.hatch-lab-right {
+  display: flex;
+  flex-direction: column;
+  min-height: 320px;
+}
+/* 任务卡片 */
+.hatch-lab-task {
+  padding: 10px 12px;
+  background: linear-gradient(135deg, rgba(255,200,80,0.10), rgba(124,92,255,0.10));
+  border: 1px solid rgba(255,200,80,0.25);
+  border-radius: 10px;
+}
+.hatch-lab-task-label {
   font-size: 11px;
   color: var(--text-muted);
-  padding: 4px 8px;
-  border-radius: 12px;
-  background: var(--bg-elevated);
-  transition: all 0.3s;
+  margin-bottom: 4px;
+  letter-spacing: 0.5px;
 }
-.hatch-step.active {
-  background: linear-gradient(135deg, rgba(255,200,80,0.3), rgba(124,92,255,0.3));
-  color: var(--text);
+.hatch-lab-task-text {
+  font-size: 14px;
   font-weight: 600;
+  color: var(--text);
+  line-height: 1.4;
+  word-break: break-word;
 }
-.hatch-step.done {
-  background: rgba(80, 200, 120, 0.15);
+/* 4 步流程可视化 */
+.hatch-lab-steps {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+@media (max-width: 540px) {
+  .hatch-lab-steps {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .hatch-lab-step-connector { display: none; }
+}
+.hatch-lab-step {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 10px 4px;
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  transition: all 0.35s ease;
+  opacity: 0.5;
+}
+.hatch-lab-step-icon {
+  font-size: 22px;
+  margin-bottom: 4px;
+  filter: grayscale(0.7);
+  transition: all 0.35s ease;
+}
+.hatch-lab-step-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.hatch-lab-step-desc {
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+.hatch-lab-step-connector {
+  width: 8px;
+  align-self: center;
+  height: 2px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+.hatch-lab-step.active {
+  opacity: 1;
+  background: linear-gradient(135deg, rgba(255,200,80,0.18), rgba(124,92,255,0.18));
+  border-color: rgba(255,200,80,0.5);
+  box-shadow: 0 0 0 3px rgba(255,200,80,0.10);
+  transform: translateY(-2px);
+}
+.hatch-lab-step.active .hatch-lab-step-icon {
+  filter: grayscale(0);
+  animation: hatch-step-bounce 0.9s ease-in-out infinite;
+}
+@keyframes hatch-step-bounce {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-3px) scale(1.12); }
+}
+.hatch-lab-step.done {
+  opacity: 1;
+  background: rgba(80, 200, 120, 0.12);
+  border-color: rgba(80, 200, 120, 0.4);
+}
+.hatch-lab-step.done .hatch-lab-step-icon {
+  filter: grayscale(0);
+}
+.hatch-lab-step.done .hatch-lab-step-name::after {
+  content: " ✓";
   color: rgb(80, 200, 120);
 }
-.hatch-progress-bar {
-  height: 4px;
-  background: var(--bg-elevated);
-  border-radius: 2px;
-  overflow: hidden;
-  margin-bottom: 8px;
+/* 进度条 + 计时 */
+.hatch-lab-bar {
+  margin-top: auto;
 }
-.hatch-progress-fill {
+.hatch-lab-bar-track {
+  height: 6px;
+  background: var(--bg-elevated);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.hatch-lab-bar-fill {
   height: 100%;
   width: 0%;
-  background: linear-gradient(90deg, rgba(255,200,80,0.8), rgba(124,92,255,0.8));
-  border-radius: 2px;
-  transition: width 0.4s ease;
+  background: linear-gradient(90deg, rgba(255,200,80,0.9), rgba(124,92,255,0.9));
+  border-radius: 3px;
+  transition: width 0.5s ease;
+  box-shadow: 0 0 8px rgba(124,92,255,0.4);
+  position: relative;
+  overflow: hidden;
 }
-.hatch-progress-text {
+.hatch-lab-bar-fill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+  animation: hatch-bar-shine 1.6s linear infinite;
+}
+@keyframes hatch-bar-shine {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.hatch-lab-bar-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+.hatch-lab-bar-text { color: var(--text-muted); }
+.hatch-lab-bar-timer {
+  font-family: "SF Mono", "Menlo", "Consolas", monospace;
+  font-variant-numeric: tabular-nums;
+  color: #ff9f43;
+  font-weight: 600;
+}
+/* 兼容旧版进度步骤引用（已废弃，保留空规则避免 JS 报错） */
+.hatch-progress-steps, .hatch-step, .hatch-progress-bar { display: none; }
+
+/* AI 流式输出区（孵化过程可视化） */
+.hatch-stream {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #0d0d1a;
+  box-shadow: inset 0 0 24px rgba(124, 92, 255, 0.06);
+}
+.hatch-stream-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: linear-gradient(90deg, rgba(124, 92, 255, 0.18), rgba(124, 92, 255, 0.04));
+  border-bottom: 1px solid var(--border);
   font-size: 12px;
   color: var(--text-muted);
+}
+.hatch-stream-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #51cf66;
+  box-shadow: 0 0 8px rgba(81, 207, 102, 0.8);
+  animation: hatch-stream-pulse 1.1s ease-in-out infinite;
+}
+@keyframes hatch-stream-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.82); }
+}
+.hatch-stream-title { font-weight: 600; color: var(--text); }
+.hatch-stream-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-family: "SF Mono", "Menlo", "Consolas", monospace;
+  color: #7c5cff;
+}
+.hatch-stream-tag {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 159, 67, 0.15);
+  color: #ff9f43;
+  font-size: 10px;
+  font-weight: 600;
+}
+.hatch-stream-rate {
+  font-family: "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 10px;
+  color: #51cf66;
+  font-variant-numeric: tabular-nums;
+}
+.hatch-stream-copy {
+  margin-left: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.hatch-stream-copy:hover { background: var(--bg-hover); color: var(--text); }
+.hatch-stream-copy:active { transform: scale(0.92); }
+.hatch-stream-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 12px;
+  background: rgba(0,0,0,0.3);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+}
+.hatch-stream-steps {
+  color: #7c5cff;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.hatch-stream-hint {
+  color: var(--text-muted);
+  font-family: "SF Mono", "Menlo", "Consolas", monospace;
+}
+.hatch-stream-body {
+  flex: 1;
+  margin: 0;
+  padding: 12px 14px;
+  overflow-y: auto;
+  font-family: "SF Mono", "Menlo", "Consolas", "Courier New", monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #e6e6f0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  -webkit-overflow-scrolling: touch;
+  background:
+    linear-gradient(180deg, transparent 0%, transparent 80%, rgba(13,13,26,0.9) 100%),
+    repeating-linear-gradient(0deg, rgba(124,92,255,0.025) 0px, rgba(124,92,255,0.025) 1px, transparent 1px, transparent 3px);
+  min-height: 200px;
+}
+.hatch-stream-body:empty::before {
+  content: "▍ 等待 AI 响应…";
+  color: #6c6c8a;
+  font-style: italic;
+}
+.hatch-stream-body::after {
+  content: "▍";
+  color: #7c5cff;
+  animation: hatch-cursor 0.9s steps(2) infinite;
+}
+@keyframes hatch-cursor {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+/* 流式中取消按钮区 */
+.hatch-progress-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 10px;
+}
+.hatch-cancel-stream {
+  color: #ff6b6b !important;
+  border-color: rgba(255, 107, 107, 0.4) !important;
+}
+.hatch-cancel-stream:hover { background: rgba(255, 107, 107, 0.12) !important; }
+
+/* 结果区过渡动画 */
+.hatch-result-enter {
+  animation: hatch-result-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes hatch-result-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* 错误区增强 */
+.hatch-error {
+  padding: 14px 12px;
+  text-align: center;
+}
+.hatch-error-msg {
+  color: #ff6b6b;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+.hatch-error-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
 }
 
 /* 结果区 */
