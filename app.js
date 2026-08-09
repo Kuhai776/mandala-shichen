@@ -567,6 +567,12 @@
     // 时辰切换检测：记录上次检测到的时辰（用于触发"该记录了"提示+闪烁）
     lastPeriod: -1,
   };
+  // 迁移已下线的 DeepSeek 模型名（deepseek-chat/reasoner 已于 2026-07-24 下线）
+  (function migrateDeepSeekModel() {
+    const m = state.settings.apiModel;
+    if (m === "deepseek-chat") { state.settings.apiModel = "deepseek-v4-flash"; save(SETTINGS_KEY, state.settings); }
+    else if (m === "deepseek-reasoner") { state.settings.apiModel = "deepseek-v4-pro"; save(SETTINGS_KEY, state.settings); }
+  })();
 
   // ---------- 日期工具 ----------
   function dateToStr(d) {
@@ -1522,6 +1528,18 @@
     hatchFsSubtitle: document.getElementById("hatchFsSubtitle"),
     closeHatch: document.getElementById("closeHatch"),
     hatchTaskText: document.getElementById("hatchTaskText"),
+    hatchTaskInput: document.getElementById("hatchTaskInput"),
+    hatchToolBtn: document.getElementById("hatchToolBtn"),
+    hatchOnboard: document.getElementById("hatchOnboard"),
+    hatchOnboardBody: document.getElementById("hatchOnboardBody"),
+    hatchOnboardToggle: document.getElementById("hatchOnboardToggle"),
+    hatchStartBtn: document.getElementById("hatchStartBtn"),
+    hatchOnboardTip: document.getElementById("hatchOnboardTip"),
+    hoqEssence: document.getElementById("hoqEssence"),
+    hoqPrereq: document.getElementById("hoqPrereq"),
+    hoqFirstPrinciple: document.getElementById("hoqFirstPrinciple"),
+    hoqSuccess: document.getElementById("hoqSuccess"),
+    hoqConstraint: document.getElementById("hoqConstraint"),
     hatchMode: document.getElementById("hatchMode"),
     hatchScene: document.getElementById("hatchScene"),
     hatchHistoryHint: document.getElementById("hatchHistoryHint"),
@@ -3708,6 +3726,7 @@ ${recordItems.join("\n") || "（无）"}
     acceptedSet: null, // Set of selected step indices
     longTaskId: null,  // 关联长期任务 id（drill 模式用）
     weakDims: null,    // 薄弱维度列表（drill 模式用）
+    pendingScene: "auto", // 打开对话框时预设的场景（启动时用）
   };
 
   // 孵化计时器（实时显示已用时长）
@@ -4080,7 +4099,7 @@ ${recordItems.join("\n") || "（无）"}
     el.hatchFsStatus.textContent = text || "待命";
   }
 
-  // 通用入口：可传入外部任务文本（来自长期任务/收集箱孵化按钮）
+  // 通用入口：打开孵化实验室，填入任务文本但不自动启动（等用户答完基石问询点「开始孵化」）
   function openHatchDialog(opts) {
     opts = opts || {};
     let text = opts.text || "";
@@ -4091,17 +4110,28 @@ ${recordItems.join("\n") || "（无）"}
       // 默认取当前任务弹窗第一行
       text = el.taskContent.value.split("\n").map((s) => s.trim()).filter(Boolean)[0] || "";
     }
-    if (!text) {
-      toast("请先输入任务内容", "error");
-      return;
-    }
-    el.hatchTaskText.textContent = text;
+    // 填入任务输入框（允许空，用户可在对话框里补填）
+    if (el.hatchTaskInput) el.hatchTaskInput.value = text;
+    if (el.hatchTaskText) el.hatchTaskText.textContent = text || "—";
     el.hatchMode.value = "auto";
     el.hatchScene.value = scene;
     el.hatchProgress.hidden = true;
     el.hatchResult.hidden = true;
     el.hatchError.hidden = true;
     el.hatchHistoryHint.hidden = true;
+    // 显示问询面板
+    if (el.hatchOnboard) el.hatchOnboard.hidden = false;
+    if (el.hatchOnboard) el.hatchOnboard.classList.remove("collapsed");
+    // 清空问询输入（除非已有缓存）
+    if (el.hoqEssence) el.hoqEssence.value = "";
+    if (el.hoqPrereq) el.hoqPrereq.value = "";
+    if (el.hoqFirstPrinciple) el.hoqFirstPrinciple.value = "";
+    if (el.hoqSuccess) el.hoqSuccess.value = "";
+    if (el.hoqConstraint) el.hoqConstraint.value = "";
+    if (el.hatchOnboardTip) el.hatchOnboardTip.textContent = "💡 答得越具体，AI 拆解越精准";
+    // 记录 longTaskId 供启动时用
+    hatchState.longTaskId = longTaskId;
+    hatchState.pendingScene = scene;
     // 更新 header 副标题（来源标识）
     if (el.hatchFsSubtitle) {
       el.hatchFsSubtitle.textContent = sourceLabel
@@ -4110,13 +4140,54 @@ ${recordItems.join("\n") || "（无）"}
     }
     setHatchFsStatus("", "待命");
     el.hatchDialog.showModal();
-    // 自动启动一次
+    // 自动聚焦任务输入框（若为空）
+    if (!text && el.hatchTaskInput) setTimeout(() => el.hatchTaskInput.focus(), 100);
+  }
+
+  // 收集基石问询，拼成上下文喂给 AI
+  function collectOnboardContext() {
+    const parts = [];
+    const essence = el.hoqEssence ? el.hoqEssence.value.trim() : "";
+    const prereq = el.hoqPrereq ? el.hoqPrereq.value.trim() : "";
+    const fp = el.hoqFirstPrinciple ? el.hoqFirstPrinciple.value.trim() : "";
+    const success = el.hoqSuccess ? el.hoqSuccess.value.trim() : "";
+    const constraint = el.hoqConstraint ? el.hoqConstraint.value.trim() : "";
+    if (essence) parts.push(`【本质】${essence}`);
+    if (prereq) parts.push(`【必要前提】${prereq}`);
+    if (fp) parts.push(`【第一性原理】${fp}`);
+    if (success) parts.push(`【成功标准】${success}`);
+    if (constraint) parts.push(`【约束】${constraint}`);
+    return parts.join("\n");
+  }
+
+  // 从表单启动孵化（点击「开始孵化」按钮）
+  function startHatchFromForm() {
+    const text = (el.hatchTaskInput ? el.hatchTaskInput.value : "").trim();
+    if (!text) {
+      toast("请先填写要孵化的任务", "error");
+      if (el.hatchTaskInput) el.hatchTaskInput.focus();
+      return;
+    }
+    if (!state.settings.apiUrl || !state.settings.apiKey) {
+      showHatchError("请先在设置中配置 AI API（apiUrl + apiKey）");
+      return;
+    }
+    // 收集问询作为额外上下文
+    const onboardCtx = collectOnboardContext();
+    const baseCtx = buildHatchContext();
+    const fullCtx = [baseCtx, onboardCtx].filter(Boolean).join("\n\n");
+    // 隐藏问询面板，进入孵化过程
+    if (el.hatchOnboard) el.hatchOnboard.hidden = true;
+    if (el.hatchTaskText) el.hatchTaskText.textContent = text;
+    // 自动模式
     const mode = autoHatchMode(text);
-    const finalScene = scene === "auto" ? detectHatchScene(text) : scene;
+    const scene = (hatchState.pendingScene && hatchState.pendingScene !== "auto")
+      ? hatchState.pendingScene
+      : detectHatchScene(text);
     el.hatchMode.value = mode;
-    el.hatchScene.value = finalScene;
+    el.hatchScene.value = scene;
     setHatchFsStatus("running", "孵化中…");
-    runHatch(text, mode, finalScene, buildHatchContext(), longTaskId, finalScene === "drill");
+    runHatch(text, mode, scene, fullCtx, hatchState.longTaskId, scene === "drill");
   }
 
   // 构建孵化上下文（今日已做 + 关联长期任务）
@@ -4175,6 +4246,22 @@ ${recordItems.join("\n") || "（无）"}
   }
 
   el.hatchBtn.addEventListener("click", openHatchDialog);
+  if (el.hatchToolBtn) el.hatchToolBtn.addEventListener("click", () => openHatchDialog({}));
+  if (el.hatchStartBtn) el.hatchStartBtn.addEventListener("click", startHatchFromForm);
+  if (el.hatchTaskInput) el.hatchTaskInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); startHatchFromForm(); }
+  });
+  if (el.hatchOnboardToggle) el.hatchOnboardToggle.addEventListener("click", () => {
+    if (el.hatchOnboard) el.hatchOnboard.classList.toggle("collapsed");
+  });
+  if (el.hatchOnboard) {
+    const head = el.hatchOnboard.querySelector(".hatch-onboard-head");
+    if (head) head.addEventListener("click", (e) => {
+      // 点击头部空白处也能折叠（避开按钮内部交互）
+      if (e.target.closest("input,button,select")) return;
+      el.hatchOnboard.classList.toggle("collapsed");
+    });
+  }
   el.closeHatch.addEventListener("click", closeHatchDialog);
   el.hatchCancelBtn.addEventListener("click", closeHatchDialog);
   el.hatchDialog.addEventListener("click", (e) => { if (e.target === el.hatchDialog) closeHatchDialog(); });
@@ -4686,7 +4773,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   const AI_PLATFORMS = [
     { id: "openai",      name: "OpenAI GPT",       emoji: "🟢", url: "https://api.openai.com/v1/chat/completions",                       model: "gpt-4o-mini",                  type: "cloud", alt: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"] },
     { id: "claude",      name: "Anthropic Claude", emoji: "🟠", url: "https://api.anthropic.com/v1/chat/completions",                     model: "claude-3-5-sonnet-20241022",   type: "cloud", alt: ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"] },
-    { id: "deepseek",    name: "DeepSeek 深度求索", emoji: "🔵", url: "https://api.deepseek.com/v1/chat/completions",                      model: "deepseek-chat",                type: "cloud", alt: ["deepseek-chat", "deepseek-reasoner"] },
+    { id: "deepseek",    name: "DeepSeek 深度求索", emoji: "🔵", url: "https://api.deepseek.com/v1/chat/completions",                      model: "deepseek-v4-flash",            type: "cloud", alt: ["deepseek-v4-flash", "deepseek-v4-pro"] },
     { id: "glm",         name: "智谱 GLM",          emoji: "🟣", url: "https://open.bigmodel.cn/api/paas/v4/chat/completions",             model: "glm-4-flash",                  type: "cloud", alt: ["glm-4-flash", "glm-4", "glm-4-air", "glm-4-plus"] },
     { id: "qwen",        name: "通义千问 Qwen",     emoji: "🟡", url: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", model: "qwen-turbo",                  type: "cloud", alt: ["qwen-turbo", "qwen-plus", "qwen-max", "qwen-long"] },
     { id: "moonshot",    name: "Moonshot Kimi",     emoji: "🌙", url: "https://api.moonshot.cn/v1/chat/completions",                      model: "moonshot-v1-8k",               type: "cloud", alt: ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"] },
@@ -7568,6 +7655,9 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       // 助记快捷键：I=Inbox 收集箱
       case "i": case "I":
         e.preventDefault(); showKeyHint("I", "📥 收集箱"); openInbox(); break;
+      // 助记快捷键：H=Hatch 孵化实验室
+      case "h": case "H":
+        e.preventDefault(); showKeyHint("H", "🥚 孵化"); openHatchDialog({}); break;
     }
   });
 
