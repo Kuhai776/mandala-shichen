@@ -6038,6 +6038,31 @@ dialog.inbox-dialog-fullscreen::backdrop {
   gap: 10px;
   padding: 12px;
 }
+/* 生成问询按钮区 */
+.hatch-onboard-gen {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.hatch-gen-btn {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  background: linear-gradient(135deg, rgba(255,200,80,0.2), rgba(124,92,255,0.15));
+  color: var(--text);
+  border: 1px solid rgba(255,200,80,0.4);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.hatch-gen-btn:hover { transform: translateY(-1px); box-shadow: 0 3px 10px rgba(255,200,80,0.2); }
+.hatch-gen-btn:disabled { opacity: 0.5; cursor: wait; transform: none; }
+.hatch-gen-tip { font-size: 11px; color: var(--text-muted); flex: 1; min-width: 120px; }
+.hatch-gen-loading { font-size: 12px; color: #ffc850; }
+/* 动态问题 */
+.hatch-onboard-qs { display: flex; flex-direction: column; gap: 10px; }
 .hatch-onboard-q label {
   display: block;
   font-size: 12px;
@@ -6065,7 +6090,39 @@ dialog.inbox-dialog-fullscreen::backdrop {
   border-color: rgba(255,200,80,0.5);
   box-shadow: 0 0 0 2px rgba(255,200,80,0.12);
 }
-.hoq-optional label { opacity: 0.75; }
+/* 7 维度徽章 */
+.hoq-dim-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  margin: 0 4px;
+  border-radius: 4px;
+  border: 1px solid;
+  vertical-align: middle;
+  letter-spacing: 0.3px;
+}
+
+/* 截图附件：记录格子缩略图 + 徽章 */
+.cell-attachments {
+  margin-top: 2px;
+}
+.cell-attachments .attach-thumbs img:hover {
+  transform: scale(1.08);
+  border-color: #f87171 !important;
+}
+.attach-badge {
+  animation: attachBadgePop 0.3s ease;
+}
+@keyframes attachBadgePop {
+  0% { transform: scale(0.5); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+/* 截图粘贴弹窗：时辰/格子选择器美化 */
+.attach-paste-overlay select option {
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
 .hatch-onboard-actions {
   display: flex;
   align-items: center;
@@ -6095,6 +6152,20 @@ dialog.inbox-dialog-fullscreen::backdrop {
   background: linear-gradient(135deg, rgba(255,200,80,0.15), rgba(124,92,255,0.12)) !important;
   border: 1px solid rgba(255,200,80,0.3) !important;
   font-weight: 600;
+}
+/* 底部导航孵化按钮（收集箱右边） */
+.realm-fab-btn.realm-fab-hatch {
+  position: relative;
+  margin-left: 0;
+  padding-left: 8px;
+}
+.realm-fab-btn.realm-fab-hatch .rf-icon {
+  background: linear-gradient(135deg, rgba(255,200,80,0.15), rgba(124,92,255,0.12));
+  color: #ffc850;
+}
+.realm-fab-btn.realm-fab-hatch:active .rf-icon {
+  background: linear-gradient(135deg, #ffc850, #7c5cff);
+  color: #fff;
 }
 @media (max-width: 720px) {
   .hatch-onboard-hint { display: none; }
