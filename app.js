@@ -1617,6 +1617,11 @@
     inboxTimeFilter: document.getElementById("inboxTimeFilter"),
     inboxTagList: document.getElementById("inboxTagList"),
     inboxTagChips: document.getElementById("inboxTagChips"),
+    // 收集箱-九宫格预览
+    igpGrid: document.getElementById("igpGrid"),
+    igpPeriodLabel: document.getElementById("igpPeriodLabel"),
+    igpPrev: document.getElementById("igpPrev"),
+    igpNext: document.getElementById("igpNext"),
     // 长期任务时间地图
     longtaskBar: document.getElementById("longtaskBar"),
     longtaskTimeline: document.getElementById("longtaskTimeline"),
@@ -1693,6 +1698,12 @@
     hatchRegen: document.getElementById("hatchRegen"),
     hatchApply: document.getElementById("hatchApply"),
     hatchCancelBtn: document.getElementById("hatchCancelBtn"),
+    hatchToGrid: document.getElementById("hatchToGrid"),
+    hatchToInbox: document.getElementById("hatchToInbox"),
+    hatchHistoryBtn: document.getElementById("hatchHistoryBtn"),
+    hatchHistoryDialog: document.getElementById("hatchHistoryDialog"),
+    hatchHistoryBody: document.getElementById("hatchHistoryBody"),
+    closeHatchHistory: document.getElementById("closeHatchHistory"),
     // 复盘汇总
     reviewSummary: document.getElementById("reviewSummary"),
     reviewPeriodNav: document.getElementById("reviewPeriodNav"),
@@ -4068,9 +4079,20 @@ ${recordItems.join("\n") || "（无）"}
     const list = loadHatchHistory();
     return list.find((h) => h.task_hash === taskHash);
   }
-  function recordHatchHistory(taskHash, taskText, result, acceptedCount) {
+  function recordHatchHistory(taskHash, taskText, result, acceptedCount, extra) {
     const list = loadHatchHistory();
     const existing = list.find((h) => h.task_hash === taskHash);
+    // 收集引导问答（用于回看孵化过程）
+    const qaPairs = [];
+    if (el.hatchOnboardQs && hatchState.onboardQuestions) {
+      const inputs = el.hatchOnboardQs.querySelectorAll("input[data-hoq-idx]");
+      inputs.forEach((inp) => {
+        const idx = parseInt(inp.getAttribute("data-hoq-idx"), 10);
+        const q = hatchState.onboardQuestions[idx];
+        const ans = inp.value.trim();
+        if (q) qaPairs.push({ label: q.label, question: q.question, dim: q.dim || "", sub: q.sub || "", answer: ans });
+      });
+    }
     const entry = {
       task_hash: taskHash,
       task_text: taskText,
@@ -4080,6 +4102,15 @@ ${recordItems.join("\n") || "（无）"}
       total_count: (result.steps || []).length,
       est_total_min: result.est_total_min || 0,
       created_at: Date.now(),
+      // 完整孵化过程（用于回看）
+      steps: (result.steps || []).map((s) => ({
+        text: s.text, est_min: s.est_min || 0, risk: s.risk || "",
+        target_dim: s.target_dim || "", dim_goal: s.dim_goal || null,
+      })),
+      shortcut: result.shortcut || "",
+      first_blocker: result.first_blocker || "",
+      qa_pairs: qaPairs,
+      raw_output: extra && extra.rawOutput ? String(extra.rawOutput).slice(0, 8000) : "",
     };
     if (existing) Object.assign(existing, entry);
     else list.push(entry);
@@ -4854,12 +4885,362 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       return;
     }
     el.taskChecklist.value = [...existing, ...newOnes].join("\n");
-    // 记录历史（用于完成率闭环）
-    recordHatchHistory(hatchState.taskHash, hatchState.taskText, hatchState.result, newOnes.length);
+    // 记录历史（用于完成率闭环 + 回看孵化过程）
+    const rawOutput = el.hatchStreamBody ? el.hatchStreamBody.textContent : "";
+    recordHatchHistory(hatchState.taskHash, hatchState.taskText, hatchState.result, newOnes.length, { rawOutput });
     const dimCount = acceptedSteps.filter((s) => s.target_dim).length;
     toast(`已加入 ${newOnes.length} 条到清单${dimCount ? `（含 ${dimCount} 条维度练习）` : ""}`, "success");
     if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
     closeHatchDialog();
+  }
+
+  // 安排到时间格子：把接受的步骤按 est_min 智能分配到当前时辰起的空格子
+  function applyHatchToGrid() {
+    if (!hatchState.result || !hatchState.acceptedSet) return;
+    const acceptedSteps = (hatchState.result.steps || [])
+      .filter((_, i) => hatchState.acceptedSet.has(i));
+    if (!acceptedSteps.length) {
+      toast("未选择任何步骤", "info");
+      return;
+    }
+    // 每步占多少格（每格约 13.3 分钟，向上取整，最少 1 格）
+    const cellsPerStep = acceptedSteps.map((s) => {
+      const min = s.est_min || 15;
+      return Math.max(1, Math.ceil(min / (SECONDS_PER_CELL / 60)));
+    });
+    const totalCells = cellsPerStep.reduce((a, b) => a + b, 0);
+
+    // 从当前时辰的下一格开始找连续空位；不够则跨时辰；全天不够则提示
+    let startGlobal = getCurrentGlobalCell();
+    if (startGlobal < 0) startGlobal = 0; // 不在今天活跃时段，从第 1 格开始
+    else startGlobal += 1; // 从当前格的下一格开始
+
+    // 收集每个目标格子的 (period, cell) 和是否空闲
+    const assignments = [];
+    let cursor = startGlobal;
+    let overflow = false;
+    for (let i = 0; i < acceptedSteps.length; i++) {
+      const need = cellsPerStep[i];
+      // 找连续 need 个空格
+      let placed = false;
+      while (cursor + need - 1 < PERIOD_COUNT * CELLS_PER_PERIOD) {
+        let allFree = true;
+        for (let k = 0; k < need; k++) {
+          const g = cursor + k;
+          const p = Math.floor(g / CELLS_PER_PERIOD);
+          const c = g % CELLS_PER_PERIOD;
+          if (getCellTasks(p, c).length > 0) { allFree = false; break; }
+        }
+        if (allFree) {
+          const step = acceptedSteps[i];
+          // 第一格写入任务（带维度标记），后续格留空占位
+          const firstG = cursor;
+          const firstP = Math.floor(firstG / CELLS_PER_PERIOD);
+          const firstC = firstG % CELLS_PER_PERIOD;
+          let taskText = step.text;
+          const meta = {};
+          if (step.target_dim) {
+            const goal = step.dim_goal ? `→${step.dim_goal}` : "";
+            taskText += ` #${step.target_dim}${goal}#`;
+            meta.dim = step.target_dim;
+            if (step.dim_goal) meta.dimGoal = step.dim_goal;
+          }
+          if (step.est_min) meta.estimate = String(step.est_min);
+          assignments.push({ period: firstP, cell: firstC, text: taskText, meta, stepIdx: i });
+          // 占位的后续格（不写入任务，只标记跳过）
+          for (let k = 1; k < need; k++) {
+            const g = firstG + k;
+            assignments.push({ period: Math.floor(g / CELLS_PER_PERIOD), cell: g % CELLS_PER_PERIOD, text: "", meta: null, placeholder: true, stepIdx: i });
+          }
+          cursor = firstG + need;
+          placed = true;
+          break;
+        }
+        cursor++; // 不连续，从下一格继续找
+      }
+      if (!placed) { overflow = true; break; }
+    }
+
+    if (!assignments.length || overflow) {
+      toast(`今日剩余空格不足（需 ${totalCells} 格），请先清空格子或减少步骤`, "error");
+      return;
+    }
+
+    // 实际写入（仅写有 text 的格子）
+    let written = 0;
+    const filledPeriods = new Set();
+    assignments.forEach((a) => {
+      if (a.placeholder || !a.text) return;
+      setCellTasks(a.period, a.cell, [{ text: a.text, ...a.meta }]);
+      filledPeriods.add(a.period);
+      written++;
+    });
+    // 记录孵化历史
+    const rawOutput = el.hatchStreamBody ? el.hatchStreamBody.textContent : "";
+    recordHatchHistory(hatchState.taskHash, hatchState.taskText, hatchState.result, written, { rawOutput });
+
+    // 跳转到第一个被填充的时辰
+    if (filledPeriods.size) {
+      const firstP = Math.min(...filledPeriods);
+      state.activePeriod = firstP;
+      setRealm("plan");
+    }
+    const dimCount = acceptedSteps.filter((s) => s.target_dim).length;
+    toast(`已安排 ${written} 个任务到 ${filledPeriods.size} 个时辰${dimCount ? `（含 ${dimCount} 条维度练习）` : ""}`, "success");
+    if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+    closeHatchDialog();
+    renderAll();
+  }
+
+  // 把孵化选中步骤拆成收集箱条目（每步一条，带维度/时长/风险标记）
+  function applyHatchToInbox() {
+    if (!hatchState.result || !hatchState.acceptedSet) return;
+    const acceptedSteps = (hatchState.result.steps || [])
+      .filter((_, i) => hatchState.acceptedSet.has(i));
+    if (!acceptedSteps.length) {
+      toast("未选择任何步骤", "info");
+      return;
+    }
+    const rawOutput = el.hatchStreamBody ? el.hatchStreamBody.textContent : "";
+    // 拆成 inbox 条目（每步一条），保留维度/时长/风险/来源
+    const newItems = acceptedSteps.map((s) => {
+      let text = s.text || "";
+      const meta = { source: "hatch", hatchTask: hatchState.taskText || "" };
+      if (s.target_dim) {
+        const goal = s.dim_goal ? `→${s.dim_goal}` : "";
+        text += ` #${s.target_dim}${goal}#`;
+        meta.dim = s.target_dim;
+        if (s.dim_goal) meta.dimGoal = s.dim_goal;
+      }
+      if (s.est_min) meta.estimate = s.est_min;
+      if (s.risk) meta.risk = s.risk;
+      return {
+        text,
+        tag: s.target_dim || "孵化",
+        done: false,
+        createdAt: Date.now(),
+        kind: "hatch",
+        meta,
+      };
+    });
+    // 去重：与收集箱已有项比对（按纯文本+tag）
+    const existing = load(INBOX_KEY, []);
+    const existKeys = new Set(existing.map((i) => (i.text || "").replace(/\s*#\w+(→\d+)?#\s*$/, "").trim() + "|" + (i.tag || "")));
+    const filtered = newItems.filter((it) => {
+      const key = (it.text || "").replace(/\s*#\w+(→\d+)?#\s*$/, "").trim() + "|" + (it.tag || "");
+      return !existKeys.has(key);
+    });
+    if (!filtered.length) {
+      toast("所选步骤已在收集箱中", "info");
+      return;
+    }
+    inboxItems = [...filtered, ...existing];
+    saveInbox();
+    // 记录孵化历史
+    recordHatchHistory(hatchState.taskHash, hatchState.taskText, hatchState.result, filtered.length, { rawOutput });
+    const dimCount = filtered.filter((it) => it.meta && it.meta.dim).length;
+    toast(`已拆分 ${filtered.length} 条到收集箱${dimCount ? `（含 ${dimCount} 条维度练习）` : ""}，可拖拽到格子`, "success");
+    if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+    closeHatchDialog();
+    // 直接打开收集箱，便于拖拽
+    setTimeout(() => openInbox(), 200);
+  }
+
+
+  function formatHatchTime(ts) {
+    if (!ts) return "—";
+    const d = new Date(ts);
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function renderHatchHistory() {
+    const body = el.hatchHistoryBody;
+    if (!body) return;
+    const list = loadHatchHistory();
+    if (!list.length) {
+      body.innerHTML = `<div class="hatch-history-empty">尚无孵化记录</div>`;
+      return;
+    }
+    // 倒序展示（最新在前）
+    const sorted = [...list].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    body.innerHTML = sorted.map((h, idx) => {
+      const dimSteps = (h.steps || []).filter((s) => s.target_dim);
+      const dimTags = dimSteps.length
+        ? dimSteps.map((s) => `<span class="hh-dim-tag">${s.target_dim}${s.dim_goal ? `→${s.dim_goal}` : ""}</span>`).join("")
+        : "";
+      const stepRows = (h.steps || []).map((s, i) => {
+        const dimMark = s.target_dim ? ` <span class="hh-step-dim">${s.target_dim}${s.dim_goal ? `→${s.dim_goal}` : ""}</span>` : "";
+        const estMark = s.est_min ? `<span class="hh-step-est">${s.est_min}min</span>` : "";
+        const riskMark = s.risk ? `<span class="hh-step-risk" title="风险">⚠</span>` : "";
+        return `<div class="hh-step"><span class="hh-step-idx">${i + 1}</span><span class="hh-step-text">${escapeHtml(s.text || "")}${dimMark}</span>${estMark}${riskMark}</div>`;
+      }).join("");
+      const qaRows = (h.qa_pairs || []).map((qa) => {
+        const dimChip = qa.dim ? `<span class="hh-qa-dim">${qa.dim}${qa.sub ? `·${qa.sub}` : ""}</span>` : "";
+        const ansText = qa.answer
+          ? `<span class="hh-qa-ans">${escapeHtml(qa.answer)}</span>`
+          : `<span class="hh-qa-ans hh-qa-empty">（未填写）</span>`;
+        return `<div class="hh-qa"><div class="hh-qa-q">${dimChip}<span>${escapeHtml(qa.question || qa.label || "")}</span></div><div class="hh-qa-a">${ansText}</div></div>`;
+      }).join("");
+      const sceneLabel = h.last_scene ? ` · ${escapeHtml(h.last_scene)}` : "";
+      const modeLabel = h.last_mode ? ` · ${escapeHtml(h.last_mode)}` : "";
+      const shortcutMark = h.shortcut ? `<span class="hh-shortcut">⚡ ${escapeHtml(h.shortcut)}</span>` : "";
+      const blockerMark = h.first_blocker ? `<div class="hh-blocker">🚧 首个障碍：${escapeHtml(h.first_blocker)}</div>` : "";
+      return `<div class="hh-card" data-idx="${idx}">
+        <div class="hh-card-head">
+          <div class="hh-task-text">${escapeHtml(h.task_text || "")}</div>
+          <span class="hh-time">${formatHatchTime(h.created_at)}</span>
+        </div>
+        <div class="hh-meta">
+          <span class="hh-meta-item">${h.accepted_count || 0}/${h.total_count || 0} 步</span>
+          ${h.est_total_min ? `<span class="hh-meta-item">⏱ ${h.est_total_min}min</span>` : ""}
+          <span class="hh-meta-item">${escapeHtml(sceneLabel + modeLabel)}</span>
+          ${dimTags ? `<span class="hh-dim-list">${dimTags}</span>` : ""}
+        </div>
+        ${shortcutMark}
+        ${qaRows ? `<div class="hh-qa-list"><div class="hh-section-label">🧠 引导问答</div>${qaRows}</div>` : ""}
+        ${stepRows ? `<div class="hh-step-list"><div class="hh-section-label">📋 拆解步骤</div>${stepRows}</div>` : ""}
+        ${blockerMark}
+        <div class="hh-card-actions">
+          <button class="hh-btn hh-rehatch" data-hash="${escapeHtml(h.task_hash || "")}" data-text="${escapeHtml(h.task_text || "")}">🔄 重新孵化</button>
+          <button class="hh-btn hh-to-grid" data-idx="${idx}" ${h.steps && h.steps.length ? "" : "disabled"}>📋 安排到格子</button>
+          <button class="hh-btn hh-del" data-idx="${idx}">🗑 删除</button>
+        </div>
+      </div>`;
+    }).join("");
+
+    // 绑定卡片内操作
+    body.querySelectorAll(".hh-rehatch").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const text = btn.getAttribute("data-text") || "";
+        if (!text) return;
+        closeHatchHistoryDialog();
+        openHatchDialog({ text: text });
+      });
+    });
+    body.querySelectorAll(".hh-to-grid").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const i = parseInt(btn.getAttribute("data-idx"), 10);
+        const item = sorted[i];
+        if (!item || !item.steps || !item.steps.length) return;
+        applyHistoryToGrid(item);
+      });
+    });
+    body.querySelectorAll(".hh-del").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const i = parseInt(btn.getAttribute("data-idx"), 10);
+        const item = sorted[i];
+        if (!item) return;
+        const fullList = loadHatchHistory();
+        const filtered = fullList.filter((h) => h.task_hash !== item.task_hash);
+        saveHatchHistory(filtered);
+        renderHatchHistory();
+        toast("已删除该孵化记录", "info");
+      });
+    });
+  }
+
+  // 把历史记录中的步骤直接安排到时间格子（无需重新打开孵化弹窗）
+  function applyHistoryToGrid(histEntry) {
+    const steps = (histEntry.steps || []).filter((s) => s.text);
+    if (!steps.length) {
+      toast("该记录无可安排的步骤", "info");
+      return;
+    }
+    const cellsPerStep = steps.map((s) => {
+      const min = s.est_min || 15;
+      return Math.max(1, Math.ceil(min / (SECONDS_PER_CELL / 60)));
+    });
+    let startGlobal = getCurrentGlobalCell();
+    if (startGlobal < 0) startGlobal = 0;
+    else startGlobal += 1;
+
+    const assignments = [];
+    let cursor = startGlobal;
+    let overflow = false;
+    for (let i = 0; i < steps.length; i++) {
+      const need = cellsPerStep[i];
+      let placed = false;
+      while (cursor + need - 1 < PERIOD_COUNT * CELLS_PER_PERIOD) {
+        let allFree = true;
+        for (let k = 0; k < need; k++) {
+          const g = cursor + k;
+          const p = Math.floor(g / CELLS_PER_PERIOD);
+          const c = g % CELLS_PER_PERIOD;
+          if (getCellTasks(p, c).length > 0) { allFree = false; break; }
+        }
+        if (allFree) {
+          const step = steps[i];
+          const firstG = cursor;
+          const firstP = Math.floor(firstG / CELLS_PER_PERIOD);
+          const firstC = firstG % CELLS_PER_PERIOD;
+          let taskText = step.text;
+          const meta = {};
+          if (step.target_dim) {
+            const goal = step.dim_goal ? `→${step.dim_goal}` : "";
+            taskText += ` #${step.target_dim}${goal}#`;
+            meta.dim = step.target_dim;
+            if (step.dim_goal) meta.dimGoal = step.dim_goal;
+          }
+          if (step.est_min) meta.estimate = String(step.est_min);
+          assignments.push({ period: firstP, cell: firstC, text: taskText, meta, placeholder: false });
+          for (let k = 1; k < need; k++) {
+            const g = firstG + k;
+            assignments.push({ period: Math.floor(g / CELLS_PER_PERIOD), cell: g % CELLS_PER_PERIOD, text: "", meta: null, placeholder: true });
+          }
+          cursor = firstG + need;
+          placed = true;
+          break;
+        }
+        cursor++;
+      }
+      if (!placed) { overflow = true; break; }
+    }
+
+    const totalCells = cellsPerStep.reduce((a, b) => a + b, 0);
+    if (!assignments.length || overflow) {
+      toast(`今日剩余空格不足（需 ${totalCells} 格），请先清空格子`, "error");
+      return;
+    }
+    let written = 0;
+    const filledPeriods = new Set();
+    assignments.forEach((a) => {
+      if (a.placeholder || !a.text) return;
+      setCellTasks(a.period, a.cell, [{ text: a.text, ...a.meta }]);
+      filledPeriods.add(a.period);
+      written++;
+    });
+    // 更新历史记录的接受数（不重写步骤）
+    const fullList = loadHatchHistory();
+    const existing = fullList.find((h) => h.task_hash === histEntry.task_hash);
+    if (existing) {
+      existing.accepted_count = written;
+      existing.created_at = Date.now();
+      saveHatchHistory(fullList);
+    }
+    if (filledPeriods.size) {
+      const firstP = Math.min(...filledPeriods);
+      state.activePeriod = firstP;
+      setRealm("plan");
+    }
+    const dimCount = steps.filter((s) => s.target_dim).length;
+    toast(`已安排 ${written} 个任务到 ${filledPeriods.size} 个时辰${dimCount ? `（含 ${dimCount} 条维度练习）` : ""}`, "success");
+    if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+    closeHatchHistoryDialog();
+    renderAll();
+  }
+
+  function openHatchHistoryDialog() {
+    renderHatchHistory();
+    if (el.hatchHistoryDialog && typeof el.hatchHistoryDialog.showModal === "function") {
+      el.hatchHistoryDialog.showModal();
+    } else if (el.hatchHistoryDialog) {
+      el.hatchHistoryDialog.open = true;
+    }
+  }
+  function closeHatchHistoryDialog() {
+    if (!el.hatchHistoryDialog) return;
+    try { el.hatchHistoryDialog.close(); } catch (e) { el.hatchHistoryDialog.open = false; }
   }
 
   el.hatchBtn.addEventListener("click", openHatchDialog);
@@ -4949,6 +5330,13 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     runHatch(hatchState.taskText + (forceLLM ? "（个性化）" : " "), mode, scene, buildHatchContext(), hatchState.longTaskId, forceLLM);
   });
   el.hatchApply.addEventListener("click", applyHatchToChecklist);
+  if (el.hatchToGrid) el.hatchToGrid.addEventListener("click", applyHatchToGrid);
+  if (el.hatchToInbox) el.hatchToInbox.addEventListener("click", applyHatchToInbox);
+  if (el.hatchHistoryBtn) el.hatchHistoryBtn.addEventListener("click", openHatchHistoryDialog);
+  if (el.closeHatchHistory) el.closeHatchHistory.addEventListener("click", closeHatchHistoryDialog);
+  if (el.hatchHistoryDialog) el.hatchHistoryDialog.addEventListener("click", (e) => {
+    if (e.target === el.hatchHistoryDialog) closeHatchHistoryDialog();
+  });
 
   // 模式/场景手动切换后自动重跑
   el.hatchMode.addEventListener("change", () => {
@@ -9179,8 +9567,82 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     updateInboxTagDatalist();
     renderInboxFilter();
     renderInboxList();
+    renderInboxGridPreview();
     el.inboxDialog.showModal();
     el.inboxInput.focus();
+  }
+
+  // ---------- 收集箱内嵌九宫格预览（拖拽落点） ----------
+  // 预览专用时辰（独立于主页面 state.activePeriod，默认同步主页面）
+  let inboxPreviewPeriod = -1;
+
+  function renderInboxGridPreview() {
+    if (!el.igpGrid) return;
+    if (inboxPreviewPeriod < 0) inboxPreviewPeriod = state.activePeriod;
+    const p = inboxPreviewPeriod;
+    const range = getPeriodRange(p);
+    const name = PERIOD_NAMES[p] || `第${p + 1}时辰`;
+    if (el.igpPeriodLabel) el.igpPeriodLabel.textContent = `${name} · ${secondsToHHMM(range.start)}-${secondsToHHMM(range.end)}`;
+    const cur = getCurrentPeriod();
+    const curGlobal = getCurrentGlobalCell();
+    const curCellInPeriod = curGlobal >= 0 ? curGlobal % CELLS_PER_PERIOD : -1;
+    el.igpGrid.innerHTML = "";
+    for (let c = 0; c < CELLS_PER_PERIOD; c++) {
+      const tasks = getCellTasks(p, c);
+      const isCur = (p === cur && c === curCellInPeriod);
+      const cell = document.createElement("div");
+      cell.className = "igp-cell" + (tasks.length ? " filled" : "") + (isCur ? " current" : "");
+      cell.dataset.period = p;
+      cell.dataset.cell = c;
+      const cellStart = range.start + c * SECONDS_PER_CELL;
+      const labels = tasks.map((t) => escapeHtml((t.text || "").replace(/\s*#\w+(→\d+)?#\s*$/, "").slice(0, 18))).join(" / ");
+      cell.innerHTML = `<div class="igp-cell-time">${secondsToHHMM(cellStart)}</div>
+        <div class="igp-cell-tasks">${labels || '<span class="igp-empty">空</span>'}</div>`;
+      // 拖拽放置目标
+      cell.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+        cell.classList.add("drag-over");
+      });
+      cell.addEventListener("dragleave", () => cell.classList.remove("drag-over"));
+      cell.addEventListener("drop", (e) => {
+        e.preventDefault();
+        cell.classList.remove("drag-over");
+        const raw = e.dataTransfer.getData("text/plain");
+        if (!raw) return;
+        let payload;
+        try { payload = JSON.parse(raw); } catch (e) { payload = { idx: parseInt(raw, 10) }; }
+        if (typeof payload.idx !== "number" || isNaN(payload.idx)) return;
+        dropInboxItemToCell(payload.idx, p, c);
+      });
+      el.igpGrid.appendChild(cell);
+    }
+  }
+
+  // 收集箱条目落到格子：写入任务并标记完成（可选删除）
+  function dropInboxItemToCell(idx, period, cell) {
+    const it = inboxItems[idx];
+    if (!it) return;
+    const text = (it.text || "").trim();
+    if (!text) { toast("该条目无文本", "info"); return; }
+    const meta = {};
+    if (it.meta && it.meta.dim) { meta.dim = it.meta.dim; if (it.meta.dimGoal) meta.dimGoal = it.meta.dimGoal; }
+    if (it.meta && it.meta.estimate) meta.estimate = String(it.meta.estimate);
+    const existing = getCellTasks(period, cell);
+    // 若格子已有同名任务则提示，避免重复
+    if (existing.some((t) => (t.text || "").replace(/\s*#\w+(→\d+)?#\s*$/, "").trim() === text.replace(/\s*#\w+(→\d+)?#\s*$/, "").trim())) {
+      toast("该格子已有相同任务", "info");
+      return;
+    }
+    setCellTasks(period, cell, [...existing, { text, ...meta }]);
+    // 标记收集箱条目完成（保留以便回看），不删除
+    it.done = true;
+    saveInbox();
+    renderInboxList();
+    renderInboxGridPreview();
+    const name = PERIOD_NAMES[period] || `第${period + 1}时辰`;
+    toast(`已安排到 ${name} 第${cell + 1}格`, "success");
+    if (navigator.vibrate) navigator.vibrate(20);
   }
 
   function renderInboxFilter() {
@@ -9252,9 +9714,13 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         </div>`;
       }
       // 原速记型 item
-      return `<div class="inbox-item ${item.done ? "done" : ""}" data-idx="${realIdx}">
+      const dragAttr = item.done ? "" : 'draggable="true"';
+      const fromHatch = item.kind === "hatch" ? '<span class="inbox-item-src" title="来自孵化">🥚</span>' : "";
+      return `<div class="inbox-item ${item.done ? "done" : ""}" data-idx="${realIdx}" ${dragAttr}>
         <span class="inbox-item-cb ${item.done ? "checked" : ""}" data-idx="${realIdx}">${item.done ? "✓" : ""}</span>
+        <span class="inbox-item-grip" title="拖到上方九宫格">⠿</span>
         <span class="inbox-item-text">${escapeHtml(item.text)}</span>
+        ${fromHatch}
         ${item.tag ? `<span class="inbox-item-tag" style="background:${tagColor(item.tag)}20;color:${tagColor(item.tag)};">${escapeHtml(item.tag)}</span>` : ""}
         <span class="inbox-item-date">${dateStr}</span>
         <button class="inbox-item-act" data-act="hatch" data-idx="${realIdx}" title="🥚 AI 孵化拆解为子步骤">🥚</button>
@@ -9315,6 +9781,16 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         toast("已填入对话区，可发送给 AI 安排", "info");
       });
     });
+    // 拖拽：把 inbox 条目拖到上方九宫格
+    el.inboxList.querySelectorAll(".inbox-item[draggable='true']").forEach((node) => {
+      node.addEventListener("dragstart", (e) => {
+        const idx = parseInt(node.dataset.idx, 10);
+        e.dataTransfer.effectAllowed = "copy";
+        e.dataTransfer.setData("text/plain", JSON.stringify({ idx, kind: "inbox" }));
+        node.classList.add("dragging");
+      });
+      node.addEventListener("dragend", () => node.classList.remove("dragging"));
+    });
     // 卡片型操作
     el.inboxList.querySelectorAll(".inbox-card-act").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -9364,6 +9840,15 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   }
   el.closeInbox.addEventListener("click", () => el.inboxDialog.close());
   el.inboxDialog.addEventListener("click", (e) => { if (e.target === el.inboxDialog) el.inboxDialog.close(); });
+  // 九宫格预览：时辰切换
+  if (el.igpPrev) el.igpPrev.addEventListener("click", () => {
+    inboxPreviewPeriod = (inboxPreviewPeriod - 1 + PERIOD_COUNT) % PERIOD_COUNT;
+    renderInboxGridPreview();
+  });
+  if (el.igpNext) el.igpNext.addEventListener("click", () => {
+    inboxPreviewPeriod = (inboxPreviewPeriod + 1) % PERIOD_COUNT;
+    renderInboxGridPreview();
+  });
   el.inboxAddBtn.addEventListener("click", () => {
     const text = el.inboxInput.value.trim();
     if (!text) { toast("请输入内容", "error"); return; }
