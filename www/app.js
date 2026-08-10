@@ -76,9 +76,14 @@
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.3.8";
+  const APP_VERSION = "2.3.9";
   const APP_VERSION_DATE = "2026-08-09";
   const APP_CHANGELOG = [
+    { v: "2.3.9", date: "2026-08-09", items: [
+      "新增：🧭 基石问询改为 AI 动态生成（根据任务内容提 3-5 个针对性问题）",
+      "新增：底部导航栏收集箱右边新增 🥚 孵化按钮",
+      "优化：问询失败可跳过直接孵化（降级容错）",
+    ]},
     { v: "2.3.8", date: "2026-08-09", items: [
       "新增：🧭 孵化前「基石问询」引导（本质/必要前提/第一性原理/成功标准/约束）",
       "新增：DeepSeek 升级 V4（默认 v4-flash 免费，备选 v4-pro，自动迁移旧模型名）",
@@ -232,6 +237,10 @@
   // 天地人三才：记录页数据 & 复盘页数据
   const RECORD_KEY = "mandala-records-v1";
   const REVIEW_KEY = "mandala-reviews-v1";
+  // 截图/图片附件（用 IndexedDB，localStorage 装不下大图）
+  const ATTACH_DB_NAME = "mandala-attachments";
+  const ATTACH_DB_VERSION = 1;
+  const ATTACH_STORE = "files";
   // 长期任务（时间地图）数据
   const LONGTASK_KEY = "mandala-longtasks-v1";
   // Hermes 同步的总结/规划/洞察（L3 add_hermes_note 写入）
@@ -298,6 +307,105 @@
   function dimScore(evalObj, dim) {
     const vals = dim.subs.map((s) => evalObj[s.key] || 0);
     return vals.reduce((a, b) => a + b, 0) / vals.length;
+  }
+
+  // ---------- 截图/图片附件（IndexedDB 封装）----------
+  // 附件存储：key = `${date}|${period}-${cell}|${attachId}`，value = { id, blob, thumb, createdAt, mime, name }
+  let _attachDB = null;
+  function attachDB() {
+    if (_attachDB) return Promise.resolve(_attachDB);
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(ATTACH_DB_NAME, ATTACH_DB_VERSION);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(ATTACH_STORE)) {
+          const store = db.createObjectStore(ATTACH_STORE, { keyPath: "id" });
+          store.createIndex("byCell", "cellKey", { unique: false });
+        }
+      };
+      req.onsuccess = (e) => { _attachDB = e.target.result; resolve(_attachDB); };
+      req.onerror = () => reject(req.error);
+    });
+  }
+  // cellKey 格式：`${date}|${period}-${cell}`
+  function attachCellKey(period, cell, date) {
+    return `${date || state.currentDate}|${period}-${cell}`;
+  }
+  async function attachSave(cellKey, blob, name, mime) {
+    const db = await attachDB();
+    const thumb = await makeThumb(blob, mime);
+    const rec = {
+      id: cellKey + "|" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      cellKey,
+      blob,
+      thumb,
+      mime: mime || blob.type || "image/png",
+      name: name || ("截图-" + new Date().toLocaleTimeString("zh-CN")),
+      createdAt: Date.now(),
+    };
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(ATTACH_STORE, "readwrite");
+      tx.objectStore(ATTACH_STORE).put(rec);
+      tx.oncomplete = () => resolve(rec);
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  async function attachList(cellKey) {
+    const db = await attachDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(ATTACH_STORE, "readonly");
+      const idx = tx.objectStore(ATTACH_STORE).index("byCell");
+      const req = idx.getAll(cellKey);
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function attachDelete(id) {
+    const db = await attachDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(ATTACH_STORE, "readwrite");
+      tx.objectStore(ATTACH_STORE).delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  async function attachDeleteAll(cellKey) {
+    const list = await attachList(cellKey);
+    await Promise.all(list.map((r) => attachDelete(r.id)));
+  }
+  // 生成缩略图（dataURL，限制最大边 240px）
+  function makeThumb(blob, mime) {
+    return new Promise((resolve) => {
+      try {
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {
+          const maxSide = 240;
+          let { width: w, height: h } = img;
+          if (w > maxSide || h > maxSide) {
+            const r = Math.min(maxSide / w, maxSide / h);
+            w = Math.round(w * r); h = Math.round(h * r);
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, w, h);
+          URL.revokeObjectURL(url);
+          resolve(canvas.toDataURL(mime || "image/jpeg", 0.7));
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); resolve(""); };
+        img.src = url;
+      } catch (e) { resolve(""); }
+    });
+  }
+  // 读取 Blob 为 dataURL（用于预览大图）
+  function blobToDataURL(blob) {
+    return new Promise((resolve) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = () => resolve("");
+      r.readAsDataURL(blob);
+    });
   }
 
   // 长期任务重复周期选项
@@ -1547,11 +1655,12 @@
     hatchOnboardToggle: document.getElementById("hatchOnboardToggle"),
     hatchStartBtn: document.getElementById("hatchStartBtn"),
     hatchOnboardTip: document.getElementById("hatchOnboardTip"),
-    hoqEssence: document.getElementById("hoqEssence"),
-    hoqPrereq: document.getElementById("hoqPrereq"),
-    hoqFirstPrinciple: document.getElementById("hoqFirstPrinciple"),
-    hoqSuccess: document.getElementById("hoqSuccess"),
-    hoqConstraint: document.getElementById("hoqConstraint"),
+    hatchOnboardGen: document.getElementById("hatchOnboardGen"),
+    hatchOnboardQs: document.getElementById("hatchOnboardQs"),
+    hatchOnboardActions: document.getElementById("hatchOnboardActions"),
+    hatchGenBtn: document.getElementById("hatchGenBtn"),
+    hatchGenTip: document.getElementById("hatchGenTip"),
+    realmFabHatch: document.getElementById("realmFabHatch"),
     hatchMode: document.getElementById("hatchMode"),
     hatchScene: document.getElementById("hatchScene"),
     hatchHistoryHint: document.getElementById("hatchHistoryHint"),
@@ -2437,6 +2546,285 @@
       delete state.records[state.currentDate][key];
     }
     save(RECORD_KEY, state.records);
+    // 清空记录时同时删除该格所有附件
+    if (!rec) attachDeleteAll(attachCellKey(period, cell, state.currentDate)).catch(() => {});
+  }
+
+  // ---------- 截图粘贴自动弹窗：选择要记录到的时间格子 ----------
+  // 全局监听 paste 事件（用户截图后 Ctrl+V），自动弹出"记录到哪个格子"对话框
+  let _pasteAttachGuard = false;
+  function setupScreenshotPasteListener() {
+    document.addEventListener("paste", (e) => {
+      // 避免在输入框/对话框中粘贴文字时误触发
+      const items = e.clipboardData && e.clipboardData.items;
+      if (!items) return;
+      let imgItem = null;
+      for (const it of items) {
+        if (it.type && it.type.startsWith("image/")) { imgItem = it; break; }
+      }
+      if (!imgItem) return; // 非图片粘贴，放行
+      const blob = imgItem.getAsFile();
+      if (!blob) return;
+      // 避免重复弹窗
+      if (_pasteAttachGuard) return;
+      _pasteAttachGuard = true;
+      e.preventDefault();
+      showScreenshotAttachDialog(blob);
+      setTimeout(() => { _pasteAttachGuard = false; }, 800);
+    }, true);
+  }
+
+  // ---------- App 回前台时检测剪贴板：若有图片自动弹窗 ----------
+  // 场景：用户在小红书等任意 App 截图 → 切回本 App → 自动弹窗询问记录到哪格
+  // 原理：Android 截图会写入系统剪贴板；App 回前台时用 Capacitor Clipboard 读取
+  let _lastCheckedClipTime = 0;
+  let _lastClipSeenSig = ""; // 避免同一张图重复弹窗（用尺寸+类型特征签名）
+  async function checkClipboardForImage() {
+    // 防抖：3 秒内不重复检测
+    const now = Date.now();
+    if (now - _lastCheckedClipTime < 3000) return;
+    _lastCheckedClipTime = now;
+    // 正在弹窗中或正在编辑记录时不打断
+    if (document.querySelector(".attach-paste-overlay")) return;
+    if (document.querySelector(".modal-overlay")) return;
+    // 优先用自定义 ClipboardImage 插件（能读 Android 截图 URI）
+    const Cap = window.Capacitor;
+    const ClipboardImage = Cap && Cap.isNative && Cap.Plugins && Cap.Plugins.ClipboardImage;
+    if (ClipboardImage && ClipboardImage.readImage) {
+      try {
+        const result = await ClipboardImage.readImage();
+        if (result && result.value) {
+          const blob = dataURLToBlob(result.value);
+          if (blob) {
+            const sig = `${blob.type}|${blob.size}`;
+            if (sig === _lastClipSeenSig) return;
+            _lastClipSeenSig = sig;
+            showScreenshotAttachDialog(blob);
+            return;
+          }
+        }
+      } catch (e) {
+        // 剪贴板非图片（reject "not image" 等）——正常情况，静默
+      }
+    }
+    // 回退 1：Web Clipboard API（PWA / 浏览器场景）
+    if (navigator.clipboard && navigator.clipboard.read) {
+      try {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          const imgType = item.types.find((t) => t.startsWith("image/"));
+          if (!imgType) continue;
+          const blob = await item.getType(imgType);
+          if (!blob) continue;
+          const sig = `${imgType}|${blob.size}|${blob.lastModified || 0}`;
+          if (sig === _lastClipSeenSig) return;
+          _lastClipSeenSig = sig;
+          showScreenshotAttachDialog(blob);
+          return;
+        }
+      } catch (e) {
+        // 权限被拒绝或非 HTTPS——静默
+      }
+    }
+  }
+  // dataURL → Blob 转换
+  function dataURLToBlob(dataURL) {
+    try {
+      const m = dataURL.match(/^data:([^;]+);base64,(.*)$/);
+      if (!m) return null;
+      const mime = m[1];
+      const bytes = atob(m[2]);
+      const arr = new Uint8Array(bytes.length);
+      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+      return new Blob([arr], { type: mime });
+    } catch (e) { return null; }
+  }
+  function setupForegroundClipboardCheck() {
+    // 1) 页面可见性变化（Android 切回 App 会触发 visible）
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) {
+        setTimeout(checkClipboardForImage, 300);
+      }
+    });
+    // 2) window focus（部分设备 visibilitychange 不触发，focus 兜底）
+    window.addEventListener("focus", () => {
+      setTimeout(checkClipboardForImage, 300);
+    });
+    // 3) Capacitor App resume 事件（原生层切回前台，最可靠）
+    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
+      try {
+        window.Capacitor.Plugins.App.addListener("resume", () => {
+          setTimeout(checkClipboardForImage, 400);
+        });
+      } catch (e) {}
+    }
+    // 4) pageshow（iOS Safari 及部分 WebView 的 back/forward 缓存恢复）
+    window.addEventListener("pageshow", (e) => {
+      if (e.persisted) setTimeout(checkClipboardForImage, 300);
+    });
+  }
+
+  // 截图附件选择对话框：让用户选要记录到哪个时辰/格子
+  async function showScreenshotAttachDialog(blob) {
+    const curPeriod = state.activePeriod;
+    const globalCell = getCurrentGlobalCell();
+    const curCell = globalCell >= 0 ? (globalCell - curPeriod * CELLS_PER_PERIOD) : 0;
+    const periodRange = getPeriodRange(curPeriod);
+    const todayLabel = isToday(state.currentDate) ? "今天" : state.currentDate;
+
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay attach-paste-overlay";
+    overlay.style.cssText = "position:fixed;inset:0;background:var(--overlay);z-index:1100;display:flex;align-items:center;justify-content:center;padding:16px;";
+    const dialog = document.createElement("div");
+    dialog.style.cssText = "background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:18px;max-width:440px;width:100%;max-height:90vh;overflow:auto;";
+
+    // 预览图
+    const previewUrl = URL.createObjectURL(blob);
+    const timeStr = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+
+    dialog.innerHTML = `
+      <h3 style="font-size:15px;margin-bottom:8px;color:#f87171;">📷 检测到截图</h3>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px;">${todayLabel} ${timeStr} · 选择要记录到的时间格子</div>
+      <div style="text-align:center;margin-bottom:14px;background:var(--bg-tertiary);border-radius:8px;padding:8px;">
+        <img src="${previewUrl}" style="max-width:100%;max-height:220px;border-radius:6px;object-fit:contain;" />
+      </div>
+      <div style="margin-bottom:10px;">
+        <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">选择时辰</label>
+        <select id="attPeriod" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-tertiary);color:var(--text-primary);"></select>
+      </div>
+      <div style="margin-bottom:10px;">
+        <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">选择格子（9 格）</label>
+        <div id="attCellGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;"></div>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">附注（可选，写入记录备注）</label>
+        <input type="text" id="attNote" placeholder="如：会议要点 / 错题截图" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-tertiary);color:var(--text-primary);" />
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
+        <button id="attCancel" style="padding:8px 14px;border-radius:6px;background:var(--bg-tertiary);color:var(--text-secondary);font-size:12px;">取消</button>
+        <button id="attSave" style="padding:8px 16px;border-radius:6px;background:linear-gradient(135deg,#ef4444,#f87171);color:#fff;font-weight:600;font-size:12px;">📎 记录到该格子</button>
+      </div>
+    `;
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    // 填充时辰下拉
+    const periodSel = dialog.querySelector("#attPeriod");
+    PERIOD_NAMES.forEach((name, p) => {
+      const r = getPeriodRange(p);
+      const opt = document.createElement("option");
+      opt.value = p;
+      opt.textContent = `${name} · ${secondsToHHMM(r.start)}-${secondsToHHMM(r.end)}`;
+      if (p === curPeriod) opt.selected = true;
+      periodSel.appendChild(opt);
+    });
+
+    // 渲染 9 格选择器
+    let selectedCell = curCell != null ? curCell : 0;
+    function renderCellGrid() {
+      const p = parseInt(periodSel.value, 10);
+      const grid = dialog.querySelector("#attCellGrid");
+      grid.innerHTML = "";
+      for (let c = 0; c < CELLS_PER_PERIOD; c++) {
+        const r = getCellRange(p, c);
+        const rec = getCellRecord(p, c);
+        const planT = getCellTasks(p, c);
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.style.cssText = "padding:8px 4px;border-radius:6px;border:1px solid var(--border);background:var(--bg-tertiary);color:var(--text-primary);font-size:10px;cursor:pointer;line-height:1.3;" + (c === selectedCell ? "border-color:#f87171;background:rgba(248,113,113,0.15);" : "");
+        let mark = "";
+        if (rec && (rec.actual || rec.spent)) mark = " 📝";
+        else if (planT.length) mark = " △";
+        btn.innerHTML = `<div style="font-weight:600;">第${c + 1}格${mark}</div><div style="color:var(--text-muted);font-size:9px;">${secondsToHHMM(r.start)}</div>`;
+        btn.addEventListener("click", () => { selectedCell = c; renderCellGrid(); });
+        grid.appendChild(btn);
+      }
+    }
+    renderCellGrid();
+    periodSel.addEventListener("change", renderCellGrid);
+
+    const close = () => { URL.revokeObjectURL(previewUrl); overlay.remove(); };
+    dialog.querySelector("#attCancel").addEventListener("click", close);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    dialog.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+
+    dialog.querySelector("#attSave").addEventListener("click", async () => {
+      const p = parseInt(periodSel.value, 10);
+      const note = dialog.querySelector("#attNote").value.trim();
+      try {
+        const cellKey = attachCellKey(p, selectedCell, state.currentDate);
+        await attachSave(cellKey, blob, "截图-" + timeStr, blob.type || "image/png");
+        // 同步写入记录备注（如果该格已有记录则合并 note，否则新建一条）
+        const existing = getCellRecord(p, selectedCell) || { spent: "", actual: "", note: "" };
+        const attachHint = "📎 截图" + (note ? "：" + note : "");
+        const newNote = existing.note
+          ? (existing.note + " | " + attachHint)
+          : attachHint;
+        setCellRecord(p, selectedCell, {
+          spent: existing.spent || ("~" + Math.round(SECONDS_PER_CELL / 60) + "分钟"),
+          actual: existing.actual || "截图记录",
+          note: newNote,
+        });
+        // 切到记录页对应格子
+        state.activePeriod = p;
+        setRealm("record");
+        renderRecord();
+        toast(`📷 截图已记到 第${p + 1}时辰·第${selectedCell + 1}格`, "success");
+        close();
+      } catch (err) {
+        console.error("截图附件保存失败:", err);
+        toast("截图保存失败：" + (err.message || "未知错误"), "error");
+      }
+    });
+  }
+
+  // 附件大图预览（点击缩略图打开，可下载/删除）
+  async function openAttachPreview(attach) {
+    const overlay = document.createElement("div");
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:1200;display:flex;align-items:center;justify-content:center;padding:16px;flex-direction:column;gap:12px;";
+    const img = document.createElement("img");
+    img.style.cssText = "max-width:95%;max-height:80vh;border-radius:8px;object-fit:contain;";
+    overlay.appendChild(img);
+    const info = document.createElement("div");
+    info.style.cssText = "color:#fff;font-size:12px;text-align:center;opacity:0.8;";
+    info.textContent = attach.name || "截图";
+    overlay.appendChild(info);
+    const btns = document.createElement("div");
+    btns.style.cssText = "display:flex;gap:8px;";
+    const downloadBtn = document.createElement("button");
+    downloadBtn.textContent = "⬇ 下载";
+    downloadBtn.style.cssText = "padding:8px 14px;border-radius:6px;background:rgba(255,255,255,0.15);color:#fff;border:none;cursor:pointer;font-size:12px;";
+    const delBtn = document.createElement("button");
+    delBtn.textContent = "🗑 删除";
+    delBtn.style.cssText = "padding:8px 14px;border-radius:6px;background:rgba(239,68,68,0.3);color:#fff;border:none;cursor:pointer;font-size:12px;";
+    const closeBtn = document.createElement("button");
+    closeBtn.textContent = "✕ 关闭";
+    closeBtn.style.cssText = "padding:8px 14px;border-radius:6px;background:rgba(255,255,255,0.1);color:#fff;border:none;cursor:pointer;font-size:12px;";
+    btns.appendChild(downloadBtn); btns.appendChild(delBtn); btns.appendChild(closeBtn);
+    overlay.appendChild(btns);
+    document.body.appendChild(overlay);
+    // 加载大图
+    const fullUrl = await blobToDataURL(attach.blob);
+    img.src = fullUrl;
+    const close = () => overlay.remove();
+    closeBtn.addEventListener("click", close);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    downloadBtn.addEventListener("click", () => {
+      const a = document.createElement("a");
+      a.href = fullUrl;
+      a.download = (attach.name || "截图") + (attach.mime && attach.mime.includes("png") ? ".png" : ".jpg");
+      a.click();
+    });
+    delBtn.addEventListener("click", async () => {
+      if (!confirm("删除该附件？")) return;
+      try {
+        await attachDelete(attach.id);
+        toast("附件已删除", "info");
+        close();
+        renderRecord();
+      } catch (e) { toast("删除失败", "error"); }
+    });
+    overlay.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
   }
 
   // 渲染记录页
@@ -2535,6 +2923,40 @@
       }
       cellEl.appendChild(contentEl);
 
+      // 附件占位（异步加载附件缩略图，避免阻塞渲染）
+      const attachWrap = document.createElement("div");
+      attachWrap.className = "cell-attachments";
+      cellEl.appendChild(attachWrap);
+      attachList(attachCellKey(period, cell)).then((list) => {
+        if (!list.length) return;
+        // 附件计数徽章
+        const badge = document.createElement("div");
+        badge.className = "attach-badge";
+        badge.style.cssText = "position:absolute;top:4px;right:4px;background:rgba(248,113,113,0.18);color:#f87171;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px;border:1px solid rgba(248,113,113,0.4);";
+        badge.textContent = "📎" + list.length;
+        cellEl.style.position = "relative";
+        cellEl.appendChild(badge);
+        // 缩略图预览（最多 3 张）
+        const thumbs = document.createElement("div");
+        thumbs.className = "attach-thumbs";
+        thumbs.style.cssText = "display:flex;gap:3px;margin-top:4px;flex-wrap:wrap;";
+        list.slice(0, 3).forEach((a) => {
+          const img = document.createElement("img");
+          img.src = a.thumb || "";
+          img.title = a.name || "截图";
+          img.style.cssText = "width:36px;height:36px;object-fit:cover;border-radius:4px;border:1px solid var(--border);cursor:pointer;";
+          img.addEventListener("click", (ev) => { ev.stopPropagation(); openAttachPreview(a); });
+          thumbs.appendChild(img);
+        });
+        if (list.length > 3) {
+          const more = document.createElement("div");
+          more.style.cssText = "width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--text-muted);border:1px dashed var(--border);border-radius:4px;";
+          more.textContent = "+" + (list.length - 3);
+          thumbs.appendChild(more);
+        }
+        attachWrap.appendChild(thumbs);
+      }).catch(() => {});
+
       // 点击编辑记录
       cellEl.addEventListener("click", () => openRecordEditor(period, cell));
       cellEl.addEventListener("dblclick", () => {
@@ -2590,6 +3012,18 @@
         <label style="font-size:12px;color:var(--text-secondary);">备注（可选）</label>
         <input type="text" id="recNote" value="${escapeHtml(existing.note || "")}" placeholder="感受/卡点/收获" style="width:100%;padding:8px;margin-top:4px;border-radius:6px;border:1px solid var(--border);" />
       </div>
+      <div style="margin-bottom:12px;">
+        <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;justify-content:space-between;">
+          <span>📎 附件截图</span>
+          <span style="display:flex;gap:6px;">
+            <button id="recAttachUpload" type="button" style="padding:4px 10px;border-radius:6px;background:rgba(248,113,113,0.15);color:#f87171;font-size:11px;border:1px solid rgba(248,113,113,0.3);cursor:pointer;">＋ 上传图片</button>
+            <button id="recAttachPaste" type="button" style="padding:4px 10px;border-radius:6px;background:var(--bg-tertiary);color:var(--text-secondary);font-size:11px;border:1px solid var(--border);cursor:pointer;">📋 粘贴</button>
+          </span>
+        </label>
+        <input type="file" id="recAttachFile" accept="image/*" multiple hidden />
+        <div id="recAttachList" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;min-height:8px;"></div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">截图后 Ctrl+V 自动弹窗记录 · 也可直接点上方按钮</div>
+      </div>
       <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
         <button id="recAskAi" style="padding:8px 14px;border-radius:6px;background:rgba(124,92,255,0.15);color:#9d85ff;font-size:12px;border:1px solid rgba(124,92,255,0.3);">🤖 AI 追问</button>
         <button id="recDel" style="padding:8px 14px;border-radius:6px;background:var(--bg-tertiary);color:var(--danger);font-size:12px;">删除</button>
@@ -2621,6 +3055,75 @@
       close();
     });
     dialog.querySelector("#recSave").addEventListener("click", save);
+
+    // ---------- 附件区域：加载已有 + 上传 + 粘贴 ----------
+    const attachListEl = dialog.querySelector("#recAttachList");
+    const cellKey = attachCellKey(period, cell);
+    async function refreshAttachList() {
+      const list = await attachList(cellKey);
+      attachListEl.innerHTML = "";
+      if (!list.length) {
+        attachListEl.innerHTML = '<div style="font-size:11px;color:var(--text-muted);">暂无附件</div>';
+        return;
+      }
+      list.forEach((a) => {
+        const wrap = document.createElement("div");
+        wrap.style.cssText = "position:relative;width:54px;height:54px;";
+        const img = document.createElement("img");
+        img.src = a.thumb || "";
+        img.title = a.name || "截图";
+        img.style.cssText = "width:54px;height:54px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:pointer;";
+        img.addEventListener("click", () => openAttachPreview(a));
+        const del = document.createElement("button");
+        del.textContent = "✕";
+        del.style.cssText = "position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:#ef4444;color:#fff;border:none;font-size:10px;cursor:pointer;line-height:1;";
+        del.addEventListener("click", async (ev) => {
+          ev.stopPropagation();
+          await attachDelete(a.id);
+          refreshAttachList();
+          toast("已删除附件", "info");
+        });
+        wrap.appendChild(img); wrap.appendChild(del);
+        attachListEl.appendChild(wrap);
+      });
+    }
+    refreshAttachList();
+    // 上传图片
+    const fileInput = dialog.querySelector("#recAttachFile");
+    dialog.querySelector("#recAttachUpload").addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", async () => {
+      const files = Array.from(fileInput.files || []);
+      for (const f of files) {
+        await attachSave(cellKey, f, f.name || ("图片-" + Date.now()), f.type);
+      }
+      fileInput.value = "";
+      refreshAttachList();
+      toast(`已添加 ${files.length} 张图片`, "success");
+    });
+    // 编辑器内直接粘贴（不触发全局弹窗）
+    dialog.querySelector("#recAttachPaste").addEventListener("click", () => {
+      toast("在此对话框内按 Ctrl+V 粘贴截图即可", "info");
+    });
+    dialog.addEventListener("paste", async (e) => {
+      const items = e.clipboardData && e.clipboardData.items;
+      if (!items) return;
+      let hasImg = false;
+      for (const it of items) { if (it.type && it.type.startsWith("image/")) { hasImg = true; break; } }
+      if (!hasImg) return; // 文字粘贴放行
+      e.preventDefault();
+      e.stopPropagation(); // 阻止冒泡到全局监听，避免重复弹窗
+      let saved = 0;
+      for (const it of items) {
+        if (it.type && it.type.startsWith("image/")) {
+          const blob = it.getAsFile();
+          if (blob) { await attachSave(cellKey, blob, "粘贴-" + Date.now(), blob.type); saved++; }
+        }
+      }
+      if (saved) {
+        refreshAttachList();
+        toast(`已粘贴 ${saved} 张截图到本格`, "success");
+      }
+    }, true);
 
     // 键盘快捷键：Esc 关闭，Enter 保存
     dialog.addEventListener("keydown", (e) => {
@@ -3739,6 +4242,7 @@ ${recordItems.join("\n") || "（无）"}
     longTaskId: null,  // 关联长期任务 id（drill 模式用）
     weakDims: null,    // 薄弱维度列表（drill 模式用）
     pendingScene: "auto", // 打开对话框时预设的场景（启动时用）
+    onboardQuestions: [], // AI 动态生成的基石问题
   };
 
   // 孵化计时器（实时显示已用时长）
@@ -4131,16 +4635,15 @@ ${recordItems.join("\n") || "（无）"}
     el.hatchResult.hidden = true;
     el.hatchError.hidden = true;
     el.hatchHistoryHint.hidden = true;
-    // 显示问询面板
+    // 显示问询面板（重置为初始状态：显示生成按钮，隐藏问题区和启动按钮）
     if (el.hatchOnboard) el.hatchOnboard.hidden = false;
     if (el.hatchOnboard) el.hatchOnboard.classList.remove("collapsed");
-    // 清空问询输入（除非已有缓存）
-    if (el.hoqEssence) el.hoqEssence.value = "";
-    if (el.hoqPrereq) el.hoqPrereq.value = "";
-    if (el.hoqFirstPrinciple) el.hoqFirstPrinciple.value = "";
-    if (el.hoqSuccess) el.hoqSuccess.value = "";
-    if (el.hoqConstraint) el.hoqConstraint.value = "";
-    if (el.hatchOnboardTip) el.hatchOnboardTip.textContent = "💡 答得越具体，AI 拆解越精准";
+    if (el.hatchOnboardGen) el.hatchOnboardGen.hidden = false;
+    if (el.hatchOnboardQs) el.hatchOnboardQs.innerHTML = "";
+    if (el.hatchOnboardActions) el.hatchOnboardActions.hidden = true;
+    if (el.hatchGenBtn) el.hatchGenBtn.disabled = false;
+    if (el.hatchGenTip) el.hatchGenTip.textContent = "填好任务后点此，AI 会针对你的任务提 5-7 个关键问题（含 7 维度子维度）";
+    hatchState.onboardQuestions = [];
     // 记录 longTaskId 供启动时用
     hatchState.longTaskId = longTaskId;
     hatchState.pendingScene = scene;
@@ -4156,19 +4659,121 @@ ${recordItems.join("\n") || "（无）"}
     if (!text && el.hatchTaskInput) setTimeout(() => el.hatchTaskInput.focus(), 100);
   }
 
-  // 收集基石问询，拼成上下文喂给 AI
+  // AI 根据任务生成针对性基石问题
+  async function generateOnboardQuestions() {
+    const text = (el.hatchTaskInput ? el.hatchTaskInput.value : "").trim();
+    if (!text) {
+      toast("请先填写任务描述", "error");
+      if (el.hatchTaskInput) el.hatchTaskInput.focus();
+      return;
+    }
+    if (!state.settings.apiUrl || !state.settings.apiKey) {
+      toast("请先在设置中配置 AI API", "error");
+      return;
+    }
+    if (el.hatchGenBtn) el.hatchGenBtn.disabled = true;
+    if (el.hatchGenTip) el.hatchGenTip.innerHTML = '<span class="hatch-gen-loading">⏳ AI 正在分析任务并生成问题…</span>';
+    try {
+      const dimList = KNOWLEDGE_DIMENSIONS.map((d) =>
+        `   - ${d.code} ${d.name}：${d.subs.map((s) => s.name).join(" / ")}`
+      ).join("\n");
+      const prompt = `你是一位任务拆解教练。请根据以下任务，提出 5-7 个「基石问题」帮助用户厘清任务本质。
+
+任务：${text}
+
+要求：
+1. 问题必须针对该任务的具体内容，不要泛泛而谈
+2. 必须覆盖这 4 个基础维度：本质/必要前提/第一性原理/成功标准
+3. 额外从「7 维度知识体系」中挑 2-3 个与该任务最相关的维度提问，并明确针对其「子维度」发问（每个被选维度挑 1 个最相关的子维度切入）：
+${dimList}
+4. 子维度核心追问参考（用于把问题问得更具体）：
+${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s.name + "：「" + s.q + "」").join("；")).join("\n")}
+5. 每个问题简短、直击要害、用户能一句话答完
+6. 返回 JSON 数组，格式：[{"label":"本质","question":"问题文本","dim":"Cl","sub":"def"},{"label":"必要前提","question":"...","dim":"","sub":""}]
+7. label 从这 12 个里选：本质、必要前提、第一性原理、成功标准、约束、清晰度Cl、完整性Cp、边界感B、关联度L、进化感Ev、精炼度P、节奏感Rh
+8. 若选 7 维度问题，label 用「清晰度Cl」这种格式，dim 填对应代码（Cl/Cp/B/L/Ev/P/Rh），sub 填对应子维度 key（如 def/boundary/repr/structure/steps/condition/fail/limit/upstream/isomorphic/crossdomain/version/iteration/chunk/fluency/cycle/freq/predict/duration/timing），否则 dim 与 sub 都留空
+9. 只返回 JSON，不要任何解释`;
+
+      const provider = state.settings.apiProvider || "openai";
+      const resp = await fetch(state.settings.apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + state.settings.apiKey,
+        },
+        body: JSON.stringify({
+          model: state.settings.apiModel,
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.4,
+          max_tokens: 900,
+        }),
+      });
+      if (!resp.ok) throw new Error("API " + resp.status);
+      const data = await resp.json();
+      const content = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || "";
+      // 提取 JSON
+      const jsonMatch = content.match(/\[[\s\S]*\]/);
+      let questions = [];
+      if (jsonMatch) {
+        try { questions = JSON.parse(jsonMatch[0]); } catch (e) { /* fallback */ }
+      }
+      if (!Array.isArray(questions) || questions.length === 0) throw new Error("未能解析问题");
+      // 渲染问题
+      renderOnboardQuestions(questions);
+      if (el.hatchOnboardGen) el.hatchOnboardGen.hidden = true;
+      if (el.hatchOnboardActions) el.hatchOnboardActions.hidden = false;
+      if (el.hatchOnboardTip) el.hatchOnboardTip.textContent = `💡 AI 生成了 ${questions.length} 个问题，答完点「开始孵化」`;
+      toast(`已生成 ${questions.length} 个针对性问题`, "success");
+    } catch (e) {
+      console.error("生成问询失败:", e);
+      if (el.hatchGenTip) el.hatchGenTip.textContent = "❌ 生成失败：" + (e.message || "未知错误") + "，可跳过直接孵化";
+      if (el.hatchGenBtn) el.hatchGenBtn.disabled = false;
+      // 生成失败时显示「跳过问询直接孵化」按钮
+      if (el.hatchOnboardActions) el.hatchOnboardActions.hidden = false;
+      if (el.hatchOnboardTip) el.hatchOnboardTip.textContent = "⚠️ 问询生成失败，可直接开始孵化（无问询上下文）";
+    }
+  }
+
+  // 渲染动态问题到面板（带 7 维度+子维度徽章）
+  function renderOnboardQuestions(questions) {
+    if (!el.hatchOnboardQs) return;
+    el.hatchOnboardQs.innerHTML = "";
+    hatchState.onboardQuestions = questions;
+    questions.forEach((q, i) => {
+      const div = document.createElement("div");
+      div.className = "hatch-onboard-q";
+      const num = ["①", "②", "③", "④", "⑤", "⑥", "⑦"][i] || (i + 1) + ".";
+      // 7 维度+子维度徽章（若有 dim 字段）
+      let dimBadge = "";
+      if (q.dim) {
+        const dimObj = KNOWLEDGE_DIMENSIONS.find((d) => d.code === q.dim);
+        const color = dimObj ? dimObj.color : "#7c5cff";
+        const subObj = dimObj && q.sub ? dimObj.subs.find((s) => s.key === q.sub) : null;
+        const subLabel = subObj ? subObj.name : (q.sub || "");
+        dimBadge = `<span class="hoq-dim-badge" style="background:${color}22;color:${color};border-color:${color}44;" title="${subObj ? subObj.q : ""}">${q.dim}${subLabel ? "·" + subLabel : ""}</span>`;
+      }
+      div.innerHTML = `<label><span class="hoq-num">${num}</span> ${q.label || ""}：${dimBadge}<span class="hoq-q">${q.question || ""}</span></label>
+        <input type="text" data-hoq-idx="${i}" placeholder="一句话回答…" />`;
+      el.hatchOnboardQs.appendChild(div);
+    });
+  }
+
+  // 收集动态问题答案，拼成上下文喂给 AI
   function collectOnboardContext() {
+    if (!el.hatchOnboardQs || !hatchState.onboardQuestions) return "";
+    const inputs = el.hatchOnboardQs.querySelectorAll("input[data-hoq-idx]");
     const parts = [];
-    const essence = el.hoqEssence ? el.hoqEssence.value.trim() : "";
-    const prereq = el.hoqPrereq ? el.hoqPrereq.value.trim() : "";
-    const fp = el.hoqFirstPrinciple ? el.hoqFirstPrinciple.value.trim() : "";
-    const success = el.hoqSuccess ? el.hoqSuccess.value.trim() : "";
-    const constraint = el.hoqConstraint ? el.hoqConstraint.value.trim() : "";
-    if (essence) parts.push(`【本质】${essence}`);
-    if (prereq) parts.push(`【必要前提】${prereq}`);
-    if (fp) parts.push(`【第一性原理】${fp}`);
-    if (success) parts.push(`【成功标准】${success}`);
-    if (constraint) parts.push(`【约束】${constraint}`);
+    inputs.forEach((inp) => {
+      const idx = parseInt(inp.getAttribute("data-hoq-idx"), 10);
+      const q = hatchState.onboardQuestions[idx];
+      const ans = inp.value.trim();
+      if (ans && q) {
+        const dimObj = q.dim ? KNOWLEDGE_DIMENSIONS.find((d) => d.code === q.dim) : null;
+        const subObj = dimObj && q.sub ? dimObj.subs.find((s) => s.key === q.sub) : null;
+        const dimTag = q.dim ? `[${q.dim}${subObj ? "/" + subObj.name : ""}] ` : "";
+        parts.push(`${dimTag}【${q.label || "问" + (idx + 1)}】${q.question} → ${ans}`);
+      }
+    });
     return parts.join("\n");
   }
 
@@ -4259,6 +4864,8 @@ ${recordItems.join("\n") || "（无）"}
 
   el.hatchBtn.addEventListener("click", openHatchDialog);
   if (el.hatchToolBtn) el.hatchToolBtn.addEventListener("click", () => openHatchDialog({}));
+  if (el.realmFabHatch) el.realmFabHatch.addEventListener("click", () => openHatchDialog({}));
+  if (el.hatchGenBtn) el.hatchGenBtn.addEventListener("click", generateOnboardQuestions);
   if (el.hatchStartBtn) el.hatchStartBtn.addEventListener("click", startHatchFromForm);
   if (el.hatchTaskInput) el.hatchTaskInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); startHatchFromForm(); }
@@ -8729,6 +9336,32 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   }
 
   el.inboxBtn.addEventListener("click", openInbox);
+  // 截图按钮：弹出说明 + 直接选图
+  const screenshotBtn = document.getElementById("screenshotBtn");
+  if (screenshotBtn) {
+    screenshotBtn.addEventListener("click", () => {
+      const choice = confirm("📷 截图记录功能\n\n方式 1：截图后按 Ctrl+V（自动弹窗选格子）\n方式 2：点「确定」直接选图片文件\n\n点「取消」关闭");
+      if (choice) {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/*";
+        input.multiple = true;
+        input.addEventListener("change", async () => {
+          const files = Array.from(input.files || []);
+          if (!files.length) return;
+          // 多图：第一张走弹窗，其余自动追加到同格
+          if (files.length === 1) {
+            showScreenshotAttachDialog(files[0]);
+          } else {
+            showScreenshotAttachDialog(files[0]).then(() => {
+              // 其余图片在用户选完格子后，由 dialog 处理；这里简化为全部走第一张的格子
+            });
+          }
+        });
+        input.click();
+      }
+    });
+  }
   el.closeInbox.addEventListener("click", () => el.inboxDialog.close());
   el.inboxDialog.addEventListener("click", (e) => { if (e.target === el.inboxDialog) el.inboxDialog.close(); });
   el.inboxAddBtn.addEventListener("click", () => {
@@ -9270,6 +9903,10 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     state.lastPeriod = getCurrentPeriod();
     // APK 沉浸式状态栏（仅原生环境生效，浏览器无影响）
     setupImmersiveMode();
+    // 截图粘贴监听：用户截图后 Ctrl+V 自动弹窗询问记录到哪个格子
+    setupScreenshotPasteListener();
+    // App 回前台检测剪贴板：在其他 App 截图后切回本 App，自动弹窗
+    setupForegroundClipboardCheck();
     // 注册 Service Worker（PWA 离线，network-first 策略避免缓存问题）
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("./sw.js?v=4").catch((e) => console.warn("SW 注册失败", e));

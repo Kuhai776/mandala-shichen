@@ -76,9 +76,14 @@
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.3.8";
+  const APP_VERSION = "2.3.9";
   const APP_VERSION_DATE = "2026-08-09";
   const APP_CHANGELOG = [
+    { v: "2.3.9", date: "2026-08-09", items: [
+      "新增：🧭 基石问询改为 AI 动态生成（根据任务内容提 3-5 个针对性问题）",
+      "新增：底部导航栏收集箱右边新增 🥚 孵化按钮",
+      "优化：问询失败可跳过直接孵化（降级容错）",
+    ]},
     { v: "2.3.8", date: "2026-08-09", items: [
       "新增：🧭 孵化前「基石问询」引导（本质/必要前提/第一性原理/成功标准/约束）",
       "新增：DeepSeek 升级 V4（默认 v4-flash 免费，备选 v4-pro，自动迁移旧模型名）",
@@ -1547,11 +1552,12 @@
     hatchOnboardToggle: document.getElementById("hatchOnboardToggle"),
     hatchStartBtn: document.getElementById("hatchStartBtn"),
     hatchOnboardTip: document.getElementById("hatchOnboardTip"),
-    hoqEssence: document.getElementById("hoqEssence"),
-    hoqPrereq: document.getElementById("hoqPrereq"),
-    hoqFirstPrinciple: document.getElementById("hoqFirstPrinciple"),
-    hoqSuccess: document.getElementById("hoqSuccess"),
-    hoqConstraint: document.getElementById("hoqConstraint"),
+    hatchOnboardGen: document.getElementById("hatchOnboardGen"),
+    hatchOnboardQs: document.getElementById("hatchOnboardQs"),
+    hatchOnboardActions: document.getElementById("hatchOnboardActions"),
+    hatchGenBtn: document.getElementById("hatchGenBtn"),
+    hatchGenTip: document.getElementById("hatchGenTip"),
+    realmFabHatch: document.getElementById("realmFabHatch"),
     hatchMode: document.getElementById("hatchMode"),
     hatchScene: document.getElementById("hatchScene"),
     hatchHistoryHint: document.getElementById("hatchHistoryHint"),
@@ -3739,6 +3745,7 @@ ${recordItems.join("\n") || "（无）"}
     longTaskId: null,  // 关联长期任务 id（drill 模式用）
     weakDims: null,    // 薄弱维度列表（drill 模式用）
     pendingScene: "auto", // 打开对话框时预设的场景（启动时用）
+    onboardQuestions: [], // AI 动态生成的基石问题
   };
 
   // 孵化计时器（实时显示已用时长）
@@ -4131,16 +4138,15 @@ ${recordItems.join("\n") || "（无）"}
     el.hatchResult.hidden = true;
     el.hatchError.hidden = true;
     el.hatchHistoryHint.hidden = true;
-    // 显示问询面板
+    // 显示问询面板（重置为初始状态：显示生成按钮，隐藏问题区和启动按钮）
     if (el.hatchOnboard) el.hatchOnboard.hidden = false;
     if (el.hatchOnboard) el.hatchOnboard.classList.remove("collapsed");
-    // 清空问询输入（除非已有缓存）
-    if (el.hoqEssence) el.hoqEssence.value = "";
-    if (el.hoqPrereq) el.hoqPrereq.value = "";
-    if (el.hoqFirstPrinciple) el.hoqFirstPrinciple.value = "";
-    if (el.hoqSuccess) el.hoqSuccess.value = "";
-    if (el.hoqConstraint) el.hoqConstraint.value = "";
-    if (el.hatchOnboardTip) el.hatchOnboardTip.textContent = "💡 答得越具体，AI 拆解越精准";
+    if (el.hatchOnboardGen) el.hatchOnboardGen.hidden = false;
+    if (el.hatchOnboardQs) el.hatchOnboardQs.innerHTML = "";
+    if (el.hatchOnboardActions) el.hatchOnboardActions.hidden = true;
+    if (el.hatchGenBtn) el.hatchGenBtn.disabled = false;
+    if (el.hatchGenTip) el.hatchGenTip.textContent = "填好任务后点此，AI 会针对你的任务提 3-5 个关键问题";
+    hatchState.onboardQuestions = [];
     // 记录 longTaskId 供启动时用
     hatchState.longTaskId = longTaskId;
     hatchState.pendingScene = scene;
@@ -4156,19 +4162,99 @@ ${recordItems.join("\n") || "（无）"}
     if (!text && el.hatchTaskInput) setTimeout(() => el.hatchTaskInput.focus(), 100);
   }
 
-  // 收集基石问询，拼成上下文喂给 AI
+  // AI 根据任务生成针对性基石问题
+  async function generateOnboardQuestions() {
+    const text = (el.hatchTaskInput ? el.hatchTaskInput.value : "").trim();
+    if (!text) {
+      toast("请先填写任务描述", "error");
+      if (el.hatchTaskInput) el.hatchTaskInput.focus();
+      return;
+    }
+    if (!state.settings.apiUrl || !state.settings.apiKey) {
+      toast("请先在设置中配置 AI API", "error");
+      return;
+    }
+    if (el.hatchGenBtn) el.hatchGenBtn.disabled = true;
+    if (el.hatchGenTip) el.hatchGenTip.innerHTML = '<span class="hatch-gen-loading">⏳ AI 正在分析任务并生成问题…</span>';
+    try {
+      const prompt = `你是一位任务拆解教练。请根据以下任务，提出 3-5 个「基石问题」帮助用户厘清任务本质。
+
+任务：${text}
+
+要求：
+1. 问题必须针对该任务的具体内容，不要泛泛而谈
+2. 覆盖这 4 个维度（可选加 1 个约束问题）：本质/必要前提/第一性原理/成功标准
+3. 每个问题简短、直击要害、用户能一句话答完
+4. 返回 JSON 数组，格式：[{"label":"本质","question":"这个问题文本"},{"label":"必要前提","question":"..."}]
+5. label 从这 5 个里选：本质、必要前提、第一性原理、成功标准、约束
+6. 只返回 JSON，不要任何解释`;
+
+      const provider = state.settings.apiProvider || "openai";
+      const resp = await fetch(state.settings.apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + state.settings.apiKey,
+        },
+        body: JSON.stringify({
+          model: state.settings.apiModel,
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.4,
+          max_tokens: 600,
+        }),
+      });
+      if (!resp.ok) throw new Error("API " + resp.status);
+      const data = await resp.json();
+      const content = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || "";
+      // 提取 JSON
+      const jsonMatch = content.match(/\[[\s\S]*\]/);
+      let questions = [];
+      if (jsonMatch) {
+        try { questions = JSON.parse(jsonMatch[0]); } catch (e) { /* fallback */ }
+      }
+      if (!Array.isArray(questions) || questions.length === 0) throw new Error("未能解析问题");
+      // 渲染问题
+      renderOnboardQuestions(questions);
+      if (el.hatchOnboardGen) el.hatchOnboardGen.hidden = true;
+      if (el.hatchOnboardActions) el.hatchOnboardActions.hidden = false;
+      if (el.hatchOnboardTip) el.hatchOnboardTip.textContent = `💡 AI 生成了 ${questions.length} 个问题，答完点「开始孵化」`;
+      toast(`已生成 ${questions.length} 个针对性问题`, "success");
+    } catch (e) {
+      console.error("生成问询失败:", e);
+      if (el.hatchGenTip) el.hatchGenTip.textContent = "❌ 生成失败：" + (e.message || "未知错误") + "，可跳过直接孵化";
+      if (el.hatchGenBtn) el.hatchGenBtn.disabled = false;
+      // 生成失败时显示「跳过问询直接孵化」按钮
+      if (el.hatchOnboardActions) el.hatchOnboardActions.hidden = false;
+      if (el.hatchOnboardTip) el.hatchOnboardTip.textContent = "⚠️ 问询生成失败，可直接开始孵化（无问询上下文）";
+    }
+  }
+
+  // 渲染动态问题到面板
+  function renderOnboardQuestions(questions) {
+    if (!el.hatchOnboardQs) return;
+    el.hatchOnboardQs.innerHTML = "";
+    hatchState.onboardQuestions = questions;
+    questions.forEach((q, i) => {
+      const div = document.createElement("div");
+      div.className = "hatch-onboard-q";
+      const num = ["①", "②", "③", "④", "⑤", "⑥"][i] || (i + 1) + ".";
+      div.innerHTML = `<label><span class="hoq-num">${num}</span> ${q.label || ""}：<span class="hoq-q">${q.question || ""}</span></label>
+        <input type="text" data-hoq-idx="${i}" placeholder="一句话回答…" />`;
+      el.hatchOnboardQs.appendChild(div);
+    });
+  }
+
+  // 收集动态问题答案，拼成上下文喂给 AI
   function collectOnboardContext() {
+    if (!el.hatchOnboardQs || !hatchState.onboardQuestions) return "";
+    const inputs = el.hatchOnboardQs.querySelectorAll("input[data-hoq-idx]");
     const parts = [];
-    const essence = el.hoqEssence ? el.hoqEssence.value.trim() : "";
-    const prereq = el.hoqPrereq ? el.hoqPrereq.value.trim() : "";
-    const fp = el.hoqFirstPrinciple ? el.hoqFirstPrinciple.value.trim() : "";
-    const success = el.hoqSuccess ? el.hoqSuccess.value.trim() : "";
-    const constraint = el.hoqConstraint ? el.hoqConstraint.value.trim() : "";
-    if (essence) parts.push(`【本质】${essence}`);
-    if (prereq) parts.push(`【必要前提】${prereq}`);
-    if (fp) parts.push(`【第一性原理】${fp}`);
-    if (success) parts.push(`【成功标准】${success}`);
-    if (constraint) parts.push(`【约束】${constraint}`);
+    inputs.forEach((inp) => {
+      const idx = parseInt(inp.getAttribute("data-hoq-idx"), 10);
+      const q = hatchState.onboardQuestions[idx];
+      const ans = inp.value.trim();
+      if (ans && q) parts.push(`【${q.label || "问" + (idx + 1)}】${q.question} → ${ans}`);
+    });
     return parts.join("\n");
   }
 
@@ -4259,6 +4345,8 @@ ${recordItems.join("\n") || "（无）"}
 
   el.hatchBtn.addEventListener("click", openHatchDialog);
   if (el.hatchToolBtn) el.hatchToolBtn.addEventListener("click", () => openHatchDialog({}));
+  if (el.realmFabHatch) el.realmFabHatch.addEventListener("click", () => openHatchDialog({}));
+  if (el.hatchGenBtn) el.hatchGenBtn.addEventListener("click", generateOnboardQuestions);
   if (el.hatchStartBtn) el.hatchStartBtn.addEventListener("click", startHatchFromForm);
   if (el.hatchTaskInput) el.hatchTaskInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); startHatchFromForm(); }
