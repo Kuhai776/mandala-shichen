@@ -32,17 +32,72 @@
 (function () {
   "use strict";
 
-  // ---------- 常量 ----------
-  const START_HOUR = 5;
-  const PERIOD_HOURS = 2;
-  const PERIOD_COUNT = 9;
-  const CELLS_PER_PERIOD = 9;
-  const SECONDS_PER_PERIOD = PERIOD_HOURS * 3600;
-  const SECONDS_PER_CELL = SECONDS_PER_PERIOD / CELLS_PER_PERIOD;
-  const START_SECONDS = START_HOUR * 3600;
-  // 时辰地支映射（9 时辰对应 卯→亥），Hermes 台词与界面统一用此
-  const PERIOD_NAMES = ["卯时", "辰时", "巳时", "午时", "未时", "申时", "酉时", "戌时", "亥时"];
-  const PERIOD_GLYPHS = ["卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"];
+  // ---------- 时间模型（可配置）----------
+  // 默认：5:00 开始，9 时辰 × 2 小时 = 18 小时（至 23:00），每时辰 9 格
+  // 用户可在设置中自定义开始/结束时间与每时辰格子数（均按整点对齐）
+  // 12 地支完整序列（子丑寅卯辰巳午未申酉戌亥），按时辰序号循环映射，支持任意时辰数
+  const FULL_GLYPHS = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"];
+  const FULL_PERIOD_NAMES = ["子时", "丑时", "寅时", "卯时", "辰时", "巳时", "午时", "未时", "申时", "酉时", "戌时", "亥时"];
+
+  // 默认配置（卯时起点：5:00 → 23:00，9 时辰，每时辰 9 格）
+  const DEFAULT_TIME_CONFIG = {
+    startHour: 5,       // 开始小时（0-23，整点）
+    endHour: 23,        // 结束小时（1-24，整点；24 表示次日 0 点）
+    cellsPerPeriod: 9,  // 每时辰格子数（4-18）
+  };
+
+  // 动态时间变量（initTimeConfig 会根据 settings 覆盖）
+  let START_HOUR = DEFAULT_TIME_CONFIG.startHour;
+  let PERIOD_HOURS = 2;
+  let PERIOD_COUNT = 9;
+  let CELLS_PER_PERIOD = DEFAULT_TIME_CONFIG.cellsPerPeriod;
+  let SECONDS_PER_PERIOD = PERIOD_HOURS * 3600;
+  let SECONDS_PER_CELL = SECONDS_PER_PERIOD / CELLS_PER_PERIOD;
+  let START_SECONDS = START_HOUR * 3600;
+  let PERIOD_NAMES = ["卯时", "辰时", "巳时", "午时", "未时", "申时", "酉时", "戌时", "亥时"];
+  let PERIOD_GLYPHS = ["卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"];
+
+  // 根据格子数返回最接近正方形的列数（如 9→3, 12→4, 16→4, 18→6, 6→3, 4→2, 8→4）
+  function bestGridCols(n) {
+    const presets = { 4: 2, 6: 3, 8: 4, 9: 3, 12: 4, 16: 4, 18: 6 };
+    if (presets[n]) return presets[n];
+    return Math.ceil(Math.sqrt(n));
+  }
+
+  // 根据配置重新计算所有时间变量（保存设置时调用）
+  function applyTimeConfig(cfg) {
+    const start = Math.max(0, Math.min(23, parseInt(cfg.startHour, 10) || 0));
+    let end = Math.max(1, Math.min(24, parseInt(cfg.endHour, 10) || 24));
+    if (end <= start) end = start + 2; // 防御：至少 2 小时
+    const cells = Math.max(4, Math.min(18, parseInt(cfg.cellsPerPeriod, 10) || 9));
+    const totalHours = end - start;
+    // 时辰时长优先级：2 小时（默认）→ 若不整除则尝试 1/3/4/6 小时
+    let periodHours = 2;
+    if (totalHours % periodHours !== 0) {
+      const candidates = [1, 3, 4, 6, 12];
+      for (const h of candidates) { if (totalHours % h === 0) { periodHours = h; break; } }
+    }
+    const periodCount = totalHours / periodHours;
+
+    START_HOUR = start;
+    PERIOD_HOURS = periodHours;
+    PERIOD_COUNT = periodCount;
+    CELLS_PER_PERIOD = cells;
+    SECONDS_PER_PERIOD = periodHours * 3600;
+    SECONDS_PER_CELL = SECONDS_PER_PERIOD / cells;
+    START_SECONDS = start * 3600;
+
+    // 生成时辰名/地支：从 start 对应的地支开始，循环取用
+    // 子时=23-1（跨午夜），这里按"startHour 对应地支"简单映射：地支索引 = (startHour+1)%12
+    const startGlyphIdx = (start + 1) % 12;
+    PERIOD_NAMES = [];
+    PERIOD_GLYPHS = [];
+    for (let i = 0; i < periodCount; i++) {
+      const gi = (startGlyphIdx + i) % 12;
+      PERIOD_GLYPHS.push(FULL_GLYPHS[gi]);
+      PERIOD_NAMES.push(FULL_PERIOD_NAMES[gi]);
+    }
+  }
 
   const STORAGE_KEY = "mandala-tasks-v2";
   const TRASH_KEY = "mandala-trash-v1"; // 回溯站：已删除的格子任务
@@ -662,6 +717,8 @@
       accentColor: "", // 自定义强调色（空=默认）
       // Hermes 联动同步
       syncUrl: "", syncEnabled: false,
+      // 时间模型配置（开始/结束小时 + 每时辰格子数）
+      timeConfig: { ...DEFAULT_TIME_CONFIG },
     }),
     theme: load(THEME_KEY, "auto"),
     notifyEnabled: load(NOTIFY_KEY, false),
@@ -700,6 +757,17 @@
     const m = state.settings.apiModel;
     if (m === "deepseek-chat") { state.settings.apiModel = "deepseek-v4-flash"; save(SETTINGS_KEY, state.settings); }
     else if (m === "deepseek-reasoner") { state.settings.apiModel = "deepseek-v4-pro"; save(SETTINGS_KEY, state.settings); }
+  })();
+
+  // 应用时间模型配置（启动时根据已保存的 settings 计算时辰/格子参数）
+  (function initTimeConfig() {
+    const cfg = state.settings.timeConfig || { ...DEFAULT_TIME_CONFIG };
+    // 兼容旧版本 settings（无 timeConfig 字段）
+    if (!cfg.startHour && cfg.startHour !== 0) cfg.startHour = DEFAULT_TIME_CONFIG.startHour;
+    if (!cfg.endHour && cfg.endHour !== 0) cfg.endHour = DEFAULT_TIME_CONFIG.endHour;
+    if (!cfg.cellsPerPeriod) cfg.cellsPerPeriod = DEFAULT_TIME_CONFIG.cellsPerPeriod;
+    state.settings.timeConfig = cfg;
+    applyTimeConfig(cfg);
   })();
 
   // ---------- 日期工具 ----------
@@ -1594,6 +1662,12 @@
     accentPresets: document.getElementById("accentPresets"),
     soundEnabled: document.getElementById("soundEnabled"),
     testSoundBtn: document.getElementById("testSoundBtn"),
+    // 时辰配置
+    timeStartHour: document.getElementById("timeStartHour"),
+    timeEndHour: document.getElementById("timeEndHour"),
+    timeCellsPerPeriod: document.getElementById("timeCellsPerPeriod"),
+    timeConfigPreview: document.getElementById("timeConfigPreview"),
+    resetTimeConfigBtn: document.getElementById("resetTimeConfigBtn"),
     pomodoroBar: document.getElementById("pomodoroBar"),
     pomoTime: document.getElementById("pomoTime"),
     pomoLabel: document.getElementById("pomoLabel"),
@@ -2200,6 +2274,16 @@
     const range = getPeriodRange(period);
     el.mandalaTitle.textContent =
       `${PERIOD_NAMES[period]} · ${secondsToHHMM(range.start)} - ${secondsToHHMM(range.end)}`;
+    // 动态更新每格时长提示
+    const cellMin = Math.floor(SECONDS_PER_CELL / 60);
+    const cellSec = Math.round(SECONDS_PER_CELL % 60);
+    const hintEl = document.getElementById("mandalaHint");
+    if (hintEl) hintEl.textContent = `每格约 ${cellMin} 分 ${cellSec} 秒，点击格子可编辑（支持多任务），长按可标记完成`;
+    // 根据格子数动态计算行列布局（最接近正方形）
+    const cols = bestGridCols(CELLS_PER_PERIOD);
+    const rows = Math.ceil(CELLS_PER_PERIOD / cols);
+    el.mandalaGrid.style.setProperty("--grid-cols", cols);
+    el.mandalaGrid.style.setProperty("--grid-rows", rows);
     // 渲染过去时辰快览导航
     renderPeriodNav(el.planPeriodNav);
 
@@ -2531,7 +2615,7 @@
     const currentPeriod = getCurrentPeriod();
     const currentGlobalCell = getCurrentGlobalCell();
     if (currentPeriod < 0) {
-      el.currentInfo.textContent = nowSeconds() < START_SECONDS ? "尚未开始（5:00 启动）" : "今日已结束";
+      el.currentInfo.textContent = nowSeconds() < START_SECONDS ? `尚未开始（${secondsToHHMM(START_SECONDS)} 启动）` : "今日已结束";
     } else {
       const cellInPeriod = currentGlobalCell - currentPeriod * CELLS_PER_PERIOD;
       el.currentInfo.textContent = `第 ${currentPeriod + 1} 时辰 · 第 ${cellInPeriod + 1} 格`;
@@ -2941,6 +3025,11 @@
     const currentGlobalCell = getCurrentGlobalCell();
     el.recordGrid.innerHTML = "";
     el.recordGrid.dataset.glyph = PERIOD_GLYPHS[period]; // 地支水印
+    // 记录页同样按格子数动态布局
+    const rCols = bestGridCols(CELLS_PER_PERIOD);
+    const rRows = Math.ceil(CELLS_PER_PERIOD / rCols);
+    el.recordGrid.style.setProperty("--grid-cols", rCols);
+    el.recordGrid.style.setProperty("--grid-rows", rRows);
 
     let recordedInPeriod = 0;
     let planInPeriod = 0;
@@ -6142,6 +6231,12 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     el.notifyLeadMin.value = String(state.settings.notifyLeadMin || 0);
     el.accentColor.value = state.settings.accentColor || "#7c5cff";
     el.soundEnabled.checked = !!state.settings.soundEnabled;
+    // 时辰配置：填充表单 + 预览
+    const cfg = state.settings.timeConfig || { ...DEFAULT_TIME_CONFIG };
+    el.timeStartHour.value = String(cfg.startHour);
+    el.timeEndHour.value = String(cfg.endHour);
+    el.timeCellsPerPeriod.value = String(cfg.cellsPerPeriod);
+    updateTimeConfigPreview();
     renderAccentPresets();
     renderCategoryList();
     renderSkillList();
@@ -6191,6 +6286,63 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     state.settings.soundEnabled = true;
     playDoneSound();
     state.settings.soundEnabled = prev;
+  });
+
+  // ---------- 时辰配置交互 ----------
+  function updateTimeConfigPreview() {
+    if (!el.timeConfigPreview) return;
+    const start = parseInt(el.timeStartHour.value, 10) || 0;
+    let end = parseInt(el.timeEndHour.value, 10) || 24;
+    const cells = parseInt(el.timeCellsPerPeriod.value, 10) || 9;
+    if (end <= start) end = start + 2;
+    const totalHours = end - start;
+    let periodHours = 2;
+    if (totalHours % periodHours !== 0) {
+      const candidates = [1, 3, 4, 6, 12];
+      for (const h of candidates) { if (totalHours % h === 0) { periodHours = h; break; } }
+    }
+    const periodCount = totalHours / periodHours;
+    const secPerCell = (periodHours * 3600) / cells;
+    const fmt = (h) => {
+      if (h === 24) return "24:00（次日0:00）";
+      return String(h).padStart(2, "0") + ":00";
+    };
+    const cellMin = Math.floor(secPerCell / 60);
+    const cellSec = Math.round(secPerCell % 60);
+    el.timeConfigPreview.textContent =
+      `${fmt(start)} → ${fmt(end)} ｜ ${periodCount} 时辰 × ${periodHours}h ｜ 每时辰 ${cells} 格 ｜ 每格 ${cellMin}分${cellSec ? cellSec + "秒" : ""} ｜ 全天 ${periodCount * cells} 格`;
+  }
+
+  function applyTimeConfigFromForm() {
+    const cfg = {
+      startHour: parseInt(el.timeStartHour.value, 10) || 0,
+      endHour: parseInt(el.timeEndHour.value, 10) || 24,
+      cellsPerPeriod: parseInt(el.timeCellsPerPeriod.value, 10) || 9,
+    };
+    state.settings.timeConfig = cfg;
+    applyTimeConfig(cfg);
+    save(SETTINGS_KEY, state.settings);
+    updateTimeConfigPreview();
+    // 重置当前时辰到合法范围
+    if (state.activePeriod >= PERIOD_COUNT) state.activePeriod = Math.max(0, PERIOD_COUNT - 1);
+    renderAll();
+  }
+
+  ["timeStartHour", "timeEndHour", "timeCellsPerPeriod"].forEach((id) => {
+    const e = el[id];
+    if (e) e.addEventListener("change", () => {
+      updateTimeConfigPreview();
+      applyTimeConfigFromForm();
+      toast("时辰配置已更新", "success");
+    });
+  });
+  if (el.resetTimeConfigBtn) el.resetTimeConfigBtn.addEventListener("click", () => {
+    el.timeStartHour.value = String(DEFAULT_TIME_CONFIG.startHour);
+    el.timeEndHour.value = String(DEFAULT_TIME_CONFIG.endHour);
+    el.timeCellsPerPeriod.value = String(DEFAULT_TIME_CONFIG.cellsPerPeriod);
+    updateTimeConfigPreview();
+    applyTimeConfigFromForm();
+    toast("已恢复默认时辰配置", "success");
   });
 
   function renderSkillList() {
@@ -7858,12 +8010,11 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       parts.push(`【全局附加提示词】\n${customCats.map((c) => `## ${c.name}\n${c.content}`).join("\n\n")}`);
     }
 
-    parts.push(`时间模型：
-- 每天 5:00 开始，共 9 时辰，每时辰 2 小时
-- 每个时辰 = 一个曼陀罗九宫格（3×3=9 格）
-- 每格 = 120/9 ≈ 13 分 20 秒
-- 时辰 1: 5:00-7:00, 时辰 2: 7:00-9:00, ... 时辰 9: 21:00-23:00
-- period 范围 0-8，cell 范围 0-8
+    parts.push(`时间模型（用户当前配置）：
+- 每天 ${secondsToHHMM(START_SECONDS)} 开始，共 ${PERIOD_COUNT} 时辰，每时辰 ${PERIOD_HOURS} 小时（至 ${secondsToHHMM(START_SECONDS + PERIOD_COUNT * SECONDS_PER_PERIOD)}）
+- 每个时辰 = ${CELLS_PER_PERIOD} 格曼陀罗
+- 每格 = ${Math.floor(SECONDS_PER_CELL / 60)} 分 ${SECONDS_PER_CELL % 60} 秒
+- period 范围 0-${PERIOD_COUNT - 1}，cell 范围 0-${CELLS_PER_PERIOD - 1}
 
 【状态机环节切换规则】
 - idle → gathering：用户已补充背景后，AI 返回 action="clarify"
