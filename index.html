@@ -23,7 +23,7 @@
           await Promise.all(keys.map(function (k) { return caches.delete(k); }));
         }
         // 检测当前 app.js 版本，若仍是旧的则强制带时间戳 reload
-        var APP_VERSION = "20260811d";
+        var APP_VERSION = "20260811e";
         if (sessionStorage.getItem("mandala-app-ver") !== APP_VERSION) {
           sessionStorage.setItem("mandala-app-ver", APP_VERSION);
           if (!location.search || location.search.indexOf("t=") === -1) {
@@ -34,7 +34,7 @@
       } catch (e) { console.warn("SW 清理失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260811d" />
+  <link rel="stylesheet" href="styles.css?v=20260811e" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
 </head>
@@ -92,6 +92,7 @@
         <button class="tmm-item" id="importBtn" data-action="import">⬆ 导入数据</button>
         <input type="file" id="importFile" accept=".json" hidden />
         <div class="tmm-divider"></div>
+        <button class="tmm-item" id="trashBtn" data-action="trash">♻️ 回溯站</button>
         <button class="tmm-item" id="shortcutBtn" data-action="shortcut">⌨ 桌面快捷键</button>
         <button class="tmm-item" id="settingsBtn" data-action="settings">⚙ 设置</button>
       </div>
@@ -1152,6 +1153,22 @@
     </div>
   </dialog>
 
+  <!-- 回溯站弹窗（恢复已删除任务） -->
+  <dialog class="trash-dialog" id="trashDialog">
+    <div class="dialog-content trash-content">
+      <div class="dialog-header">
+        <h3>♻️ 回溯站 <span class="trash-count" id="trashCount">0 条</span></h3>
+        <button class="icon-btn" id="closeTrash" aria-label="关闭">✕</button>
+      </div>
+      <div class="trash-hint">删除的任务会暂存于此（最多 50 条），可一键恢复到原格子或收集箱</div>
+      <div class="trash-actions">
+        <button class="tool-btn" id="trashClearAll" title="清空回溯站">🗑 全部清空</button>
+        <button class="tool-btn" id="trashRestoreAll" title="全部恢复到收集箱">📥 全部恢复到收集箱</button>
+      </div>
+      <div class="trash-list" id="trashList"></div>
+    </div>
+  </dialog>
+
   <!-- 待办收集箱（全屏，主线-支线-任务三层体系） -->
   <dialog class="inbox-dialog-fullscreen" id="inboxDialog">
     <div class="inbox-fullscreen-content">
@@ -1184,7 +1201,7 @@
               <option value="1">★ 重要</option>
               <option value="2">⚡ 紧急</option>
             </select>
-            <input type="text" id="inboxCategory" placeholder="标签(逗号分隔)" maxlength="30" list="inboxTagList" style="width:90px;" />
+            <input type="text" id="inboxCategory" placeholder="#标签 (逗号分隔多个)" maxlength="60" list="inboxTagList" style="width:140px;" />
             <datalist id="inboxTagList"></datalist>
             <button class="tool-btn" id="inboxAddBtn" style="background:var(--accent);color:#fff;">＋ 添加</button>
           </div>

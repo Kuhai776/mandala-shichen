@@ -2332,6 +2332,52 @@ body:has(.pomodoro-bar[style*="display: block"]) .realm-fab {
   .fb-btn { padding: 2px 8px; font-size: 10px; }
 }
 
+/* ---------- 回溯站 (trash) ---------- */
+.trash-dialog { width: min(560px, 92vw); max-height: 80vh; }
+.trash-content { display: flex; flex-direction: column; max-height: 80vh; }
+.trash-count {
+  font-size: 11px; font-weight: 400; color: var(--text-muted);
+  background: var(--bg-hover); padding: 2px 8px; border-radius: 10px; margin-left: 6px;
+}
+.trash-hint {
+  font-size: 11px; color: var(--text-muted); padding: 6px 0; border-bottom: 1px solid var(--border);
+}
+.trash-actions {
+  display: flex; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border);
+}
+.trash-list {
+  flex: 1; overflow-y: auto; padding: 8px 0; display: flex; flex-direction: column; gap: 6px;
+}
+.trash-item {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  background: var(--card-bg, var(--bg-card)); border: 1px solid var(--border);
+  border-radius: 8px; transition: all 0.15s;
+}
+.trash-item:hover { border-color: var(--accent, #7c5cff); }
+.trash-item-text {
+  flex: 1; font-size: 13px; color: var(--text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.trash-item-meta {
+  font-size: 10px; color: var(--text-muted); white-space: nowrap;
+}
+.trash-item-actions { display: flex; gap: 4px; }
+.trash-item-btn {
+  padding: 3px 8px; border-radius: 6px; font-size: 11px;
+  background: var(--input-bg, var(--bg-hover)); border: 1px solid var(--input-border, var(--border));
+  color: var(--text-primary); cursor: pointer; white-space: nowrap;
+}
+.trash-item-btn:hover {
+  background: var(--accent-bg, rgba(124,92,255,.1));
+  border-color: var(--accent, #7c5cff); color: var(--accent, #7c5cff);
+}
+.trash-item-btn.danger:hover {
+  background: rgba(239,68,68,.1); border-color: #ef4444; color: #ef4444;
+}
+.trash-empty {
+  text-align: center; padding: 40px 20px; color: var(--text-muted); font-size: 13px;
+}
+
 /* ---------- 全天概览 ---------- */
 .overview-section {
   padding: 0 16px 24px;
