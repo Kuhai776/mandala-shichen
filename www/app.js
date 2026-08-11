@@ -8698,29 +8698,9 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     });
     moreMenu.querySelectorAll(".tmm-item").forEach((item) => {
       item.addEventListener("click", () => {
-        const action = item.dataset.action;
         moreMenu.hidden = true;
-        if (action === "screenshot") {
-          document.getElementById("screenshotBtn")?.click();
-        } else if (action === "batch") {
-          document.getElementById("batchBtn")?.click();
-        } else if (action === "template") {
-          document.getElementById("templateBtn")?.click();
-        } else if (action === "undo") {
-          document.getElementById("undoBtn")?.click();
-        } else if (action === "clear") {
-          document.getElementById("clearGridsBtn")?.click();
-        } else if (action === "export") {
-          document.getElementById("exportBtn")?.click();
-        } else if (action === "ical") {
-          document.getElementById("icalBtn")?.click();
-        } else if (action === "import") {
-          document.getElementById("importFile")?.click();
-        } else if (action === "shortcut") {
-          document.getElementById("shortcutBtn")?.click();
-        } else if (action === "settings") {
-          document.getElementById("settingsBtn")?.click();
-        }
+        // 菜单项已保留原 ID，原有的事件监听器会自动触发对应功能
+        // 这里只需关闭菜单即可，不再二次 click
       });
     });
   }
