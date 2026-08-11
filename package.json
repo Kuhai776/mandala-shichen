@@ -7,7 +7,9 @@
     "sync": "cap sync android",
     "open:android": "cap open android",
     "build:android": "cd android && ./gradlew assembleRelease",
-    "build:debug": "cd android && ./gradlew assembleDebug"
+    "build:debug": "cd android && ./gradlew assembleDebug",
+    "serve": "npx http-server www -p 8080 -c-1 --cors",
+    "start": "npm run serve"
   },
   "dependencies": {
     "@capacitor/android": "^6.0.0",
