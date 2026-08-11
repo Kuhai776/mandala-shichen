@@ -757,6 +757,7 @@
       records: state.records, reviews: state.reviews,
       longTasks: load(LONGTASK_KEY, []),
       inbox: load(INBOX_KEY, []),
+      inboxMainlines: load(INBOX_MAINLINES_KEY, []),
       hermesNotes: load(HERMES_NOTES_KEY, []),
       actions: load(ACTIONS_KEY, []), // 含 consumed 状态，回写让 Hermes 端可知晓已执行
     };
@@ -789,10 +790,18 @@
       if (data.longTasks) save(LONGTASK_KEY, data.longTasks);
       if (data.inbox) {
         // 合并：按 id 去重，保留本地未同步项（避免覆盖丢失）
-        const local = load("mandala-inbox-v1", []);
+        const local = load(INBOX_KEY, []);
         const existIds = new Set(local.map((x) => x.id).filter(Boolean));
         const merged = local.concat(data.inbox.filter((x) => x.id && !existIds.has(x.id)));
-        save("mandala-inbox-v1", merged);
+        save(INBOX_KEY, merged);
+      }
+      if (data.inboxMainlines) {
+        const local = load(INBOX_MAINLINES_KEY, []);
+        // 简单合并：以 id 去重，远程优先
+        const map = new Map();
+        local.forEach((m) => map.set(m.id, m));
+        data.inboxMainlines.forEach((m) => map.set(m.id, m));
+        save(INBOX_MAINLINES_KEY, Array.from(map.values()));
       }
       if (data.hermesNotes) {
         // 按 id 合并去重（远程不覆盖本地未同步项），与 inbox 一致策略
@@ -808,7 +817,9 @@
         // 合并后刷新收集箱视图（重新加载 + 重渲染，确保 Hermes 写入的卡片可见）
         if (typeof openInbox !== "undefined" && el.inboxDialog && el.inboxDialog.open) {
           // 收集箱已打开时才需要刷新，否则下次 openInbox 会自动加载
-          inboxItems = load(INBOX_KEY, []);
+          inboxItems = load(INBOX_KEY, []).map(migrateInboxItem);
+          inboxMainlines = load(INBOX_MAINLINES_KEY, []);
+          refreshInboxMainlineSelectors();
           updateInboxTagDatalist();
           renderInboxFilter();
           renderInboxList();
@@ -1116,8 +1127,8 @@
   // ---------- 旧数据迁移 ----------
   // 任务对象标准化：字符串/对象 → 对象 {text, priority, tag, estimate, deadline}
   function normalizeTask(t) {
-    if (typeof t === "string") return { text: t, priority: "medium", tag: "", estimate: "", deadline: "", done: false };
-    if (!t || typeof t !== "object") return { text: "", priority: "medium", tag: "", estimate: "", deadline: "", done: false };
+    if (typeof t === "string") return { text: t, priority: "medium", tag: "", estimate: "", deadline: "", done: false, mainline: null, sideline: null, attachments: [], location: null, hatchHash: null };
+    if (!t || typeof t !== "object") return { text: "", priority: "medium", tag: "", estimate: "", deadline: "", done: false, mainline: null, sideline: null, attachments: [], location: null, hatchHash: null };
     return {
       text: t.text || String(t.text || ""),
       priority: t.priority || "medium",
@@ -1125,6 +1136,11 @@
       estimate: t.estimate || "",
       deadline: t.deadline || "",
       done: !!t.done,
+      mainline: t.mainline || null,
+      sideline: t.sideline || null,
+      attachments: Array.isArray(t.attachments) ? t.attachments : [],
+      location: t.location || null,
+      hatchHash: t.hatchHash || null,
     };
   }
 
@@ -1547,6 +1563,30 @@
     taskChecklist: document.getElementById("taskChecklist"),
     taskRepeat: document.getElementById("taskRepeat"),
     taskRepeatCount: document.getElementById("taskRepeatCount"),
+    // 任务详情面板（主线/支线/孵化/附件/位置）
+    taskDetailPanel: document.getElementById("taskDetailPanel"),
+    tdpMainline: document.getElementById("tdpMainline"),
+    tdpSideline: document.getElementById("tdpSideline"),
+    tdpAssignMl: document.getElementById("tdpAssignMl"),
+    tdpJumpMl: document.getElementById("tdpJumpMl"),
+    tdpHatchRow: document.getElementById("tdpHatchRow"),
+    tdpViewHatch: document.getElementById("tdpViewHatch"),
+    tdpAttachCount: document.getElementById("tdpAttachCount"),
+    tdpAddAttach: document.getElementById("tdpAddAttach"),
+    tdpViewAttach: document.getElementById("tdpViewAttach"),
+    tdpAttachInput: document.getElementById("tdpAttachInput"),
+    tdpAttachList: document.getElementById("tdpAttachList"),
+    tdpLocation: document.getElementById("tdpLocation"),
+    tdpSetLoc: document.getElementById("tdpSetLoc"),
+    tdpViewLoc: document.getElementById("tdpViewLoc"),
+    tdpClearLoc: document.getElementById("tdpClearLoc"),
+    cellHatchViewDialog: document.getElementById("cellHatchViewDialog"),
+    closeCellHatchView: document.getElementById("closeCellHatchView"),
+    cellHatchViewTitle: document.getElementById("cellHatchViewTitle"),
+    cellHatchViewBody: document.getElementById("cellHatchViewBody"),
+    cellAttachViewDialog: document.getElementById("cellAttachViewDialog"),
+    closeCellAttachView: document.getElementById("closeCellAttachView"),
+    cellAttachViewBody: document.getElementById("cellAttachViewBody"),
     notifyLeadMin: document.getElementById("notifyLeadMin"),
     accentColor: document.getElementById("accentColor"),
     resetAccentBtn: document.getElementById("resetAccentBtn"),
@@ -1645,6 +1685,34 @@
     longNote: document.getElementById("longNote"),
     longSaveBtn: document.getElementById("longSaveBtn"),
     longList: document.getElementById("longList"),
+    inboxStatsInline: document.getElementById("inboxStatsInline"),
+    inboxNewMainline: document.getElementById("inboxNewMainline"),
+    inboxNewSideline: document.getElementById("inboxNewSideline"),
+    inboxNewPriority: document.getElementById("inboxNewPriority"),
+    inboxMainlineFilter: document.getElementById("inboxMainlineFilter"),
+    inboxMultiSelectToggle: document.getElementById("inboxMultiSelectToggle"),
+    inboxBatchBar: document.getElementById("inboxBatchBar"),
+    inboxBatchCount: document.getElementById("inboxBatchCount"),
+    inboxBatchAssign: document.getElementById("inboxBatchAssign"),
+    inboxBatchPriority: document.getElementById("inboxBatchPriority"),
+    inboxBatchSchedule: document.getElementById("inboxBatchSchedule"),
+    inboxBatchDone: document.getElementById("inboxBatchDone"),
+    inboxBatchDel: document.getElementById("inboxBatchDel"),
+    inboxBatchCancel: document.getElementById("inboxBatchCancel"),
+    inboxMainlinePane: document.getElementById("inboxMainlinePane"),
+    mlName: document.getElementById("mlName"),
+    mlColor: document.getElementById("mlColor"),
+    mlDim: document.getElementById("mlDim"),
+    mlDesc: document.getElementById("mlDesc"),
+    mlAddBtn: document.getElementById("mlAddBtn"),
+    mlList: document.getElementById("mlList"),
+    mlEditDialog: document.getElementById("mlEditDialog"),
+    closeMlEdit: document.getElementById("closeMlEdit"),
+    mlEditTitle: document.getElementById("mlEditTitle"),
+    mlEditBody: document.getElementById("mlEditBody"),
+    assignDialog: document.getElementById("assignDialog"),
+    closeAssign: document.getElementById("closeAssign"),
+    assignBody: document.getElementById("assignBody"),
     // 长期任务详情弹窗
     longtaskDetailDialog: document.getElementById("longtaskDetailDialog"),
     ltdTitle: document.getElementById("ltdTitle"),
@@ -3887,8 +3955,67 @@ ${recordItems.join("\n") || "（无）"}
     el.taskRepeat.value = rpt ? rpt.rule : "";
     el.taskRepeatCount.value = rpt ? String(rpt.maxCount) : "0";
     el.taskDialogTitle.textContent = `编辑任务 · 第${period + 1}辰 第${cell + 1}格`;
+    // 渲染详情面板
+    renderTaskDetailPanel(first, period, cell);
     el.taskDialog.showModal();
     setTimeout(() => el.taskContent.focus(), 50);
+  }
+
+  // 渲染任务详情面板（主线/支线/孵化/附件/位置）
+  function renderTaskDetailPanel(task, period, cell) {
+    if (!task) {
+      el.taskDetailPanel.style.opacity = "0.5";
+      el.tdpMainline.textContent = "—";
+      el.tdpSideline.textContent = "—";
+      el.tdpHatchRow.hidden = true;
+      el.tdpAttachCount.textContent = "0 个";
+      el.tdpAttachList.innerHTML = "";
+      el.tdpLocation.textContent = "未设置";
+      el.tdpJumpMl.hidden = true;
+      el.tdpViewAttach.hidden = true;
+      el.tdpViewLoc.hidden = true;
+      el.tdpClearLoc.hidden = true;
+      return;
+    }
+    el.taskDetailPanel.style.opacity = "1";
+    // 主线/支线
+    const ml = task.mainline ? getMainline(task.mainline) : null;
+    if (ml) {
+      el.tdpMainline.innerHTML = `<span class="tdp-ml-dot" style="background:${ml.color};"></span>${escapeHtml(ml.name)}${ml.dim ? ` <span class="tdp-ml-dim" style="background:${ml.color}20;color:${ml.color};">${ml.dim}</span>` : ""}`;
+      el.tdpJumpMl.hidden = false;
+    } else {
+      el.tdpMainline.textContent = "未归属";
+      el.tdpJumpMl.hidden = true;
+    }
+    if (task.sideline && ml) {
+      const sl = (ml.sidelines || []).find((s) => s.id === task.sideline);
+      el.tdpSideline.textContent = sl ? sl.name : "—";
+    } else {
+      el.tdpSideline.textContent = "—";
+    }
+    // 孵化过程
+    el.tdpHatchRow.hidden = !task.hatchHash;
+    // 附件
+    const atts = task.attachments || [];
+    el.tdpAttachCount.textContent = `${atts.length} 个`;
+    el.tdpViewAttach.hidden = atts.length === 0;
+    el.tdpAttachList.innerHTML = atts.slice(0, 4).map((a, i) => {
+      if (a.type === "image") {
+        return `<div class="tdp-attach-thumb" data-idx="${i}" title="${escapeHtml(a.name || "")}"><img src="${a.data}" alt="${escapeHtml(a.name || "")}" /></div>`;
+      }
+      return `<div class="tdp-attach-file" data-idx="${i}" title="${escapeHtml(a.name || "")}">📄 ${escapeHtml(a.name || "文件")}</div>`;
+    }).join("");
+    // 位置
+    if (task.location) {
+      const loc = task.location;
+      el.tdpLocation.textContent = loc.name ? `${loc.name}${loc.lat ? ` (${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)})` : ""}` : (loc.lat ? `${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)}` : "已设置");
+      el.tdpViewLoc.hidden = !loc.lat;
+      el.tdpClearLoc.hidden = false;
+    } else {
+      el.tdpLocation.textContent = "未设置";
+      el.tdpViewLoc.hidden = true;
+      el.tdpClearLoc.hidden = true;
+    }
   }
 
   function closeTaskDialog() { el.taskDialog.close(); state.editingCell = null; }
@@ -3898,11 +4025,19 @@ ${recordItems.join("\n") || "（无）"}
     const { period, cell } = state.editingCell;
     const texts = el.taskContent.value.split("\n").map((s) => s.trim()).filter(Boolean);
     // 统一应用属性
+    const oldTasks = getCellTasks(period, cell);
+    const firstOld = oldTasks[0] || {};
     const meta = {
       priority: el.taskPriority.value,
       tag: el.taskTag.value.trim(),
       estimate: el.taskEstimate.value.trim(),
       deadline: el.taskDeadline.value,
+      // 保留详情面板字段（本格统一）
+      mainline: firstOld.mainline || null,
+      sideline: firstOld.sideline || null,
+      attachments: firstOld.attachments || [],
+      location: firstOld.location || null,
+      hatchHash: firstOld.hatchHash || null,
     };
     const tasks = texts.map((t) => ({ text: t, ...meta }));
     setCellTasks(period, cell, tasks);
@@ -3965,6 +4100,223 @@ ${recordItems.join("\n") || "（无）"}
 
   el.closeTaskDialog.addEventListener("click", closeTaskDialog);
   el.taskDialog.addEventListener("click", (e) => { if (e.target === el.taskDialog) closeTaskDialog(); });
+
+  // ---------- 任务详情面板事件 ----------
+  // 归属主线/支线
+  el.tdpAssignMl.addEventListener("click", () => {
+    if (!state.editingCell) return;
+    const tasks = getCellTasks(state.editingCell.period, state.editingCell.cell);
+    if (!tasks.length) { toast("请先输入任务内容", "info"); return; }
+    // 复用收集箱的归属弹窗，但操作目标是格子任务
+    openCellTaskAssign(tasks);
+  });
+  // 跳转到收集箱该主线
+  el.tdpJumpMl.addEventListener("click", () => {
+    if (!state.editingCell) return;
+    const tasks = getCellTasks(state.editingCell.period, state.editingCell.cell);
+    const mlId = tasks[0]?.mainline;
+    if (!mlId) return;
+    el.taskDialog.close();
+    openInbox();
+    switchInboxMode("mainline");
+    setTimeout(() => {
+      const card = el.mlList && el.mlList.querySelector(`.ml-card[data-ml="${mlId}"]`);
+      if (card) {
+        card.scrollIntoView({ behavior: "smooth", block: "center" });
+        card.style.outline = "2px solid var(--accent)";
+        setTimeout(() => { card.style.outline = ""; }, 2000);
+      }
+    }, 100);
+  });
+  // 查看孵化过程
+  el.tdpViewHatch.addEventListener("click", () => {
+    if (!state.editingCell) return;
+    const tasks = getCellTasks(state.editingCell.period, state.editingCell.cell);
+    const hash = tasks[0]?.hatchHash;
+    if (!hash) return;
+    const history = loadHatchHistory();
+    const rec = history.find((h) => h.task_hash === hash);
+    if (!rec) { toast("孵化记录已不存在", "info"); return; }
+    el.cellHatchViewTitle.textContent = `🥚 孵化过程 · ${rec.task_text.slice(0, 30)}`;
+    el.cellHatchViewBody.innerHTML = renderHatchHistoryDetail(rec);
+    el.cellHatchViewDialog.showModal();
+  });
+  el.closeCellHatchView.addEventListener("click", () => el.cellHatchViewDialog.close());
+  el.cellHatchViewDialog.addEventListener("click", (e) => { if (e.target === el.cellHatchViewDialog) el.cellHatchViewDialog.close(); });
+  // 添加附件
+  el.tdpAddAttach.addEventListener("click", () => el.tdpAttachInput.click());
+  el.tdpAttachInput.addEventListener("change", async () => {
+    if (!state.editingCell) return;
+    const files = Array.from(el.tdpAttachInput.files || []);
+    if (!files.length) return;
+    const tasks = getCellTasks(state.editingCell.period, state.editingCell.cell).slice();
+    if (!tasks.length) { toast("请先输入任务内容", "info"); el.tdpAttachInput.value = ""; return; }
+    if (!Array.isArray(tasks[0].attachments)) tasks[0].attachments = [];
+    for (const f of files) {
+      if (f.size > 2 * 1024 * 1024) { toast(`${f.name} 超过 2MB，已跳过`, "error"); continue; }
+      if (f.type.startsWith("image/")) {
+        const data = await fileToBase64(f);
+        tasks[0].attachments.push({ type: "image", name: f.name, data, size: f.size, createdAt: Date.now() });
+      } else {
+        const data = await fileToBase64(f);
+        tasks[0].attachments.push({ type: "file", name: f.name, data, size: f.size, mime: f.type, createdAt: Date.now() });
+      }
+    }
+    setCellTasks(state.editingCell.period, state.editingCell.cell, tasks);
+    el.tdpAttachInput.value = "";
+    renderTaskDetailPanel(tasks[0], state.editingCell.period, state.editingCell.cell);
+    toast(`已添加 ${files.length} 个附件（先点保存生效）`, "success");
+  });
+  // 查看附件
+  el.tdpViewAttach.addEventListener("click", () => {
+    if (!state.editingCell) return;
+    const tasks = getCellTasks(state.editingCell.period, state.editingCell.cell);
+    const atts = tasks[0]?.attachments || [];
+    if (!atts.length) return;
+    el.cellAttachViewBody.innerHTML = atts.map((a, i) => {
+      if (a.type === "image") {
+        return `<div class="cell-attach-item">
+          <img src="${a.data}" alt="${escapeHtml(a.name || "")}" style="max-width:100%;border-radius:8px;" />
+          <div class="cell-attach-meta">${escapeHtml(a.name || "图片")} · ${formatSize(a.size)}</div>
+          <div class="cell-attach-actions">
+            <a class="tool-btn" href="${a.data}" download="${escapeHtml(a.name || "image")}">⬇ 下载</a>
+            <button class="danger-btn" data-del-idx="${i}">🗑 删除</button>
+          </div>
+        </div>`;
+      }
+      return `<div class="cell-attach-item">
+        <div class="cell-attach-file-icon">📄</div>
+        <div class="cell-attach-meta">${escapeHtml(a.name || "文件")} · ${formatSize(a.size)}</div>
+        <div class="cell-attach-actions">
+          <a class="tool-btn" href="${a.data}" download="${escapeHtml(a.name || "file")}">⬇ 下载</a>
+          <button class="danger-btn" data-del-idx="${i}">🗑 删除</button>
+        </div>
+      </div>`;
+    }).join("");
+    el.cellAttachViewDialog.showModal();
+    el.cellAttachViewBody.querySelectorAll("[data-del-idx]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = parseInt(btn.dataset.delIdx);
+        const ts = getCellTasks(state.editingCell.period, state.editingCell.cell).slice();
+        if (ts[0] && Array.isArray(ts[0].attachments)) {
+          ts[0].attachments.splice(idx, 1);
+          setCellTasks(state.editingCell.period, state.editingCell.cell, ts);
+          btn.closest(".cell-attach-item").remove();
+          renderTaskDetailPanel(ts[0], state.editingCell.period, state.editingCell.cell);
+        }
+      });
+    });
+  });
+  el.closeCellAttachView.addEventListener("click", () => el.cellAttachViewDialog.close());
+  el.cellAttachViewDialog.addEventListener("click", (e) => { if (e.target === el.cellAttachViewDialog) el.cellAttachViewDialog.close(); });
+  // 附件缩略图点击预览
+  el.tdpAttachList.addEventListener("click", (e) => {
+    const thumb = e.target.closest(".tdp-attach-thumb, .tdp-attach-file");
+    if (thumb) el.tdpViewAttach.click();
+  });
+  // 设置位置
+  el.tdpSetLoc.addEventListener("click", () => {
+    if (!state.editingCell) return;
+    const tasks = getCellTasks(state.editingCell.period, state.editingCell.cell);
+    if (!tasks.length) { toast("请先输入任务内容", "info"); return; }
+    const cur = tasks[0].location;
+    const curName = cur && cur.name ? cur.name : "";
+    const curLat = cur && cur.lat ? String(cur.lat) : "";
+    const curLng = cur && cur.lng ? String(cur.lng) : "";
+    const v = prompt("设置位置\n格式：地点名 或 经度,纬度\n例：公司 / 116.404,39.915", curName || (curLat && curLng ? `${curLng},${curLat}` : ""));
+    if (v === null) return;
+    const trimmed = v.trim();
+    if (!trimmed) { toast("未设置", "info"); return; }
+    let loc = null;
+    const coordMatch = trimmed.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
+    if (coordMatch) {
+      loc = { lat: parseFloat(coordMatch[1]), lng: parseFloat(coordMatch[2]), name: "" };
+    } else {
+      loc = { name: trimmed, lat: null, lng: null };
+    }
+    const ts = tasks.slice();
+    ts[0].location = loc;
+    setCellTasks(state.editingCell.period, state.editingCell.cell, ts);
+    renderTaskDetailPanel(ts[0], state.editingCell.period, state.editingCell.cell);
+    toast("位置已设置（点保存生效）", "success");
+  });
+  // 查看地图
+  el.tdpViewLoc.addEventListener("click", () => {
+    if (!state.editingCell) return;
+    const tasks = getCellTasks(state.editingCell.period, state.editingCell.cell);
+    const loc = tasks[0]?.location;
+    if (!loc || !loc.lat) return;
+    const url = `https://www.openstreetmap.org/?mlat=${loc.lat}&mlon=${loc.lng}#map=15/${loc.lat}/${loc.lng}`;
+    window.open(url, "_blank");
+  });
+  // 清除位置
+  el.tdpClearLoc.addEventListener("click", () => {
+    if (!state.editingCell) return;
+    const tasks = getCellTasks(state.editingCell.period, state.editingCell.cell).slice();
+    if (tasks[0]) { tasks[0].location = null; setCellTasks(state.editingCell.period, state.editingCell.cell, tasks); renderTaskDetailPanel(tasks[0], state.editingCell.period, state.editingCell.cell); toast("位置已清除（点保存生效）", "info"); }
+  });
+
+  // 格子任务归属弹窗（复用收集箱主线数据）
+  function openCellTaskAssign(tasks) {
+    el.assignBody.innerHTML = `
+      <p style="margin:0 0 12px;color:var(--text-secondary);font-size:13px;">为本格任务选择主线和支线：</p>
+      <div class="assign-form">
+        <label>主线</label>
+        <select id="cellAssignMl" style="flex:1;">
+          <option value="">— 不归属 —</option>
+          ${inboxMainlines.map((ml) => `<option value="${ml.id}" ${tasks[0].mainline === ml.id ? "selected" : ""}>${escapeHtml(ml.name)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="assign-form">
+        <label>支线</label>
+        <select id="cellAssignSl" style="flex:1;">
+          <option value="">无支线</option>
+        </select>
+      </div>
+      <div class="assign-actions">
+        <button class="tool-btn" id="cellAssignCancel">取消</button>
+        <button class="tool-btn" id="cellAssignOk" style="background:var(--accent);color:#fff;">确定</button>
+      </div>
+    `;
+    el.assignDialog.showModal();
+    const mlSel = document.getElementById("cellAssignMl");
+    const slSel = document.getElementById("cellAssignSl");
+    const refreshSl = () => {
+      const ml = getMainline(mlSel.value);
+      slSel.innerHTML = ml && ml.sidelines.length
+        ? '<option value="">无支线</option>' + ml.sidelines.map((sl) => `<option value="${sl.id}" ${tasks[0].sideline === sl.id ? "selected" : ""}>${escapeHtml(sl.name)}</option>`).join("")
+        : '<option value="">无支线</option>';
+    };
+    refreshSl();
+    mlSel.addEventListener("change", refreshSl);
+    document.getElementById("cellAssignCancel").addEventListener("click", () => el.assignDialog.close());
+    document.getElementById("cellAssignOk").addEventListener("click", () => {
+      const mlId = mlSel.value || null;
+      const slId = slSel.value || null;
+      const ts = tasks.map((t) => ({ ...t, mainline: mlId, sideline: slId }));
+      setCellTasks(state.editingCell.period, state.editingCell.cell, ts);
+      el.assignDialog.close();
+      renderTaskDetailPanel(ts[0], state.editingCell.period, state.editingCell.cell);
+      toast("归属已设置（点保存生效）", "success");
+    });
+  }
+
+  // 辅助：文件转 base64
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+  // 辅助：格式化文件大小
+  function formatSize(bytes) {
+    if (!bytes) return "?";
+    if (bytes < 1024) return bytes + "B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + "KB";
+    return (bytes / 1024 / 1024).toFixed(1) + "MB";
+  }
 
   // ---------- 任务孵化（Hatch）----------
   // 复用 TJ decompose 的编排哲学：estimate → main → grow → risk 四步流式
@@ -4895,6 +5247,15 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     // 记录历史（用于完成率闭环 + 回看孵化过程）
     const rawOutput = el.hatchStreamBody ? el.hatchStreamBody.textContent : "";
     recordHatchHistory(hatchState.taskHash, hatchState.taskText, hatchState.result, newOnes.length, { rawOutput });
+    // 把 hatchHash 写到当前编辑格子的首个任务，使详情面板可回看孵化过程
+    if (state.editingCell) {
+      const cellTasks = getCellTasks(state.editingCell.period, state.editingCell.cell).slice();
+      if (cellTasks.length) {
+        cellTasks[0].hatchHash = hatchState.taskHash;
+        setCellTasks(state.editingCell.period, state.editingCell.cell, cellTasks);
+        renderTaskDetailPanel(cellTasks[0], state.editingCell.period, state.editingCell.cell);
+      }
+    }
     const dimCount = acceptedSteps.filter((s) => s.target_dim).length;
     toast(`已加入 ${newOnes.length} 条到清单${dimCount ? `（含 ${dimCount} 条维度练习）` : ""}`, "success");
     if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
@@ -4978,7 +5339,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     const filledPeriods = new Set();
     assignments.forEach((a) => {
       if (a.placeholder || !a.text) return;
-      setCellTasks(a.period, a.cell, [{ text: a.text, ...a.meta }]);
+      setCellTasks(a.period, a.cell, [{ text: a.text, ...a.meta, hatchHash: hatchState.taskHash }]);
       filledPeriods.add(a.period);
       written++;
     });
@@ -5009,44 +5370,51 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       return;
     }
     const rawOutput = el.hatchStreamBody ? el.hatchStreamBody.textContent : "";
-    // 拆成 inbox 条目（每步一条），保留维度/时长/风险/来源
-    const newItems = acceptedSteps.map((s) => {
-      let text = s.text || "";
-      const meta = { source: "hatch", hatchTask: hatchState.taskText || "" };
+    // 去重
+    const existingKeys = new Set(inboxItems.map((i) => `${(i.text || "").replace(/\s*#\w+(→\d+)?#\s*$/, "").trim()}|${(i.tags || []).join(",")}`));
+    let added = 0;
+    acceptedSteps.forEach((s) => {
+      let taskText = s.text;
+      const tags = [];
       if (s.target_dim) {
         const goal = s.dim_goal ? `→${s.dim_goal}` : "";
-        text += ` #${s.target_dim}${goal}#`;
-        meta.dim = s.target_dim;
-        if (s.dim_goal) meta.dimGoal = s.dim_goal;
+        taskText += ` #${s.target_dim}${goal}#`;
+        tags.push(s.target_dim);
       }
-      if (s.est_min) meta.estimate = s.est_min;
-      if (s.risk) meta.risk = s.risk;
-      return {
-        text,
-        tag: s.target_dim || "孵化",
+      const key = `${taskText.replace(/\s*#\w+(→\d+)?#\s*$/, "").trim()}|${tags.join(",")}`;
+      if (existingKeys.has(key)) return;
+      existingKeys.add(key);
+      inboxItems.unshift({
+        id: genId("inb"),
+        text: taskText,
+        tags,
+        mainline: null,
+        sideline: null,
+        priority: 0,
+        due: null,
         done: false,
         createdAt: Date.now(),
         kind: "hatch",
-        meta,
-      };
+        meta: {
+          source: "hatch",
+          hatchTask: hatchState.taskText,
+          dim: s.target_dim || "",
+          dimGoal: s.dim_goal || null,
+          estimate: s.est_min || 0,
+          risk: s.risk || "",
+        },
+      });
+      added++;
     });
-    // 去重：与收集箱已有项比对（按纯文本+tag）
-    const existing = load(INBOX_KEY, []);
-    const existKeys = new Set(existing.map((i) => (i.text || "").replace(/\s*#\w+(→\d+)?#\s*$/, "").trim() + "|" + (i.tag || "")));
-    const filtered = newItems.filter((it) => {
-      const key = (it.text || "").replace(/\s*#\w+(→\d+)?#\s*$/, "").trim() + "|" + (it.tag || "");
-      return !existKeys.has(key);
-    });
-    if (!filtered.length) {
+    if (!added) {
       toast("所选步骤已在收集箱中", "info");
       return;
     }
-    inboxItems = [...filtered, ...existing];
     saveInbox();
     // 记录孵化历史
-    recordHatchHistory(hatchState.taskHash, hatchState.taskText, hatchState.result, filtered.length, { rawOutput });
-    const dimCount = filtered.filter((it) => it.meta && it.meta.dim).length;
-    toast(`已拆分 ${filtered.length} 条到收集箱${dimCount ? `（含 ${dimCount} 条维度练习）` : ""}，可拖拽到格子`, "success");
+    recordHatchHistory(hatchState.taskHash, hatchState.taskText, hatchState.result, added, { rawOutput });
+    const dimCount = acceptedSteps.filter((s) => s.target_dim).length;
+    toast(`已拆分 ${added} 条到收集箱${dimCount ? `（含 ${dimCount} 条维度练习）` : ""}，可拖拽到格子`, "success");
     if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
     closeHatchDialog();
     // 直接打开收集箱，便于拖拽
@@ -5059,6 +5427,32 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     const d = new Date(ts);
     const pad = (n) => String(n).padStart(2, "0");
     return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  // 渲染孵化历史详情（用于格子任务回看）
+  function renderHatchHistoryDetail(rec) {
+    if (!rec) return '<div class="inbox-empty">无记录</div>';
+    let html = `<div class="hatch-history-card">`;
+    html += `<div class="hh-task">📝 ${escapeHtml(rec.task_text || "")}</div>`;
+    html += `<div class="hh-meta">${rec.last_mode || ""} · ${rec.last_scene || ""} · ${rec.accepted_count || 0}/${rec.total_count || 0} 步 · 预估 ${rec.est_total_min || 0}min</div>`;
+    if (rec.qa_pairs && rec.qa_pairs.length) {
+      html += `<div class="hh-section"><div class="hh-section-title">🧠 引导问答（7维度）</div>`;
+      rec.qa_pairs.forEach((qa) => {
+        html += `<div class="hh-qa"><div class="hh-q"><span class="hh-dim-badge">${escapeHtml(qa.dim || "")}</span>${escapeHtml(qa.label || "")}：${escapeHtml(qa.question || "")}</div><div class="hh-a">${escapeHtml(qa.answer || "（未回答）")}</div></div>`;
+      });
+      html += `</div>`;
+    }
+    if (rec.steps && rec.steps.length) {
+      html += `<div class="hh-section"><div class="hh-section-title">📋 拆解步骤</div>`;
+      rec.steps.forEach((s, i) => {
+        html += `<div class="hh-step"><span class="hh-step-idx">${i + 1}</span><span class="hh-step-text">${escapeHtml(s.text || "")}</span>${s.target_dim ? `<span class="hh-dim-badge" style="background:var(--accent)20;color:var(--accent);">${escapeHtml(s.target_dim)}${s.dim_goal ? `→${s.dim_goal}` : ""}</span>` : ""}${s.est_min ? `<span class="hh-step-est">${s.est_min}min</span>` : ""}</div>`;
+      });
+      html += `</div>`;
+    }
+    if (rec.shortcut) html += `<div class="hh-shortcut">⚡ 捷径：${escapeHtml(rec.shortcut)}</div>`;
+    if (rec.first_blocker) html += `<div class="hh-blocker">🚧 首个障碍：${escapeHtml(rec.first_blocker)}</div>`;
+    html += `</div>`;
+    return html;
   }
 
   function renderHatchHistory() {
@@ -5213,7 +5607,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     const filledPeriods = new Set();
     assignments.forEach((a) => {
       if (a.placeholder || !a.text) return;
-      setCellTasks(a.period, a.cell, [{ text: a.text, ...a.meta }]);
+      setCellTasks(a.period, a.cell, [{ text: a.text, ...a.meta, hatchHash: histEntry.task_hash }]);
       filledPeriods.add(a.period);
       written++;
     });
@@ -9515,11 +9909,14 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
 
   // 收集箱模式切换
   function switchInboxMode(mode) {
-    const tabs = document.querySelectorAll(".inbox-mode-tab");
-    tabs.forEach((t) => t.classList.toggle("active", t.dataset.mode === mode));
-    if (el.inboxQuickPane) el.inboxQuickPane.hidden = (mode !== "quick");
-    if (el.inboxLongPane) el.inboxLongPane.hidden = (mode !== "long");
-    if (mode === "long") { resetLongForm(); renderLongList(); }
+    inboxMode = mode;
+    el.inboxQuickPane.hidden = mode !== "quick";
+    el.inboxMainlinePane.hidden = mode !== "mainline";
+    el.inboxLongPane.hidden = mode !== "long";
+    el.inboxDialog.querySelectorAll(".inbox-mode-tab").forEach((t) => {
+      t.classList.toggle("active", t.dataset.mode === mode);
+    });
+    if (mode === "mainline") renderMainlineList();
   }
   document.querySelectorAll(".inbox-mode-tab").forEach((tab) => {
     tab.addEventListener("click", () => switchInboxMode(tab.dataset.mode));
@@ -9534,17 +9931,134 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   if (el.longtaskDetailDialog) el.longtaskDetailDialog.addEventListener("click", (e) => { if (e.target === el.longtaskDetailDialog) el.longtaskDetailDialog.close(); });
 
   // ---------- 待办收集箱 ----------
-  const INBOX_KEY = "mandala-inbox-v1";
+  const INBOX_KEY = "mandala-inbox-v2";
+  const INBOX_MAINLINES_KEY = "mandala-inbox-mainlines-v1";
+  // 主线色板（8 色）
+  const MAINLINE_COLORS = ["#7c5cff", "#ff6b9d", "#4ecdc4", "#ffd93d", "#6bcf7f", "#ff9f43", "#a55eea", "#4a90e2"];
+  // 7 维度代码（用于关联主线）
+  const DIM_CODES = ["Cl", "Cp", "B", "L", "Ev", "P", "Rh"];
+
   let inboxItems = load(INBOX_KEY, []);
+  let inboxMainlines = load(INBOX_MAINLINES_KEY, []);
   let inboxFilterTag = "";
   let inboxTimeFilter = "all";
+  let inboxFilterMainline = ""; // "" = 全部, "none" = 未分组, "ml_xxx" = 指定主线
+  let inboxMultiSelect = new Set(); // 多选 idx 集合
+  let inboxMultiSelectMode = false;
+  let inboxMode = "quick"; // 当前收集箱模式：quick / mainline / long
+
+  // 旧数据迁移（v1 → v2）
+  function migrateInboxItem(it) {
+    if (!it.id) it.id = "inb_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
+    if (!Array.isArray(it.tags)) {
+      it.tags = it.tag ? [it.tag] : [];
+      delete it.tag;
+    }
+    if (it.mainline === undefined) it.mainline = null;
+    if (it.sideline === undefined) it.sideline = null;
+    if (it.parentId === undefined) it.parentId = null;
+    if (it.priority === undefined) it.priority = 0;
+    if (it.due === undefined) it.due = null;
+    if (it.estimate === undefined) it.estimate = null;
+    if (it.note === undefined) it.note = "";
+    if (it.order === undefined) it.order = 0;
+    return it;
+  }
+  inboxItems = inboxItems.map(migrateInboxItem);
+  // 兼容：从 v1 key 迁移
+  const oldV1 = load("mandala-inbox-v1", []);
+  if (oldV1.length && !inboxItems.length) {
+    inboxItems = oldV1.map(migrateInboxItem);
+  }
+  save(INBOX_KEY, inboxItems);
 
   function saveInbox() { save(INBOX_KEY, inboxItems); }
+  function saveMainlines() { save(INBOX_MAINLINES_KEY, inboxMainlines); }
+
+  function genId(prefix) { return (prefix || "id") + "_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8); }
 
   function getInboxTags() {
     const tags = new Set();
-    inboxItems.forEach((i) => { if (i.tag) tags.add(i.tag); });
-    return Array.from(tags);
+    inboxItems.forEach((i) => { (i.tags || []).forEach((t) => tags.add(t)); });
+    return Array.from(tags).sort();
+  }
+
+  // 主线 CRUD
+  function addMainline(name, color, dim, desc) {
+    const ml = {
+      id: genId("ml"),
+      name: name || "新主线",
+      color: color || MAINLINE_COLORS[inboxMainlines.length % MAINLINE_COLORS.length],
+      dim: dim || "",
+      desc: desc || "",
+      sidelines: [],
+      order: inboxMainlines.length,
+      createdAt: Date.now(),
+    };
+    inboxMainlines.push(ml);
+    saveMainlines();
+    return ml;
+  }
+  function updateMainline(id, patch) {
+    const ml = inboxMainlines.find((m) => m.id === id);
+    if (ml) { Object.assign(ml, patch); saveMainlines(); }
+  }
+  function deleteMainline(id) {
+    inboxMainlines = inboxMainlines.filter((m) => m.id !== id);
+    // 解除该主线下所有任务的归属
+    inboxItems.forEach((it) => {
+      if (it.mainline === id) { it.mainline = null; it.sideline = null; }
+    });
+    saveMainlines();
+    saveInbox();
+  }
+  function getMainline(id) { return inboxMainlines.find((m) => m.id === id); }
+
+  // 支线 CRUD（在主线内）
+  function addSideline(mainlineId, name, dim) {
+    const ml = getMainline(mainlineId);
+    if (!ml) return null;
+    const sl = { id: genId("sl"), name: name || "新支线", dim: dim || "", order: ml.sidelines.length };
+    ml.sidelines.push(sl);
+    saveMainlines();
+    return sl;
+  }
+  function deleteSideline(mainlineId, sidelineId) {
+    const ml = getMainline(mainlineId);
+    if (!ml) return;
+    ml.sidelines = ml.sidelines.filter((s) => s.id !== sidelineId);
+    inboxItems.forEach((it) => {
+      if (it.mainline === mainlineId && it.sideline === sidelineId) it.sideline = null;
+    });
+    saveMainlines();
+    saveInbox();
+  }
+
+  // 任务归属
+  function assignTaskToMainline(taskId, mainlineId, sidelineId) {
+    const it = inboxItems.find((i) => i.id === taskId);
+    if (!it) return;
+    it.mainline = mainlineId || null;
+    it.sideline = sidelineId || null;
+    saveInbox();
+  }
+
+  // 统计
+  function getInboxStats() {
+    const total = inboxItems.length;
+    const undone = inboxItems.filter((i) => !i.done).length;
+    const done = total - undone;
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = todayStart.getTime() + 86400000;
+    const dueToday = inboxItems.filter((i) => !i.done && i.due && i.due >= todayStart.getTime() && i.due < todayEnd).length;
+    const overdue = inboxItems.filter((i) => !i.done && i.due && i.due < todayStart.getTime()).length;
+    const mlStats = inboxMainlines.map((ml) => {
+      const tasks = inboxItems.filter((i) => i.mainline === ml.id);
+      const ud = tasks.filter((i) => !i.done).length;
+      return { id: ml.id, name: ml.name, color: ml.color, total: tasks.length, undone: ud, done: tasks.length - ud, progress: tasks.length ? Math.round((tasks.length - ud) / tasks.length * 100) : 0 };
+    });
+    const ungrouped = inboxItems.filter((i) => !i.mainline).length;
+    return { total, undone, done, dueToday, overdue, mlStats, ungrouped };
   }
 
   function updateInboxTagDatalist() {
@@ -9552,7 +10066,6 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     if (el.inboxTagList) {
       el.inboxTagList.innerHTML = tags.map((t) => `<option value="${escapeHtml(t)}">`).join("");
     }
-    // 渲染可点击的 tag chips（datalist 原生 UX 差，点不开）
     if (el.inboxTagChips) {
       el.inboxTagChips.innerHTML = tags.length
         ? tags.map((t) => `<span class="inbox-tag-chip" data-tag="${escapeHtml(t)}" style="background:${tagColor(t)}20;color:${tagColor(t)};">${escapeHtml(t)}</span>`).join("")
@@ -9560,7 +10073,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       el.inboxTagChips.querySelectorAll(".inbox-tag-chip").forEach((chip) => {
         chip.addEventListener("click", () => {
           if (el.inboxCategory) {
-            el.inboxCategory.value = chip.dataset.tag;
+            const cur = el.inboxCategory.value.trim();
+            el.inboxCategory.value = cur ? (cur + "," + chip.dataset.tag) : chip.dataset.tag;
             el.inboxInput.focus();
           }
         });
@@ -9569,8 +10083,10 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   }
 
   function openInbox() {
-    // 每次打开重新从 localStorage 加载，含 Hermes 远程同步的卡片
     inboxItems = load(INBOX_KEY, []);
+    inboxItems = inboxItems.map(migrateInboxItem);
+    inboxMainlines = load(INBOX_MAINLINES_KEY, []);
+    refreshInboxMainlineSelectors();
     updateInboxTagDatalist();
     renderInboxFilter();
     renderInboxList();
@@ -9626,7 +10142,6 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     }
   }
 
-  // 收集箱条目落到格子：写入任务并标记完成（可选删除）
   function dropInboxItemToCell(idx, period, cell) {
     const it = inboxItems[idx];
     if (!it) return;
@@ -9634,22 +10149,28 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     if (!text) { toast("该条目无文本", "info"); return; }
     const meta = {};
     if (it.meta && it.meta.dim) { meta.dim = it.meta.dim; if (it.meta.dimGoal) meta.dimGoal = it.meta.dimGoal; }
-    if (it.meta && it.meta.estimate) meta.estimate = String(it.meta.estimate);
+    if (it.estimate || (it.meta && it.meta.estimate)) meta.estimate = String(it.estimate || it.meta.estimate);
     const existing = getCellTasks(period, cell);
-    // 若格子已有同名任务则提示，避免重复
     if (existing.some((t) => (t.text || "").replace(/\s*#\w+(→\d+)?#\s*$/, "").trim() === text.replace(/\s*#\w+(→\d+)?#\s*$/, "").trim())) {
       toast("该格子已有相同任务", "info");
       return;
     }
-    setCellTasks(period, cell, [...existing, { text, ...meta }]);
-    // 标记收集箱条目完成（保留以便回看），不删除
-    it.done = true;
+    const newTask = { text, ...meta };
+    // 携带 inbox 任务的归属和孵化信息
+    if (it.mainline) newTask.mainline = it.mainline;
+    if (it.sideline) newTask.sideline = it.sideline;
+    if (it.kind === "hatch" && it.meta && it.meta.hatchTask) {
+      // 用 hashTaskText 生成与 recordHatchHistory 一致的 task_hash，确保可回看孵化过程
+      newTask.hatchHash = hashTaskText(it.meta.hatchTask);
+    }
+    setCellTasks(period, cell, [...existing, newTask]);
+    it.done = true; // 保留以便回看，不删除
     saveInbox();
     renderInboxList();
     renderInboxGridPreview();
-    const name = PERIOD_NAMES[period] || `第${period + 1}时辰`;
-    toast(`已安排到 ${name} 第${cell + 1}格`, "success");
-    if (navigator.vibrate) navigator.vibrate(20);
+    const pname = PERIOD_NAMES[period] || `第${period + 1}时辰`;
+    toast(`已安排到 ${pname} 第${cell + 1}格`, "success");
+    if (navigator.vibrate) navigator.vibrate(30);
   }
 
   function renderInboxFilter() {
@@ -9668,18 +10189,39 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   }
 
   function filterInboxItems() {
-    let filtered = inboxItems;
-    if (inboxFilterTag) filtered = filtered.filter((i) => i.tag === inboxFilterTag);
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const weekStart = todayStart - 6 * 86400000;
-    switch (inboxTimeFilter) {
-      case "today": filtered = filtered.filter((i) => i.createdAt >= todayStart); break;
-      case "week": filtered = filtered.filter((i) => i.createdAt >= weekStart); break;
-      case "undone": filtered = filtered.filter((i) => !i.done); break;
-      case "done": filtered = filtered.filter((i) => i.done); break;
-    }
-    return filtered;
+    const now = Date.now();
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = todayStart.getTime() + 86400000;
+    const weekStart = todayStart.getTime() - todayStart.getDay() * 86400000;
+    const weekEnd = weekStart + 7 * 86400000;
+    return inboxItems.filter((it) => {
+      // 标签筛选
+      if (inboxFilterTag && !(it.tags || []).includes(inboxFilterTag)) return false;
+      // 主线筛选
+      if (inboxFilterMainline === "none" && it.mainline) return false;
+      if (inboxFilterMainline && inboxFilterMainline !== "none" && it.mainline !== inboxFilterMainline) return false;
+      // 时间筛选
+      const t = it.createdAt || 0;
+      if (inboxTimeFilter === "today" && (t < todayStart.getTime() || t >= todayEnd)) return false;
+      if (inboxTimeFilter === "week" && (t < weekStart || t >= weekEnd)) return false;
+      if (inboxTimeFilter === "undone" && it.done) return false;
+      if (inboxTimeFilter === "done" && !it.done) return false;
+      if (inboxTimeFilter === "due" && (!it.due || it.due < todayStart.getTime() || it.due >= todayEnd || it.done)) return false;
+      if (inboxTimeFilter === "overdue" && (!it.due || it.due >= todayStart.getTime() || it.done)) return false;
+      return true;
+    }).sort((a, b) => {
+      // 优先级高的在前
+      const pa = a.priority || 0, pb = b.priority || 0;
+      if (pa !== pb) return pb - pa;
+      // 未完成在前
+      if (a.done !== b.done) return a.done ? 1 : -1;
+      // 截止时间早的在前
+      if (a.due && b.due) return a.due - b.due;
+      if (a.due) return -1;
+      if (b.due) return 1;
+      // 新的在前
+      return (b.createdAt || 0) - (a.createdAt || 0);
+    });
   }
 
   function tagColor(tag) {
@@ -9689,58 +10231,384 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     return colors[Math.abs(hash) % colors.length];
   }
 
+  // 渲染主线管理列表
+  function renderMainlineList() {
+    if (!el.mlList) return;
+    if (!inboxMainlines.length) {
+      el.mlList.innerHTML = '<div class="inbox-empty">尚无主线，先创建一条（如"嵌入式学习"）来归类你的任务</div>';
+      return;
+    }
+    el.mlList.innerHTML = inboxMainlines.map((ml) => {
+      const tasks = inboxItems.filter((i) => i.mainline === ml.id);
+      const undone = tasks.filter((i) => !i.done).length;
+      const progress = tasks.length ? Math.round((tasks.length - undone) / tasks.length * 100) : 0;
+      const slHtml = (ml.sidelines || []).map((sl) => {
+        const slTasks = tasks.filter((t) => t.sideline === sl.id);
+        return `<div class="ml-sl-item" data-ml="${ml.id}" data-sl="${sl.id}">
+          <span class="ml-sl-bullet" style="background:${ml.color};"></span>
+          <span class="ml-sl-name">${escapeHtml(sl.name)}</span>
+          <span class="ml-sl-count">${slTasks.filter((t) => !t.done).length}/${slTasks.length}</span>
+          <button class="ml-sl-del" data-ml="${ml.id}" data-sl="${sl.id}" title="删除支线">✕</button>
+        </div>`;
+      }).join("");
+      return `<div class="ml-card" data-ml="${ml.id}">
+        <div class="ml-card-head">
+          <span class="ml-color-dot" style="background:${ml.color};"></span>
+          <span class="ml-name">${escapeHtml(ml.name)}</span>
+          ${ml.dim ? `<span class="ml-dim-badge" style="background:${ml.color}20;color:${ml.color};">${ml.dim}</span>` : ""}
+          <div class="ml-progress-mini">
+            <div class="ml-progress-bar" style="width:${progress}%;background:${ml.color};"></div>
+          </div>
+          <span class="ml-progress-text">${undone}/${tasks.length} · ${progress}%</span>
+          <button class="ml-edit-btn" data-ml="${ml.id}" title="编辑/管理支线">⚙</button>
+          <button class="ml-del-btn" data-ml="${ml.id}" title="删除主线">✕</button>
+        </div>
+        ${ml.desc ? `<div class="ml-desc">${escapeHtml(ml.desc)}</div>` : ""}
+        <div class="ml-sl-list">${slHtml}</div>
+        <div class="ml-sl-add">
+          <input type="text" class="ml-sl-input" data-ml="${ml.id}" placeholder="新支线名称（回车添加）" maxlength="20" />
+        </div>
+      </div>`;
+    }).join("");
+    // 事件绑定
+    el.mlList.querySelectorAll(".ml-del-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.ml;
+        const ml = getMainline(id);
+        if (!ml) return;
+        if (confirm(`删除主线「${ml.name}」？该主线下的任务会变为未分组（不会被删除）。`)) {
+          deleteMainline(id);
+          refreshInboxMainlineSelectors();
+          renderMainlineList();
+          toast("主线已删除", "success");
+        }
+      });
+    });
+    el.mlList.querySelectorAll(".ml-edit-btn").forEach((btn) => {
+      btn.addEventListener("click", () => openMlEdit(btn.dataset.ml));
+    });
+    el.mlList.querySelectorAll(".ml-sl-del").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const mlId = btn.dataset.ml, slId = btn.dataset.sl;
+        const ml = getMainline(mlId);
+        const sl = ml && ml.sidelines.find((s) => s.id === slId);
+        if (sl && confirm(`删除支线「${sl.name}」？该支线下任务变为无支线。`)) {
+          deleteSideline(mlId, slId);
+          renderMainlineList();
+        }
+      });
+    });
+    el.mlList.querySelectorAll(".ml-sl-input").forEach((inp) => {
+      inp.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          const name = inp.value.trim();
+          if (name) {
+            addSideline(inp.dataset.ml, name);
+            inp.value = "";
+            renderMainlineList();
+          }
+        }
+      });
+    });
+  }
+
+  // 主线编辑弹窗
+  function openMlEdit(mlId) {
+    const ml = getMainline(mlId);
+    if (!ml) return;
+    el.mlEditTitle.textContent = `🎯 ${ml.name}`;
+    const tasks = inboxItems.filter((i) => i.mainline === mlId);
+    el.mlEditBody.innerHTML = `
+      <div class="ml-edit-form">
+        <label>名称</label>
+        <input type="text" id="mleName" value="${escapeHtml(ml.name)}" maxlength="20" />
+        <label>颜色</label>
+        <input type="color" id="mleColor" value="${ml.color}" style="width:40px;height:32px;" />
+        <label>关联维度</label>
+        <select id="mleDim">
+          <option value="">不关联</option>
+          ${DIM_CODES.map((d) => `<option value="${d}" ${ml.dim === d ? "selected" : ""}>${d}</option>`).join("")}
+        </select>
+        <label>描述</label>
+        <input type="text" id="mleDesc" value="${escapeHtml(ml.desc || "")}" maxlength="60" style="flex:1;" />
+        <button class="tool-btn" id="mleSave" style="background:var(--accent);color:#fff;">💾 保存</button>
+      </div>
+      <hr style="margin:16px 0;border:none;border-top:1px solid var(--border);" />
+      <h4>支线管理（${(ml.sidelines || []).length}）</h4>
+      <div class="mle-sl-list">${(ml.sidelines || []).map((sl) => {
+        const slTasks = tasks.filter((t) => t.sideline === sl.id);
+        return `<div class="mle-sl-row">
+          <span class="ml-sl-bullet" style="background:${ml.color};"></span>
+          <span>${escapeHtml(sl.name)}</span>
+          <span class="ml-sl-count">${slTasks.filter((t) => !t.done).length}/${slTasks.length}</span>
+          <button class="mle-sl-del" data-sl="${sl.id}">✕</button>
+        </div>`;
+      }).join("")}</div>
+      <div class="mle-sl-add">
+        <input type="text" id="mleSlName" placeholder="新支线名称（回车添加）" maxlength="20" />
+      </div>
+      <hr style="margin:16px 0;border:none;border-top:1px solid var(--border);" />
+      <h4>该主线下的任务（${tasks.length}）</h4>
+      <div class="mle-tasks">${tasks.length ? tasks.map((t) => `
+        <div class="mle-task ${t.done ? "done" : ""}">
+          <span>${escapeHtml(t.text)}</span>
+          ${t.sideline ? `<span class="mle-task-sl">${escapeHtml((ml.sidelines.find((s) => s.id === t.sideline) || {}).name || "")}</span>` : ""}
+        </div>`).join("") : '<div class="inbox-empty">暂无任务</div>'}</div>
+    `;
+    el.mlEditDialog.showModal();
+    document.getElementById("mleSave").addEventListener("click", () => {
+      updateMainline(mlId, {
+        name: document.getElementById("mleName").value.trim() || ml.name,
+        color: document.getElementById("mleColor").value,
+        dim: document.getElementById("mleDim").value,
+        desc: document.getElementById("mleDesc").value.trim(),
+      });
+      refreshInboxMainlineSelectors();
+      renderMainlineList();
+      el.mlEditDialog.close();
+      toast("主线已更新", "success");
+    });
+    el.mlEditBody.querySelectorAll(".mle-sl-del").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        deleteSideline(mlId, btn.dataset.sl);
+        openMlEdit(mlId); // 重新打开
+      });
+    });
+    const slInput = document.getElementById("mleSlName");
+    if (slInput) {
+      slInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          const name = slInput.value.trim();
+          if (name) { addSideline(mlId, name); slInput.value = ""; openMlEdit(mlId); }
+        }
+      });
+    }
+  }
+
+  // 刷新主线选择器（输入区 + 筛选器）
+  function refreshInboxMainlineSelectors() {
+    const options = ['<option value="">无主线</option>'].concat(
+      inboxMainlines.map((ml) => `<option value="${ml.id}">${escapeHtml(ml.name)}</option>`)
+    ).join("");
+    if (el.inboxNewMainline) el.inboxNewMainline.innerHTML = options;
+    if (el.inboxMainlineFilter) {
+      el.inboxMainlineFilter.innerHTML = '<option value="">全部主线</option><option value="none">未分组</option>' +
+        inboxMainlines.map((ml) => `<option value="${ml.id}">${escapeHtml(ml.name)}</option>`).join("");
+    }
+    // 支线选择器跟随主线
+    refreshSidelineSelector();
+  }
+  function refreshSidelineSelector() {
+    const mlId = el.inboxNewMainline ? el.inboxNewMainline.value : "";
+    const ml = getMainline(mlId);
+    const slOpts = ml && ml.sidelines.length
+      ? '<option value="">无支线</option>' + ml.sidelines.map((sl) => `<option value="${sl.id}">${escapeHtml(sl.name)}</option>`).join("")
+      : '<option value="">无支线</option>';
+    if (el.inboxNewSideline) el.inboxNewSideline.innerHTML = slOpts;
+  }
+
+  // 任务归属弹窗
+  function openAssignDialog(taskIds, batchMode) {
+    const ids = Array.isArray(taskIds) ? taskIds : [taskIds];
+    el.assignBody.innerHTML = `
+      <p style="margin:0 0 12px;color:var(--text-secondary);font-size:13px;">选择主线和支线（可只选主线）：</p>
+      <div class="assign-form">
+        <label>主线</label>
+        <select id="assignMl" style="flex:1;">
+          <option value="">— 不归属（移出主线）—</option>
+          ${inboxMainlines.map((ml) => `<option value="${ml.id}">${escapeHtml(ml.name)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="assign-form">
+        <label>支线</label>
+        <select id="assignSl" style="flex:1;">
+          <option value="">无支线</option>
+        </select>
+      </div>
+      <div class="assign-actions">
+        <button class="tool-btn" id="assignCancel">取消</button>
+        <button class="tool-btn" id="assignOk" style="background:var(--accent);color:#fff;">确定</button>
+      </div>
+    `;
+    el.assignDialog.showModal();
+    document.getElementById("assignMl").addEventListener("change", (e) => {
+      const ml = getMainline(e.target.value);
+      const slSel = document.getElementById("assignSl");
+      slSel.innerHTML = ml && ml.sidelines.length
+        ? '<option value="">无支线</option>' + ml.sidelines.map((sl) => `<option value="${sl.id}">${escapeHtml(sl.name)}</option>`).join("")
+        : '<option value="">无支线</option>';
+    });
+    document.getElementById("assignCancel").addEventListener("click", () => el.assignDialog.close());
+    document.getElementById("assignOk").addEventListener("click", () => {
+      const mlId = document.getElementById("assignMl").value;
+      const slId = document.getElementById("assignSl").value;
+      ids.forEach((tid) => assignTaskToMainline(tid, mlId || null, slId || null));
+      el.assignDialog.close();
+      renderInboxList();
+      renderInboxStats();
+      if (inboxMode === "mainline") renderMainlineList();
+      toast(batchMode ? `已归属 ${ids.length} 个任务` : "任务已归属", "success");
+    });
+  }
+
+  // 统计行
+  function renderInboxStats() {
+    if (!el.inboxStatsInline) return;
+    const s = getInboxStats();
+    let html = `<span class="is-tag">共 ${s.total}</span>`;
+    html += `<span class="is-tag is-undone">未完成 ${s.undone}</span>`;
+    if (s.dueToday) html += `<span class="is-tag is-due">今日到期 ${s.dueToday}</span>`;
+    if (s.overdue) html += `<span class="is-tag is-overdue">已过期 ${s.overdue}</span>`;
+    el.inboxStatsInline.innerHTML = html;
+  }
+
   function renderInboxList() {
+    renderInboxStats();
     const filtered = filterInboxItems();
     if (!filtered.length) {
       el.inboxList.innerHTML = '<div class="inbox-empty">暂无内容，想到什么先记下来吧</div>';
       return;
     }
-    el.inboxList.innerHTML = filtered.map((item) => {
-      const realIdx = inboxItems.indexOf(item);
-      const d = item.createdAt ? new Date(item.createdAt) : null;
-      const dateStr = d
-        ? d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" }) + " " + d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
-        : "";
-      // Hermes 写入的卡片型 item（wiki/reading/summary）
-      if (item.kind === "card") {
-        const cardType = item.type || "reading";
-        const meta = { reading: "📖 待读", wiki: "📚 知识", summary: "📝 总结" }[cardType] || "📭 卡片";
-        return `<div class="inbox-card ${item.done ? "done" : ""}" data-idx="${realIdx}">
-          <div class="inbox-card-head">
-            <span class="inbox-card-type">${meta}</span>
-            <span class="inbox-item-date">${dateStr}</span>
-            <button class="inbox-item-del" data-idx="${realIdx}" title="删除">✕</button>
-          </div>
-          <div class="inbox-card-title">${escapeHtml(item.title || item.text || "")}</div>
-          ${item.summary ? `<div class="inbox-card-summary">${escapeHtml(item.summary)}</div>` : ""}
-          ${item.link ? `<a class="inbox-card-link" href="${escapeHtml(item.link)}" target="_blank" rel="noopener">${escapeHtml(item.source || item.link)}</a>` : ""}
-          <div class="inbox-card-actions">
-            <button class="inbox-card-act" data-act="tochat" data-idx="${realIdx}">💬 发给AI</button>
-            <button class="inbox-card-act" data-act="done" data-idx="${realIdx}">${item.done ? "↩ 取消完成" : "✓ 标记完成"}</button>
-          </div>
-        </div>`;
+    // 按主线分组
+    const grouped = {};
+    const ungrouped = [];
+    filtered.forEach((item) => {
+      if (item.mainline) {
+        if (!grouped[item.mainline]) grouped[item.mainline] = {};
+        const slKey = item.sideline || "_none";
+        if (!grouped[item.mainline][slKey]) grouped[item.mainline][slKey] = [];
+        grouped[item.mainline][slKey].push(item);
+      } else {
+        ungrouped.push(item);
       }
-      // 原速记型 item
-      const dragAttr = item.done ? "" : 'draggable="true"';
-      const fromHatch = item.kind === "hatch" ? '<span class="inbox-item-src" title="来自孵化">🥚</span>' : "";
-      return `<div class="inbox-item ${item.done ? "done" : ""}" data-idx="${realIdx}" ${dragAttr}>
-        <span class="inbox-item-cb ${item.done ? "checked" : ""}" data-idx="${realIdx}">${item.done ? "✓" : ""}</span>
-        <span class="inbox-item-grip" title="拖到上方九宫格">⠿</span>
-        <span class="inbox-item-text">${escapeHtml(item.text)}</span>
-        ${fromHatch}
-        ${item.tag ? `<span class="inbox-item-tag" style="background:${tagColor(item.tag)}20;color:${tagColor(item.tag)};">${escapeHtml(item.tag)}</span>` : ""}
-        <span class="inbox-item-date">${dateStr}</span>
-        <button class="inbox-item-act" data-act="hatch" data-idx="${realIdx}" title="🥚 AI 孵化拆解为子步骤">🥚</button>
-        <button class="inbox-item-act" data-act="tolong" data-idx="${realIdx}" title="转为长期任务">🗺️</button>
-        <button class="inbox-item-del" data-idx="${realIdx}" title="删除">✕</button>
+    });
+
+    let html = "";
+    // 渲染各主线分组
+    inboxMainlines.forEach((ml) => {
+      if (!grouped[ml.id]) return;
+      const allTasks = inboxItems.filter((i) => i.mainline === ml.id);
+      const allUndone = allTasks.filter((i) => !i.done).length;
+      const progress = allTasks.length ? Math.round((allTasks.length - allUndone) / allTasks.length * 100) : 0;
+      html += `<div class="inbox-ml-group" data-ml="${ml.id}">
+        <div class="inbox-ml-head" data-ml="${ml.id}">
+          <span class="inbox-ml-collapse">▼</span>
+          <span class="inbox-ml-dot" style="background:${ml.color};"></span>
+          <span class="inbox-ml-name">${escapeHtml(ml.name)}</span>
+          ${ml.dim ? `<span class="inbox-ml-dim" style="background:${ml.color}20;color:${ml.color};">${ml.dim}</span>` : ""}
+          <span class="inbox-ml-count">${allUndone}/${allTasks.length}</span>
+          <div class="inbox-ml-progress"><div style="width:${progress}%;background:${ml.color};"></div></div>
+          <span class="inbox-ml-pct">${progress}%</span>
+        </div>
+        <div class="inbox-ml-body">`;
+      // 支线分组
+      (ml.sidelines || []).forEach((sl) => {
+        if (!grouped[ml.id][sl.id]) return;
+        html += `<div class="inbox-sl-group">
+          <div class="inbox-sl-head"><span class="inbox-sl-bullet" style="background:${ml.color};"></span><span>${escapeHtml(sl.name)}</span><span class="inbox-sl-count">${grouped[ml.id][sl.id].filter((i) => !i.done).length}</span></div>
+          <div class="inbox-sl-body">`;
+        html += grouped[ml.id][sl.id].map((item) => renderInboxItemHtml(item)).join("");
+        html += `</div></div>`;
+      });
+      // 无支线
+      if (grouped[ml.id]["_none"] && grouped[ml.id]["_none"].length) {
+        if (ml.sidelines && ml.sidelines.length) {
+          html += `<div class="inbox-sl-group"><div class="inbox-sl-head"><span class="inbox-sl-bullet" style="background:${ml.color};opacity:0.4;"></span><span>未分支线</span><span class="inbox-sl-count">${grouped[ml.id]["_none"].filter((i) => !i.done).length}</span></div><div class="inbox-sl-body">`;
+        } else {
+          html += `<div class="inbox-sl-body">`;
+        }
+        html += grouped[ml.id]["_none"].map((item) => renderInboxItemHtml(item)).join("");
+        if (ml.sidelines && ml.sidelines.length) html += `</div></div>`; else html += `</div>`;
+      }
+      html += `</div></div>`;
+    });
+    // 未分组
+    if (ungrouped.length) {
+      html += `<div class="inbox-ungrouped"><div class="inbox-ungrouped-head"><span>📂 未分组</span><span class="inbox-sl-count">${ungrouped.filter((i) => !i.done).length}</span></div><div class="inbox-sl-body">`;
+      html += ungrouped.map((item) => renderInboxItemHtml(item)).join("");
+      html += `</div></div>`;
+    }
+    el.inboxList.innerHTML = html;
+    bindInboxItemEvents();
+  }
+
+  // 渲染单个条目 HTML（速记型）
+  function renderInboxItemHtml(item) {
+    const realIdx = inboxItems.indexOf(item);
+    const d = item.createdAt ? new Date(item.createdAt) : null;
+    const dateStr = d
+      ? d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" }) + " " + d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+      : "";
+    // 卡片型
+    if (item.kind === "card") {
+      const cardType = item.type || "reading";
+      const meta = { reading: "📖 待读", wiki: "📚 知识", summary: "📝 总结" }[cardType] || "📭 卡片";
+      return `<div class="inbox-card ${item.done ? "done" : ""}" data-idx="${realIdx}" data-id="${escapeHtml(item.id)}">
+        <div class="inbox-card-head">
+          <span class="inbox-card-type">${meta}</span>
+          <span class="inbox-item-date">${dateStr}</span>
+          <button class="inbox-item-del" data-idx="${realIdx}" title="删除">✕</button>
+        </div>
+        <div class="inbox-card-title">${escapeHtml(item.title || item.text || "")}</div>
+        ${item.summary ? `<div class="inbox-card-summary">${escapeHtml(item.summary)}</div>` : ""}
+        ${item.link ? `<a class="inbox-card-link" href="${escapeHtml(item.link)}" target="_blank" rel="noopener">${escapeHtml(item.source || item.link)}</a>` : ""}
+        <div class="inbox-card-actions">
+          <button class="inbox-card-act" data-act="tochat" data-idx="${realIdx}">💬 发给AI</button>
+          <button class="inbox-card-act" data-act="done" data-idx="${realIdx}">${item.done ? "↩ 取消完成" : "✓ 标记完成"}</button>
+        </div>
       </div>`;
-    }).join("");
+    }
+    // 速记/孵化型
+    const dragAttr = item.done ? "" : 'draggable="true"';
+    const fromHatch = item.kind === "hatch" ? '<span class="inbox-item-src" title="来自孵化">🥚</span>' : "";
+    const priorityBadge = item.priority === 2 ? '<span class="inbox-priority-badge p-urgent" title="紧急">⚡</span>'
+      : item.priority === 1 ? '<span class="inbox-priority-badge p-important" title="重要">★</span>' : "";
+    const tagsHtml = (item.tags || []).map((t) => `<span class="inbox-item-tag" style="background:${tagColor(t)}20;color:${tagColor(t)};">${escapeHtml(t)}</span>`).join("");
+    const dueStr = item.due ? (() => {
+      const now = new Date(); now.setHours(0, 0, 0, 0);
+      const due = new Date(item.due);
+      due.setHours(0, 0, 0, 0);
+      const diff = Math.round((due - now) / 86400000);
+      const cls = diff < 0 ? "is-overdue" : diff === 0 ? "is-due" : "";
+      const label = diff < 0 ? `逾期${-diff}天` : diff === 0 ? "今日到期" : `${diff}天后`;
+      return `<span class="inbox-due ${cls}">📅 ${label}</span>`;
+    })() : "";
+    const checked = inboxMultiSelect.has(realIdx) ? "checked" : "";
+    const msCb = inboxMultiSelectMode ? `<input type="checkbox" class="inbox-ms-cb" data-idx="${realIdx}" ${checked} />` : "";
+    return `<div class="inbox-item ${item.done ? "done" : ""}" data-idx="${realIdx}" data-id="${escapeHtml(item.id)}" ${dragAttr}>
+      ${msCb}
+      <span class="inbox-item-cb ${item.done ? "checked" : ""}" data-idx="${realIdx}">${item.done ? "✓" : ""}</span>
+      <span class="inbox-item-grip" title="拖到九宫格规划，或拖到主线头归组">⠿</span>
+      ${priorityBadge}
+      <span class="inbox-item-text" data-idx="${realIdx}" title="单击发给AI，双击编辑">${escapeHtml(item.text)}</span>
+      ${fromHatch}
+      ${tagsHtml}
+      ${dueStr}
+      <span class="inbox-item-date">${dateStr}</span>
+      <button class="inbox-item-act" data-act="assign" data-idx="${realIdx}" title="归属主线/支线">📂</button>
+      <button class="inbox-item-act" data-act="prio" data-idx="${realIdx}" title="设置优先级">⭐</button>
+      <button class="inbox-item-act" data-act="due" data-idx="${realIdx}" title="设置截止时间">📅</button>
+      <button class="inbox-item-act" data-act="hatch" data-idx="${realIdx}" title="🥚 AI 孵化拆解为子步骤">🥚</button>
+      <button class="inbox-item-act" data-act="tolong" data-idx="${realIdx}" title="转为长期任务">🗺️</button>
+      <button class="inbox-item-del" data-idx="${realIdx}" title="删除">✕</button>
+    </div>`;
+  }
+
+  // 绑定条目事件
+  function bindInboxItemEvents() {
     el.inboxList.querySelectorAll(".inbox-item-cb").forEach((cb) => {
       cb.addEventListener("click", () => {
         const idx = parseInt(cb.dataset.idx);
         inboxItems[idx].done = !inboxItems[idx].done;
         saveInbox();
         renderInboxList();
+      });
+    });
+    el.inboxList.querySelectorAll(".inbox-ms-cb").forEach((cb) => {
+      cb.addEventListener("change", () => {
+        const idx = parseInt(cb.dataset.idx);
+        if (cb.checked) inboxMultiSelect.add(idx); else inboxMultiSelect.delete(idx);
+        updateBatchBar();
       });
     });
     el.inboxList.querySelectorAll(".inbox-item-del").forEach((btn) => {
@@ -9760,35 +10628,59 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         if (!it) return;
         const act = btn.dataset.act;
         if (act === "hatch") {
-          // 关闭收集箱，打开孵化实验室
           if (el.inboxDialog && el.inboxDialog.open) el.inboxDialog.close();
-          openHatchDialog({
-            text: it.text,
-            sourceLabel: "收集箱待办",
-          });
+          openHatchDialog({ text: it.text, sourceLabel: "收集箱待办" });
           return;
         }
-        // 默认行为：转为长期任务
-        switchInboxMode("long");
-        if (el.longTitle) {
-          el.longTitle.value = it.text.slice(0, 60);
-          el.longTitle.focus();
+        if (act === "assign") {
+          openAssignDialog(it.id);
+          return;
         }
+        if (act === "prio") {
+          it.priority = ((it.priority || 0) + 1) % 3;
+          saveInbox();
+          renderInboxList();
+          toast(["普通", "★ 重要", "⚡ 紧急"][it.priority], "info");
+          return;
+        }
+        if (act === "due") {
+          const cur = it.due ? new Date(it.due).toISOString().slice(0, 10) : "";
+          const v = prompt("设置截止日期（YYYY-MM-DD，留空清除）：", cur);
+          if (v !== null) {
+            it.due = v ? new Date(v + "T23:59:59").getTime() : null;
+            saveInbox();
+            renderInboxList();
+          }
+          return;
+        }
+        // tolong
+        switchInboxMode("long");
+        if (el.longTitle) { el.longTitle.value = it.text.slice(0, 60); el.longTitle.focus(); }
         if (!el.longStart.value) el.longStart.value = state.currentDate;
-        if (it.tag && el.longNote) el.longNote.value = "来源：速记 #" + (it.tag || "");
+        if (it.tags && it.tags.length && el.longNote) el.longNote.value = "来源：速记 #" + it.tags.join(",");
         toast("已填入长期任务表单，补充日期后保存", "info");
       });
     });
     el.inboxList.querySelectorAll(".inbox-item-text").forEach((txt) => {
+      let lastClick = 0;
       txt.addEventListener("click", () => {
-        const idx = parseInt(txt.parentElement.dataset.idx);
-        el.chatInput.value = inboxItems[idx].text;
-        el.chatInput.dispatchEvent(new Event("input"));
-        el.inboxDialog.close();
-        toast("已填入对话区，可发送给 AI 安排", "info");
+        const now = Date.now();
+        if (now - lastClick < 400) {
+          // 双击：inline 编辑
+          const idx = parseInt(txt.dataset.idx);
+          startInlineEdit(idx, txt);
+        } else {
+          // 单击：发给 AI
+          const idx = parseInt(txt.parentElement.dataset.idx);
+          el.chatInput.value = inboxItems[idx].text;
+          el.chatInput.dispatchEvent(new Event("input"));
+          el.inboxDialog.close();
+          toast("已填入对话区，可发送给 AI 安排", "info");
+        }
+        lastClick = now;
       });
     });
-    // 拖拽：把 inbox 条目拖到上方九宫格
+    // 拖拽
     el.inboxList.querySelectorAll(".inbox-item[draggable='true']").forEach((node) => {
       node.addEventListener("dragstart", (e) => {
         const idx = parseInt(node.dataset.idx, 10);
@@ -9816,6 +10708,79 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         }
       });
     });
+    // 主线分组折叠
+    el.inboxList.querySelectorAll(".inbox-ml-head").forEach((head) => {
+      head.addEventListener("click", () => {
+        const body = head.nextElementSibling;
+        if (body) {
+          body.hidden = !body.hidden;
+          head.querySelector(".inbox-ml-collapse").textContent = body.hidden ? "▶" : "▼";
+        }
+      });
+    });
+    // 主线分组头作为拖拽落点（归组）
+    el.inboxList.querySelectorAll(".inbox-ml-head").forEach((head) => {
+      head.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        head.classList.add("drag-over");
+      });
+      head.addEventListener("dragleave", () => head.classList.remove("drag-over"));
+      head.addEventListener("drop", (e) => {
+        e.preventDefault();
+        head.classList.remove("drag-over");
+        const raw = e.dataTransfer.getData("text/plain");
+        if (!raw) return;
+        try {
+          const payload = JSON.parse(raw);
+          if (payload.kind === "inbox" && typeof payload.idx === "number") {
+            const it = inboxItems[payload.idx];
+            if (it) {
+              it.mainline = head.dataset.ml;
+              it.sideline = null;
+              saveInbox();
+              renderInboxList();
+              renderInboxStats();
+              toast(`已归属到「${getMainline(head.dataset.ml).name}」`, "success");
+            }
+          }
+        } catch (err) {}
+      });
+    });
+  }
+
+  // inline 编辑
+  function startInlineEdit(idx, txtEl) {
+    const it = inboxItems[idx];
+    if (!it) return;
+    const original = it.text;
+    const input = document.createElement("textarea");
+    input.value = original;
+    input.className = "inbox-inline-edit";
+    input.rows = 1;
+    input.style.cssText = "flex:1;min-height:24px;font-size:14px;padding:2px 6px;border:1px solid var(--accent);border-radius:4px;background:var(--input-bg);color:var(--text-primary);resize:vertical;";
+    txtEl.replaceWith(input);
+    input.focus();
+    input.select();
+    const save = () => {
+      const v = input.value.trim();
+      if (v && v !== original) {
+        it.text = v;
+        saveInbox();
+      }
+      renderInboxList();
+    };
+    input.addEventListener("blur", save);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); input.blur(); }
+      if (e.key === "Escape") { input.value = original; input.blur(); }
+    });
+  }
+
+  // 多选栏更新
+  function updateBatchBar() {
+    if (!el.inboxBatchBar) return;
+    el.inboxBatchBar.hidden = !inboxMultiSelectMode;
+    if (el.inboxBatchCount) el.inboxBatchCount.textContent = `已选 ${inboxMultiSelect.size} 项`;
   }
 
   el.inboxBtn.addEventListener("click", openInbox);
@@ -9859,9 +10824,16 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   el.inboxAddBtn.addEventListener("click", () => {
     const text = el.inboxInput.value.trim();
     if (!text) { toast("请输入内容", "error"); return; }
+    const tagStr = el.inboxCategory.value.trim();
+    const tags = tagStr ? tagStr.split(/[,，]/).map((s) => s.trim()).filter(Boolean) : [];
     inboxItems.unshift({
+      id: genId("inb"),
       text,
-      tag: el.inboxCategory.value.trim() || "",
+      tags,
+      mainline: el.inboxNewMainline.value || null,
+      sideline: el.inboxNewSideline.value || null,
+      priority: parseInt(el.inboxNewPriority.value) || 0,
+      due: null,
       done: false,
       createdAt: Date.now(),
     });
@@ -9883,6 +10855,126 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     inboxTimeFilter = el.inboxTimeFilter.value;
     renderInboxList();
   });
+  // 主线选择器联动支线
+  if (el.inboxNewMainline) el.inboxNewMainline.addEventListener("change", refreshSidelineSelector);
+  // 主线筛选
+  if (el.inboxMainlineFilter) el.inboxMainlineFilter.addEventListener("change", () => {
+    inboxFilterMainline = el.inboxMainlineFilter.value;
+    renderInboxList();
+  });
+  // 多选模式切换
+  if (el.inboxMultiSelectToggle) el.inboxMultiSelectToggle.addEventListener("change", () => {
+    inboxMultiSelectMode = el.inboxMultiSelectToggle.checked;
+    inboxMultiSelect.clear();
+    updateBatchBar();
+    renderInboxList();
+  });
+  // 批量栏事件
+  if (el.inboxBatchCancel) el.inboxBatchCancel.addEventListener("click", () => {
+    inboxMultiSelectMode = false;
+    inboxMultiSelect.clear();
+    el.inboxMultiSelectToggle.checked = false;
+    updateBatchBar();
+    renderInboxList();
+  });
+  if (el.inboxBatchAssign) el.inboxBatchAssign.addEventListener("click", () => {
+    const ids = Array.from(inboxMultiSelect).map((idx) => inboxItems[idx] && inboxItems[idx].id).filter(Boolean);
+    if (!ids.length) { toast("请先选择任务", "info"); return; }
+    openAssignDialog(ids, true);
+  });
+  if (el.inboxBatchPriority) el.inboxBatchPriority.addEventListener("click", () => {
+    const v = prompt("设置优先级（0普通/1重要/2紧急）：", "1");
+    if (v === null) return;
+    const p = parseInt(v);
+    if (p < 0 || p > 2) { toast("请输入 0/1/2", "error"); return; }
+    inboxMultiSelect.forEach((idx) => { if (inboxItems[idx]) inboxItems[idx].priority = p; });
+    saveInbox();
+    renderInboxList();
+    toast(`已设置 ${inboxMultiSelect.size} 项优先级`, "success");
+  });
+  if (el.inboxBatchDone) el.inboxBatchDone.addEventListener("click", () => {
+    inboxMultiSelect.forEach((idx) => { if (inboxItems[idx]) inboxItems[idx].done = true; });
+    saveInbox();
+    renderInboxList();
+    toast(`已完成 ${inboxMultiSelect.size} 项`, "success");
+  });
+  if (el.inboxBatchDel) el.inboxBatchDel.addEventListener("click", () => {
+    if (!confirm(`删除 ${inboxMultiSelect.size} 项？`)) return;
+    const idxs = Array.from(inboxMultiSelect).sort((a, b) => b - a);
+    idxs.forEach((idx) => inboxItems.splice(idx, 1));
+    inboxMultiSelect.clear();
+    saveInbox();
+    updateInboxTagDatalist();
+    renderInboxFilter();
+    renderInboxList();
+    toast("已删除", "success");
+  });
+  if (el.inboxBatchSchedule) el.inboxBatchSchedule.addEventListener("click", () => {
+    const items = Array.from(inboxMultiSelect).map((idx) => inboxItems[idx]).filter(Boolean).filter((i) => !i.done);
+    if (!items.length) { toast("请选择未完成的任务", "info"); return; }
+    batchScheduleToGrid(items);
+  });
+  // 主线管理
+  if (el.mlAddBtn) el.mlAddBtn.addEventListener("click", () => {
+    const name = el.mlName.value.trim();
+    if (!name) { toast("请输入主线名称", "error"); return; }
+    addMainline(name, el.mlColor.value, el.mlDim.value, el.mlDesc.value.trim());
+    el.mlName.value = "";
+    el.mlDesc.value = "";
+    refreshInboxMainlineSelectors();
+    renderMainlineList();
+    toast("主线已创建", "success");
+  });
+  if (el.mlName) el.mlName.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); el.mlAddBtn.click(); } });
+  if (el.closeMlEdit) el.closeMlEdit.addEventListener("click", () => el.mlEditDialog.close());
+  if (el.mlEditDialog) el.mlEditDialog.addEventListener("click", (e) => { if (e.target === el.mlEditDialog) el.mlEditDialog.close(); });
+  if (el.closeAssign) el.closeAssign.addEventListener("click", () => el.assignDialog.close());
+  if (el.assignDialog) el.assignDialog.addEventListener("click", (e) => { if (e.target === el.assignDialog) el.assignDialog.close(); });
+
+  // 批量安排到时间格子
+  function batchScheduleToGrid(items) {
+    let cursor = getCurrentGlobalCell();
+    if (cursor < 0) cursor = 0; else cursor += 1;
+    let written = 0;
+    const filledPeriods = new Set();
+    for (const it of items) {
+      const min = it.estimate || (it.meta && it.meta.estimate) || 15;
+      const cells = Math.max(1, Math.ceil(min / (SECONDS_PER_CELL / 60)));
+      let placed = false;
+      while (cursor + cells - 1 < PERIOD_COUNT * CELLS_PER_PERIOD) {
+        let free = true;
+        for (let k = 0; k < cells; k++) {
+          const g = cursor + k;
+          if (getCellTasks(Math.floor(g / CELLS_PER_PERIOD), g % CELLS_PER_PERIOD).length > 0) { free = false; break; }
+        }
+        if (free) {
+          const p = Math.floor(cursor / CELLS_PER_PERIOD);
+          const c = cursor % CELLS_PER_PERIOD;
+          const meta = {};
+          if (it.meta && it.meta.dim) { meta.dim = it.meta.dim; if (it.meta.dimGoal) meta.dimGoal = it.meta.dimGoal; }
+          if (it.estimate) meta.estimate = String(it.estimate);
+          setCellTasks(p, c, [{ text: it.text, ...meta }]);
+          filledPeriods.add(p);
+          it.done = true;
+          written++;
+          cursor += cells;
+          placed = true;
+          break;
+        }
+        cursor++;
+      }
+      if (!placed) break;
+    }
+    saveInbox();
+    renderInboxList();
+    renderInboxGridPreview();
+    if (filledPeriods.size) {
+      state.activePeriod = Math.min(...filledPeriods);
+      setRealm("plan");
+    }
+    toast(written === items.length ? `已安排 ${written} 个任务` : `安排了 ${written}/${items.length}（剩余空格不足）`, written ? "success" : "error");
+    if (written && navigator.vibrate) navigator.vibrate([20, 40, 20]);
+  }
 
   function renderStat() {
     const totalCells = PERIOD_COUNT * CELLS_PER_PERIOD;
