@@ -23,7 +23,7 @@
           await Promise.all(keys.map(function (k) { return caches.delete(k); }));
         }
         // 检测当前 app.js 版本，若仍是旧的则强制带时间戳 reload
-        var APP_VERSION = "20260810c";
+        var APP_VERSION = "20260811a";
         if (sessionStorage.getItem("mandala-app-ver") !== APP_VERSION) {
           sessionStorage.setItem("mandala-app-ver", APP_VERSION);
           if (!location.search || location.search.indexOf("t=") === -1) {
@@ -34,7 +34,7 @@
       } catch (e) { console.warn("SW 清理失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260810c" />
+  <link rel="stylesheet" href="styles.css?v=20260811a" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
 </head>
@@ -771,12 +771,72 @@
           </div>
           <small>设置后该格子任务会自动复制到未来对应日期</small>
         </div>
+        <div class="form-group">
+          <label>📋 任务详情（主线/支线 · 孵化过程 · 附件 · 位置）</label>
+          <div class="task-detail-panel" id="taskDetailPanel">
+            <!-- 主线/支线归属 -->
+            <div class="tdp-row">
+              <span class="tdp-label">🎯 主线</span>
+              <span class="tdp-value" id="tdpMainline">—</span>
+              <button class="tdp-act" id="tdpAssignMl" title="归属主线/支线">📂 归组</button>
+              <button class="tdp-act" id="tdpJumpMl" title="跳转到收集箱该主线" hidden>→ 跳转</button>
+            </div>
+            <div class="tdp-row">
+              <span class="tdp-label">🌿 支线</span>
+              <span class="tdp-value" id="tdpSideline">—</span>
+            </div>
+            <!-- 孵化过程 -->
+            <div class="tdp-row tdp-hatch" id="tdpHatchRow" hidden>
+              <span class="tdp-label">🥚 孵化过程</span>
+              <button class="tdp-act" id="tdpViewHatch" title="查看完整孵化问答/步骤/维度">👁️ 查看孵化过程</button>
+            </div>
+            <!-- 附件 -->
+            <div class="tdp-row">
+              <span class="tdp-label">📎 附件</span>
+              <span class="tdp-value" id="tdpAttachCount">0 个</span>
+              <button class="tdp-act" id="tdpAddAttach" title="添加图片或文件">＋ 添加</button>
+              <button class="tdp-act" id="tdpViewAttach" title="查看附件" hidden>👁️ 查看</button>
+              <input type="file" id="tdpAttachInput" hidden multiple accept="image/*,.pdf,.txt,.doc,.docx" />
+            </div>
+            <div class="tdp-attach-list" id="tdpAttachList"></div>
+            <!-- 位置 -->
+            <div class="tdp-row">
+              <span class="tdp-label">📍 位置</span>
+              <span class="tdp-value" id="tdpLocation">未设置</span>
+              <button class="tdp-act" id="tdpSetLoc" title="设置位置（地点名或经纬度）">📍 设置</button>
+              <button class="tdp-act" id="tdpViewLoc" title="在地图查看" hidden>🗺️ 地图</button>
+              <button class="tdp-act" id="tdpClearLoc" title="清除位置" hidden>✕ 清除</button>
+            </div>
+          </div>
+        </div>
         <div class="dialog-actions">
           <button class="danger-btn" id="deleteTask">删除</button>
           <button class="tool-btn" id="startPomoBtn">🍅 开始专注</button>
           <button class="primary-btn" id="saveTask">保存</button>
         </div>
       </div>
+    </div>
+  </dialog>
+
+  <!-- 孵化过程回看弹窗（格子任务用） -->
+  <dialog class="stat-dialog" id="cellHatchViewDialog">
+    <div class="dialog-content dialog-lg">
+      <div class="dialog-header">
+        <h3 id="cellHatchViewTitle">🥚 孵化过程</h3>
+        <button class="icon-btn" id="closeCellHatchView" aria-label="关闭">✕</button>
+      </div>
+      <div class="dialog-body" id="cellHatchViewBody"></div>
+    </div>
+  </dialog>
+
+  <!-- 附件查看弹窗 -->
+  <dialog class="stat-dialog" id="cellAttachViewDialog">
+    <div class="dialog-content dialog-lg">
+      <div class="dialog-header">
+        <h3>📎 附件</h3>
+        <button class="icon-btn" id="closeCellAttachView" aria-label="关闭">✕</button>
+      </div>
+      <div class="dialog-body" id="cellAttachViewBody"></div>
     </div>
   </dialog>
 
@@ -1021,38 +1081,73 @@
     </div>
   </dialog>
 
-  <!-- 待办收集箱（全屏） -->
+  <!-- 待办收集箱（全屏，主线-支线-任务三层体系） -->
   <dialog class="inbox-dialog-fullscreen" id="inboxDialog">
     <div class="inbox-fullscreen-content">
       <div class="inbox-fullscreen-header">
         <h3>📥 待办收集箱</h3>
+        <div class="inbox-stats-inline" id="inboxStatsInline"></div>
         <button class="icon-btn" id="closeInbox" aria-label="关闭">✕</button>
       </div>
       <div class="inbox-fullscreen-body">
-        <!-- 模式切换：速记 / 长期任务 -->
+        <!-- 模式切换：速记 / 主线 / 长期任务 -->
         <div class="inbox-mode-tabs">
           <button class="inbox-mode-tab active" data-mode="quick">⚡ 速记</button>
+          <button class="inbox-mode-tab" data-mode="mainline">🎯 主线</button>
           <button class="inbox-mode-tab" data-mode="long">🗺️ 长期任务</button>
         </div>
 
         <!-- 速记模式 -->
         <div class="inbox-quick-pane" id="inboxQuickPane">
+          <!-- 输入区（增强：主线/支线/优先级/截止） -->
           <div class="inbox-input-area">
             <input type="text" id="inboxInput" placeholder="想到什么先记下来…" maxlength="200" />
-            <input type="text" id="inboxCategory" placeholder="标签" maxlength="10" list="inboxTagList" style="width:80px;" />
+            <select id="inboxNewMainline" title="归属主线" style="padding:4px 8px;max-width:120px;">
+              <option value="">无主线</option>
+            </select>
+            <select id="inboxNewSideline" title="归属支线" style="padding:4px 8px;max-width:100px;">
+              <option value="">无支线</option>
+            </select>
+            <select id="inboxNewPriority" title="优先级" style="padding:4px 8px;width:60px;">
+              <option value="0">普通</option>
+              <option value="1">★ 重要</option>
+              <option value="2">⚡ 紧急</option>
+            </select>
+            <input type="text" id="inboxCategory" placeholder="标签(逗号分隔)" maxlength="30" list="inboxTagList" style="width:90px;" />
             <datalist id="inboxTagList"></datalist>
             <button class="tool-btn" id="inboxAddBtn" style="background:var(--accent);color:#fff;">＋ 添加</button>
           </div>
           <div class="inbox-tag-chips" id="inboxTagChips"></div>
+          <!-- 批量操作栏（多选模式时显示） -->
+          <div class="inbox-batch-bar" id="inboxBatchBar" hidden>
+            <span class="inbox-batch-count" id="inboxBatchCount">已选 0 项</span>
+            <button class="tool-btn" id="inboxBatchAssign" title="归属到主线/支线">📂 归组</button>
+            <button class="tool-btn" id="inboxBatchPriority" title="设置优先级">⭐ 优先级</button>
+            <button class="tool-btn" id="inboxBatchSchedule" title="批量安排到时间格子">📋 安排</button>
+            <button class="tool-btn" id="inboxBatchDone" title="标记完成">✓ 完成</button>
+            <button class="danger-btn" id="inboxBatchDel">🗑 删除</button>
+            <button class="tool-btn" id="inboxBatchCancel">取消</button>
+          </div>
+          <!-- 筛选行（加主线筛选 + 多选切换） -->
           <div class="inbox-filter-row">
             <div class="inbox-filter" id="inboxFilter"></div>
-            <select id="inboxTimeFilter" style="padding:4px 8px;background:var(--input-bg);border:1px solid var(--input-border);border-radius:8px;color:var(--text-primary);font-size:11px;">
+            <select id="inboxMainlineFilter" title="按主线筛选" style="padding:4px 8px;max-width:120px;">
+              <option value="">全部主线</option>
+              <option value="none">未分组</option>
+            </select>
+            <select id="inboxTimeFilter" style="padding:4px 8px;">
               <option value="all">全部时间</option>
               <option value="today">今天</option>
               <option value="week">本周</option>
               <option value="undone">仅未完成</option>
               <option value="done">仅已完成</option>
+              <option value="due">今日到期</option>
+              <option value="overdue">已过期</option>
             </select>
+            <label class="inbox-multiselect-toggle" title="多选模式">
+              <input type="checkbox" id="inboxMultiSelectToggle" />
+              <span>☑ 多选</span>
+            </label>
           </div>
           <!-- 当前时辰九宫格预览（拖拽落点） -->
           <div class="inbox-grid-preview" id="inboxGridPreview">
@@ -1065,7 +1160,29 @@
             </div>
             <div class="igp-grid" id="igpGrid"></div>
           </div>
+          <!-- 任务列表（按主线分组渲染） -->
           <div class="inbox-list" id="inboxList"></div>
+        </div>
+
+        <!-- 主线管理模式 -->
+        <div class="inbox-mainline-pane" id="inboxMainlinePane" hidden>
+          <div class="inbox-mainline-form">
+            <input type="text" id="mlName" placeholder="主线名称（如：嵌入式学习、健身计划）" maxlength="20" />
+            <input type="color" id="mlColor" value="#7c5cff" title="颜色" style="width:40px;height:32px;border:none;background:transparent;" />
+            <select id="mlDim" title="关联7维度" style="padding:4px 8px;">
+              <option value="">不关联维度</option>
+              <option value="Cl">Cl 清晰度</option>
+              <option value="Cp">Cp 完整度</option>
+              <option value="B">B 边界</option>
+              <option value="L">L 相关性</option>
+              <option value="Ev">Ev 演进</option>
+              <option value="P">P 精炼</option>
+              <option value="Rh">Rh 节律</option>
+            </select>
+            <input type="text" id="mlDesc" placeholder="描述（可选）" maxlength="60" style="flex:1;" />
+            <button class="tool-btn" id="mlAddBtn" style="background:var(--accent);color:#fff;">＋ 新建主线</button>
+          </div>
+          <div class="inbox-mainline-list" id="mlList"></div>
         </div>
 
         <!-- 长期任务模式 -->
@@ -1101,6 +1218,28 @@
           <div class="long-list" id="longList"></div>
         </div>
       </div>
+    </div>
+  </dialog>
+
+  <!-- 主线编辑/支线管理弹窗 -->
+  <dialog class="stat-dialog" id="mlEditDialog">
+    <div class="dialog-content dialog-lg">
+      <div class="dialog-header">
+        <h3 id="mlEditTitle">主线管理</h3>
+        <button class="icon-btn" id="closeMlEdit" aria-label="关闭">✕</button>
+      </div>
+      <div class="dialog-body" id="mlEditBody"></div>
+    </div>
+  </dialog>
+
+  <!-- 任务归属选择弹窗 -->
+  <dialog class="stat-dialog" id="assignDialog">
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <h3>归属到主线/支线</h3>
+        <button class="icon-btn" id="closeAssign" aria-label="关闭">✕</button>
+      </div>
+      <div class="dialog-body" id="assignBody"></div>
     </div>
   </dialog>
 
