@@ -81,19 +81,19 @@
     <div class="toolbar-group toolbar-more-group">
       <button class="tool-btn tool-btn-more" id="moreBtn" title="更多工具">⋯ 更多</button>
       <div class="toolbar-more-menu" id="moreMenu" hidden>
-        <button class="tmm-item" data-action="screenshot">📷 截图记录</button>
-        <button class="tmm-item" data-action="batch">☑ 批量选择</button>
-        <button class="tmm-item" data-action="template">📋 模板库</button>
-        <button class="tmm-item" data-action="undo">↶ 撤销 (Ctrl+Z)</button>
-        <button class="tmm-item" data-action="clear">🧹 清空格子</button>
+        <button class="tmm-item" id="screenshotBtn" data-action="screenshot">📷 截图记录</button>
+        <button class="tmm-item" id="batchBtn" data-action="batch">☑ 批量选择</button>
+        <button class="tmm-item" id="templateBtn" data-action="template">📋 模板库</button>
+        <button class="tmm-item" id="undoBtn" data-action="undo">↶ 撤销 (Ctrl+Z)</button>
+        <button class="tmm-item" id="clearGridsBtn" data-action="clear">🧹 清空格子</button>
         <div class="tmm-divider"></div>
-        <button class="tmm-item" data-action="export">⬇ 导出 JSON</button>
-        <button class="tmm-item" data-action="ical">📅 导出 iCal</button>
-        <button class="tmm-item" data-action="import">⬆ 导入数据</button>
+        <button class="tmm-item" id="exportBtn" data-action="export">⬇ 导出 JSON</button>
+        <button class="tmm-item" id="icalBtn" data-action="ical">📅 导出 iCal</button>
+        <button class="tmm-item" id="importBtn" data-action="import">⬆ 导入数据</button>
         <input type="file" id="importFile" accept=".json" hidden />
         <div class="tmm-divider"></div>
-        <button class="tmm-item" data-action="shortcut">⌨ 桌面快捷键</button>
-        <button class="tmm-item" data-action="settings">⚙ 设置</button>
+        <button class="tmm-item" id="shortcutBtn" data-action="shortcut">⌨ 桌面快捷键</button>
+        <button class="tmm-item" id="settingsBtn" data-action="settings">⚙ 设置</button>
       </div>
     </div>
   </div>
