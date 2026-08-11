@@ -1611,6 +1611,7 @@
     clearChat: document.getElementById("clearChat"),
     clearGridsBtn: document.getElementById("clearGridsBtn"),
     chatSuggestions: document.getElementById("chatSuggestions"),
+    workflow: document.getElementById("workflow"),
     todayBtn: document.getElementById("todayBtn"),
     calendarBtn: document.getElementById("calendarBtn"),
     calendarDialog: document.getElementById("calendarDialog"),
@@ -6698,18 +6699,15 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     if (state.settings.searchEnabled && (state.settings.searchApiKey || !SEARCH_PROVIDERS[state.settings.searchProvider]?.needsKey)) addBadge("🔍联网");
     // 同步刷新环节进度指示器
     renderStageProgress();
+    // 同步更新流程导向快捷操作
+    updateWorkflowPhase();
     // 同步更新分支按钮显隐
     updateBranchButtonVisibility();
   }
 
-  // 更新分支按钮（返回主线）显隐
+  // 更新分支按钮显隐（已由 updateWorkflowPhase 替代，保留空函数兼容）
   function updateBranchButtonVisibility() {
-    const returnBtn = document.querySelector(".chip-branch-return");
-    const branchBtn = document.querySelector(".chip-branch");
-    if (!returnBtn) return;
-    const inBreakdown = state.chatState === "project_breakdown";
-    returnBtn.style.display = inBreakdown ? "" : "none";
-    if (branchBtn) branchBtn.classList.toggle("active", inBreakdown);
+    // 已迁移到 updateWorkflowPhase 中处理
   }
 
   // ---------- 环节进度指示器（状态机可视化） ----------
@@ -8602,16 +8600,46 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     return html;
   }
 
-  // ---------- 快捷操作 ----------
-  document.querySelectorAll(".chip").forEach((chip) => {
-    chip.addEventListener("click", () => {
-      const action = chip.dataset.action;
+  // ---------- 流程导向快捷操作 (workflow) ----------
+  function updateWorkflowPhase() {
+    if (!el.workflow) return;
+    const phaseMap = {
+      idle: "input", gathering: "decompose", confirming: "fill",
+      project_breakdown: "decompose", done: "fill",
+    };
+    const cur = state.chatState || "idle";
+    const activePhase = phaseMap[cur] || "input";
+    const phases = el.workflow.querySelectorAll(".wf-phase");
+    phases.forEach((p) => {
+      p.classList.toggle("active", p.dataset.phase === activePhase);
+    });
+    // 拆解分支模式：显示"返回主线"按钮
+    const decomposePhase = el.workflow.querySelector('.wf-phase[data-phase="decompose"]');
+    if (decomposePhase) {
+      const isBranch = cur === "project_breakdown";
+      decomposePhase.classList.toggle("branch-mode", isBranch);
+      const returnBtn = decomposePhase.querySelector(".wf-btn-return");
+      if (returnBtn) returnBtn.hidden = !isBranch;
+    }
+  }
+
+  document.querySelectorAll(".wf-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const action = btn.dataset.action;
+      // ① 输入阶段
       if (action === "example") {
         el.chatInput.value = "早上锻炼30分钟，上午写项目报告需要2小时，下午开两个会议各30分钟，晚上读书1小时并写日记";
         el.chatInput.dispatchEvent(new Event("input"));
         el.chatInput.focus();
-      } else if (action === "project") {
-        // 切换到项目拆解分支环节
+      } else if (action === "conv-tpl") {
+        openConvTplDialog();
+      } else if (action === "clear-input") {
+        el.chatInput.value = "";
+        el.chatInput.dispatchEvent(new Event("input"));
+        el.chatInput.focus();
+      }
+      // ② 拆解阶段
+      else if (action === "project") {
         const projCat = getStageCategory("project_breakdown");
         state.settings.activePromptId = projCat ? projCat.id : "stage_project_breakdown";
         state.chatState = "project_breakdown";
@@ -8620,18 +8648,16 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         save(SETTINGS_KEY, state.settings);
         renderChatBadges();
         actionResetDialog();
-        // 不预填内容，让用户自己输入项目主题
         el.chatInput.value = "";
         el.chatInput.placeholder = "输入你要拆解的项目主题，如：学习嵌入式开发、准备产品发布会…";
         el.chatInput.dispatchEvent(new Event("input"));
         toast("已进入「项目拆解」分支，输入项目主题即可开始拆解", "info");
         el.chatInput.focus();
+        updateWorkflowPhase();
       } else if (action === "return-main") {
-        // 从项目拆解分支返回主线
         state.chatState = "confirming";
         state.breakdownStep = 1;
         state.breakdownContext = null;
-        // 恢复默认提示词（确认环节）
         const confirmingCat = getStageCategory("confirming");
         state.settings.activePromptId = confirmingCat ? confirmingCat.id : "stage_confirming";
         save(SETTINGS_KEY, state.settings);
@@ -8640,6 +8666,11 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         toast("已返回主线（确认环节）", "info");
         el.chatInput.placeholder = "告诉 AI 你今天要做的事…";
         el.chatInput.focus();
+        updateWorkflowPhase();
+      } else if (action === "hatch") {
+        openHatchDialog({});
+      } else if (action === "knowledge-dim") {
+        openKnowledgeDimDialog();
       } else if (action === "search") {
         const provider = SEARCH_PROVIDERS[state.settings.searchProvider];
         const needsKey = provider?.needsKey !== false;
@@ -8647,24 +8678,80 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
           toast(needsKey ? "请先在设置中启用联网搜索并填写 API Key" : "请先在设置中启用联网搜索", "error");
           return;
         }
-        // 手动触发一次搜索并显示结果
         manualSearch();
-      } else if (action === "auto") {
+      }
+      // ③ 填入阶段
+      else if (action === "auto") {
         autoFillToday();
-      } else if (action === "clear-tasks") {
-        clearCurrentDayGrids();
-      } else if (action === "go-record") {
+      } else if (action === "append") {
+        el.fillModeSelect.value = "append";
+        toast("填入模式：追加（保留已有任务）", "info");
+      } else if (action === "overwrite") {
+        el.fillModeSelect.value = "overwrite";
+        toast("填入模式：覆盖（清空后填入）", "info");
+      }
+      // ④ 执行阶段
+      else if (action === "go-record") {
         setRealm("record");
         const chatSection = document.querySelector(".chat-section");
         if (chatSection) chatSection.scrollIntoView({ behavior: "smooth", block: "center" });
-      } else if (action === "go-review") {
+      } else if (action === "pomodoro") {
+        if (state.editingCell) {
+          const { period, cell } = state.editingCell;
+          const tasks = getCellTasks(period, cell);
+          const label = tasks.length ? tasks.map(taskText).join("、") : "专注任务";
+          const est = tasks[0]?.estimate || "";
+          const minMatch = est.match(/(\d+)\s*(min|分钟|m)/i);
+          const hMatch = est.match(/(\d+)\s*(h|小时|hr)/i);
+          let focusMin = 0;
+          if (hMatch) focusMin = parseInt(hMatch[1], 10) * 60;
+          else if (minMatch) focusMin = parseInt(minMatch[1], 10);
+          if (focusMin > 0) {
+            pomo.preset = { label: "自定义", focus: focusMin, brk: Math.max(3, Math.round(focusMin / 5)), longBrk: Math.max(10, Math.round(focusMin / 3)), cycles: 4 };
+          }
+          closeTaskDialog();
+          startPomoFocus(period, cell, label);
+          toast(`🍅 开始专注 ${pomo.preset.focus} 分钟：${label}`, "success");
+        } else {
+          toast("请先点击时间格子选择任务后再启动专注", "error");
+        }
+      } else if (action === "screenshot") {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/*";
+        input.multiple = true;
+        input.addEventListener("change", async () => {
+          const files = Array.from(input.files || []);
+          if (!files.length) return;
+          if (files.length === 1) {
+            showScreenshotAttachDialog(files[0]);
+          } else {
+            showScreenshotAttachDialog(files[0]);
+          }
+        });
+        input.click();
+      }
+      // ⑤ 复盘阶段
+      else if (action === "go-review") {
         setRealm("review");
         const chatSection = document.querySelector(".chat-section");
         if (chatSection) chatSection.scrollIntoView({ behavior: "smooth", block: "center" });
-      } else if (action === "conv-tpl") {
-        openConvTplDialog();
-      } else if (action === "knowledge-dim") {
-        openKnowledgeDimDialog();
+      } else if (action === "ai-review") {
+        generateAiReview();
+      } else if (action === "export") {
+        const data = {
+          version: 5, exportedAt: new Date().toISOString(),
+          tasks: state.tasks, done: state.done, checklists: state.checklists, repeats: state.repeats,
+          records: state.records, reviews: state.reviews,
+        };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `mandala-${new Date().toISOString().slice(0, 10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast("已导出 JSON（含记录与复盘）", "success");
       }
     });
   });
