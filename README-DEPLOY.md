@@ -1,33 +1,53 @@
 # 曼陀罗时辰 · Windows 一键部署
 
-## 方案 A：零依赖启动（推荐，双击即可）
+## 方案 A：PowerShell 一键启动（强烈推荐，功能最全）
 
-**前提**：Windows 7 及以上（自带 PowerShell）
+**前提**：Windows 7 SP1 及以上（自带 PowerShell 5.1）
 
 **操作**：
-1. 下载仓库 zip 并解压
-   - 下载地址：https://github.com/Kuhai776/mandala-shichen/archive/refs/heads/main.zip
-2. 进入解压后的文件夹
-3. 双击 `start-mandala.bat`
+1. 下载 zip 包并解压
+   - 完整包：https://github.com/Kuhai776/mandala-shichen/releases/download/v2.3.10/mandala-shichen-web-v2.3.10.zip
+   - 或克隆仓库：`git clone https://github.com/Kuhai776/mandala-shichen.git`
+2. 进入项目根目录（与 `www` 文件夹同级）
+3. 双击 `start-mandala-launcher.bat`，或右键 `start-mandala.ps1` → "使用 PowerShell 运行"
 4. 浏览器自动打开 http://localhost:8080/
 
-**停止服务**：关闭弹出的命令行窗口即可
+**特色功能**：
+- ✅ 零依赖，无需安装 Python/Node
+- ✅ 自动检测端口占用并切换
+- ✅ 自动获取局域网 IP（手机可同 WiFi 访问）
+- ✅ **自动生成二维码**（手机扫码访问，不用手输 URL）
+- ✅ 自动打开浏览器
+- ✅ 完整 MIME 类型支持（含 woff2/wasm/webmanifest）
+- ✅ 禁用缓存（调试时永远看到最新版本）
+- ✅ 路径越权防护
+
+**停止服务**：按 Ctrl+C 或关闭窗口
+
+**首次运行提示**：若提示"无法绑定 0.0.0.0"，以管理员身份运行一次即可（手机访问需要）：
+```
+netsh http add urlacl url=http://+:8080/ user=Everyone listen=yes
+```
 
 ---
 
-## 方案 B：Node.js 启动（开发推荐）
+## 方案 B：纯 .bat 启动（最简单）
+
+**前提**：Windows 7 及以上
+
+**操作**：双击 `start-mandala.bat`，浏览器自动打开 http://localhost:8080/
+
+（适合极简需求，没有二维码、局域网 IP 显示等功能）
+
+---
+
+## 方案 C：Node.js 启动（开发推荐）
 
 **前提**：已安装 Node.js 14+（https://nodejs.org）
 
-**操作**：
 ```bat
-:: 进入项目目录
 cd mandala-shichen
-
-:: 安装依赖
 npm install
-
-:: 启动服务
 npm run serve
 ```
 
@@ -35,7 +55,7 @@ npm run serve
 
 ---
 
-## 方案 C：Python 启动
+## 方案 D：Python 启动
 
 **前提**：已安装 Python 3（https://python.org）
 
