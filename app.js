@@ -6755,9 +6755,12 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         const node = document.createElement("div");
         node.className = "stage-node";
         node.dataset.stage = st;
+        node.title = `跳转到「${STAGE_SHORT_NAMES[st] || st}」环节`;
         node.innerHTML =
           '<div class="stage-node-dot"></div>' +
           '<div class="stage-node-label">' + (STAGE_SHORT_NAMES[st] || st) + '</div>';
+        // 点击节点跳转到对应环节
+        node.addEventListener("click", () => jumpToStage(st));
         el.stageNodes.appendChild(node);
       });
       stageNodesBuilt = true;
@@ -6805,6 +6808,47 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
 
     // 同步刷新拆解子步骤进度
     renderBreakdownSteps();
+  }
+
+  // 点击环节节点跳转到对应阶段
+  function jumpToStage(targetStage) {
+    const cur = state.chatState || "idle";
+    if (cur === targetStage) {
+      toast(`已在「${STAGE_SHORT_NAMES[targetStage] || targetStage}」环节`, "info");
+      return;
+    }
+    // 跳转目标对应的主线流程卡片阶段
+    const phaseMap = {
+      idle: "input", gathering: "decompose", confirming: "fill",
+      project_breakdown: "decompose", done: "fill",
+    };
+    // 切换状态
+    state.chatState = targetStage;
+    if (targetStage !== "project_breakdown") {
+      state.breakdownStep = 1;
+      state.breakdownContext = null;
+    }
+    // 切换对应提示词
+    const cat = getStageCategory(targetStage);
+    if (cat) {
+      state.settings.activePromptId = cat.id;
+      save(SETTINGS_KEY, state.settings);
+    }
+    // 不同环节的 placeholder 提示
+    const placeholders = {
+      idle: "告诉 AI 你今天要做的事…",
+      gathering: "补充背景信息，帮助 AI 更精准规划…",
+      confirming: "方案已就绪，可确认填入或继续调整…",
+      project_breakdown: "输入你要拆解的项目主题，如：学习嵌入式开发、准备产品发布会…",
+      done: "规划已完成，可继续描述新任务…",
+    };
+    el.chatInput.placeholder = placeholders[targetStage] || placeholders.idle;
+    renderChatBadges();
+    renderStageProgress();
+    updateWorkflowPhase();
+    const label = STAGE_SHORT_NAMES[targetStage] || targetStage;
+    toast(`已跳转到「${label}」环节`, "success");
+    el.chatInput.focus();
   }
 
   // ---------- 拆解环节子步骤进度（6 步细分可视化） ----------
