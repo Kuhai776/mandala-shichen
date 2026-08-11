@@ -45,6 +45,7 @@
   const PERIOD_GLYPHS = ["卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"];
 
   const STORAGE_KEY = "mandala-tasks-v2";
+  const TRASH_KEY = "mandala-trash-v1"; // 回溯站：已删除的格子任务
 
   // ---------- Capacitor 原生能力（APK 环境）----------
   // 浏览器环境：navigator.vibrate / 无状态栏控制；APK 环境：@capacitor/haptics + status-bar
@@ -1618,6 +1619,13 @@
     fbHatchHistory: document.getElementById("fbHatchHistory"),
     fbHatchStart: document.getElementById("fbHatchStart"),
     fbIndicators: document.getElementById("fbIndicators"),
+    trashDialog: document.getElementById("trashDialog"),
+    trashList: document.getElementById("trashList"),
+    trashCount: document.getElementById("trashCount"),
+    trashClearAll: document.getElementById("trashClearAll"),
+    trashRestoreAll: document.getElementById("trashRestoreAll"),
+    closeTrash: document.getElementById("closeTrash"),
+    trashBtn: document.getElementById("trashBtn"),
     todayBtn: document.getElementById("todayBtn"),
     calendarBtn: document.getElementById("calendarBtn"),
     calendarDialog: document.getElementById("calendarDialog"),
@@ -4096,13 +4104,40 @@ ${recordItems.join("\n") || "（无）"}
   el.deleteTask.addEventListener("click", () => {
     if (!state.editingCell) return;
     const { period, cell } = state.editingCell;
+    const tasks = getCellTasks(period, cell);
+    const done = getCellDone(period, cell);
+    const checklist = getCellChecklist(period, cell);
+    // 推入回溯站（保留完整数据，清除归属信息避免继承）
+    if (tasks.length) {
+      const trashItems = tasks.map((t) => ({
+        ...normalizeTask(t),
+        mainline: null,        // 清除归属，不继承
+        sideline: null,        // 清除归属，不继承
+        hatchHash: t.hatchHash || null, // 保留孵化关联
+        attachments: Array.isArray(t.attachments) ? t.attachments : [], // 保留附件
+        location: t.location || null, // 保留位置
+        _meta: {
+          date: state.currentDate,
+          period, cell,
+          done,
+          checklist,
+          deletedAt: Date.now(),
+        },
+      }));
+      const trash = load(TRASH_KEY, []);
+      trash.unshift(...trashItems);
+      // 最多保留 50 条
+      if (trash.length > 50) trash.length = 50;
+      save(TRASH_KEY, trash);
+    }
     setCellTasks(period, cell, []);
     setCellDone(period, cell, false);
     setCellChecklist(period, cell, []);
     const removed = removeRepeatRulesForCell(state.currentDate, period, cell);
     closeTaskDialog();
     renderAll();
-    toast(removed ? "已删除，重复规则已取消" : "已删除", "info");
+    const cnt = tasks.length;
+    toast(removed ? `已删除 ${cnt} 条，可从回溯站恢复` : `已删除 ${cnt} 条，可从回溯站恢复`, "info");
   });
 
   el.closeTaskDialog.addEventListener("click", closeTaskDialog);
@@ -8752,6 +8787,144 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   // 初始渲染
   renderFeatureBar();
   renderFbIndicators();
+
+  // ---------- 回溯站 (trash) ----------
+  function getTrash() { return load(TRASH_KEY, []); }
+  function saveTrash(items) { save(TRASH_KEY, items); }
+
+  function renderTrashList() {
+    if (!el.trashList) return;
+    const trash = getTrash();
+    el.trashCount.textContent = `${trash.length} 条`;
+    if (!trash.length) {
+      el.trashList.innerHTML = '<div class="trash-empty">♻️ 回溯站为空<br>删除的任务会暂存于此</div>';
+      return;
+    }
+    el.trashList.innerHTML = trash.map((item, idx) => {
+      const text = taskText(item);
+      const meta = item._meta || {};
+      const dateStr = meta.date ? formatDateLabel(meta.date) : "";
+      const periodStr = (meta.period !== undefined) ? `第${meta.period + 1}辰` : "";
+      const cellStr = (meta.cell !== undefined) ? `第${meta.cell + 1}格` : "";
+      const timeStr = new Date(meta.deletedAt || Date.now()).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+      const hasAttach = (item.attachments || []).length > 0;
+      const hasLoc = !!item.location;
+      const hasHatch = !!item.hatchHash;
+      const badges = [];
+      if (hasAttach) badges.push("📎");
+      if (hasLoc) badges.push("📍");
+      if (hasHatch) badges.push("🥚");
+      return `<div class="trash-item" data-idx="${idx}">
+        <div class="trash-item-text">${escapeHtml(text)}${badges.length ? ` <span class="trash-item-badges">${badges.join("")}</span>` : ""}</div>
+        <div class="trash-item-meta">${dateStr} ${periodStr}${cellStr} · ${timeStr}</div>
+        <div class="trash-item-actions">
+          <button class="trash-item-btn" data-act="restore-cell" data-idx="${idx}" title="恢复到原格子">↩ 原格子</button>
+          <button class="trash-item-btn" data-act="restore-inbox" data-idx="${idx}" title="恢复到收集箱">📥 收集箱</button>
+          <button class="trash-item-btn danger" data-act="delete" data-idx="${idx}" title="彻底删除">✕</button>
+        </div>
+      </div>`;
+    }).join("");
+    // 绑定事件
+    el.trashList.querySelectorAll(".trash-item-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = parseInt(btn.dataset.idx);
+        const act = btn.dataset.act;
+        if (act === "restore-cell") restoreFromTrash(idx, "cell");
+        else if (act === "restore-inbox") restoreFromTrash(idx, "inbox");
+        else if (act === "delete") deleteFromTrash(idx);
+      });
+    });
+  }
+
+  function restoreFromTrash(idx, target) {
+    const trash = getTrash();
+    const item = trash[idx];
+    if (!item) return;
+    const meta = item._meta || {};
+    // 清除 _meta，恢复为纯 task
+    const restoredTask = normalizeTask(item);
+    if (target === "cell" && meta.date && meta.period !== undefined && meta.cell !== undefined) {
+      // 恢复到原格子
+      const originalDate = meta.date;
+      const prevDate = state.currentDate;
+      state.currentDate = originalDate;
+      const tasks = getCellTasks(meta.period, meta.cell).slice();
+      tasks.push(restoredTask);
+      setCellTasks(meta.period, meta.cell, tasks);
+      if (meta.done) setCellDone(meta.period, meta.cell, true);
+      if (meta.checklist && meta.checklist.length) setCellChecklist(meta.period, meta.cell, meta.checklist);
+      state.currentDate = prevDate;
+      renderAll();
+      toast(`已恢复到 ${formatDateLabel(originalDate)} 第${meta.period + 1}辰第${meta.cell + 1}格`, "success");
+    } else {
+      // 恢复到收集箱
+      const INBOX_KEY_LOCAL = "mandala-inbox-v2";
+      const inbox = load(INBOX_KEY_LOCAL, []);
+      inbox.unshift({
+        id: "inb_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8),
+        text: taskText(restoredTask),
+        tags: restoredTask.tag ? [restoredTask.tag] : [],
+        mainline: null, sideline: null,
+        priority: restoredTask.priority === "high" ? 2 : restoredTask.priority === "low" ? 0 : 1,
+        due: restoredTask.deadline || null,
+        estimate: restoredTask.estimate || null,
+        done: false, note: "",
+        createdAt: Date.now(),
+      });
+      save(INBOX_KEY_LOCAL, inbox);
+      toast("已恢复到收集箱", "success");
+    }
+    // 从回溯站移除
+    trash.splice(idx, 1);
+    saveTrash(trash);
+    renderTrashList();
+  }
+
+  function deleteFromTrash(idx) {
+    const trash = getTrash();
+    trash.splice(idx, 1);
+    saveTrash(trash);
+    renderTrashList();
+    toast("已彻底删除", "info");
+  }
+
+  function openTrashDialog() {
+    renderTrashList();
+    el.trashDialog.showModal();
+  }
+
+  // 绑定回溯站事件
+  if (el.trashBtn) el.trashBtn.addEventListener("click", openTrashDialog);
+  if (el.closeTrash) el.closeTrash.addEventListener("click", () => el.trashDialog.close());
+  if (el.trashDialog) el.trashDialog.addEventListener("click", (e) => { if (e.target === el.trashDialog) el.trashDialog.close(); });
+  if (el.trashClearAll) el.trashClearAll.addEventListener("click", () => {
+    if (!confirm("确认清空回溯站？此操作不可撤销")) return;
+    saveTrash([]);
+    renderTrashList();
+    toast("回溯站已清空", "info");
+  });
+  if (el.trashRestoreAll) el.trashRestoreAll.addEventListener("click", () => {
+    const trash = getTrash();
+    if (!trash.length) { toast("回溯站为空", "info"); return; }
+    if (!confirm(`将 ${trash.length} 条任务全部恢复到收集箱？`)) return;
+    const INBOX_KEY_LOCAL = "mandala-inbox-v2";
+    const inbox = load(INBOX_KEY_LOCAL, []);
+    trash.forEach((item) => {
+      inbox.unshift({
+        id: "inb_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8),
+        text: taskText(item),
+        tags: item.tag ? [item.tag] : [],
+        mainline: null, sideline: null,
+        priority: item.priority === "high" ? 2 : item.priority === "low" ? 0 : 1,
+        due: item.deadline || null, estimate: item.estimate || null,
+        done: false, note: "", createdAt: Date.now(),
+      });
+    });
+    save(INBOX_KEY_LOCAL, inbox);
+    saveTrash([]);
+    renderTrashList();
+    toast(`已恢复 ${trash.length} 条到收集箱`, "success");
+  });
 
   // ---------- 流程导向快捷操作 (workflow) ----------
   function updateWorkflowPhase() {
