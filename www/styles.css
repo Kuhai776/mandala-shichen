@@ -1494,6 +1494,41 @@ body:has(.pomodoro-bar[style*="display: block"]) .realm-fab {
   flex: 1;
   min-width: 0;
   transition: transform 0.3s ease;
+  cursor: pointer;
+  padding: 4px 2px;
+  border-radius: 6px;
+  position: relative;
+}
+.stage-node:hover {
+  transform: translateY(-2px);
+  background: rgba(124, 92, 255, 0.06);
+}
+.stage-node:hover .stage-node-dot {
+  transform: scale(1.2);
+  box-shadow: 0 0 8px rgba(124, 92, 255, 0.3);
+}
+.stage-node.current:hover .stage-node-dot {
+  transform: scale(1.5);
+}
+.stage-node::after {
+  content: "跳转";
+  position: absolute;
+  top: -22px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  color: var(--accent, #7c5cff);
+  background: var(--card-bg, var(--bg-card));
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--accent, #7c5cff);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  white-space: nowrap;
+}
+.stage-node:hover::after {
+  opacity: 0.9;
 }
 
 .stage-node-dot {
