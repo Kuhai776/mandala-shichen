@@ -23,7 +23,7 @@
           await Promise.all(keys.map(function (k) { return caches.delete(k); }));
         }
         // 检测当前 app.js 版本，若仍是旧的则强制带时间戳 reload
-        var APP_VERSION = "20260811a";
+        var APP_VERSION = "20260811b";
         if (sessionStorage.getItem("mandala-app-ver") !== APP_VERSION) {
           sessionStorage.setItem("mandala-app-ver", APP_VERSION);
           if (!location.search || location.search.indexOf("t=") === -1) {
@@ -34,7 +34,7 @@
       } catch (e) { console.warn("SW 清理失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260811a" />
+  <link rel="stylesheet" href="styles.css?v=20260811b" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
 </head>
@@ -229,27 +229,69 @@
       <!-- 引导式按钮（动态填充） -->
       <div class="chat-suggestions" id="chatSuggestions"></div>
 
-      <div class="quick-actions">
-        <!-- ① 输入 -->
-        <span class="qa-group-label">① 输入</span>
-        <button class="chip" data-action="example">示例任务</button>
-        <button class="chip" data-action="conv-tpl">💬 对话模板</button>
-        <!-- ② 填充 -->
-        <span class="qa-group-label">② 填充</span>
-        <button class="chip" data-action="auto">自动填充今日</button>
-        <button class="chip" data-action="clear-tasks">清空任务</button>
-        <!-- ③ 分支（可选） -->
-        <span class="qa-group-label qa-branch-label">③ 分支</span>
-        <button class="chip chip-branch" data-action="project">🔗 拆解项目</button>
-        <button class="chip chip-branch-return" data-action="return-main" style="display:none">↩ 返回主线</button>
-        <!-- ④ 跳转 -->
-        <span class="qa-group-label">④ 跳转</span>
-        <button class="chip realm-chip record-chip" data-action="go-record">📝 去记录</button>
-        <button class="chip realm-chip review-chip" data-action="go-review">📊 去复盘</button>
-        <!-- 工具 -->
-        <span class="qa-group-label">工具</span>
-        <button class="chip" data-action="search">🔍 联网搜索</button>
-        <button class="chip" data-action="knowledge-dim">🧠 7维度</button>
+      <!-- 流程导向快捷操作 -->
+      <div class="workflow" id="workflow">
+        <div class="wf-phase" data-phase="input">
+          <div class="wf-phase-header">
+            <span class="wf-phase-icon">💬</span>
+            <span class="wf-phase-name">输入</span>
+          </div>
+          <div class="wf-phase-actions">
+            <button class="wf-btn" data-action="example" title="填入示例任务文本">示例</button>
+            <button class="wf-btn" data-action="conv-tpl" title="选择对话模板">模板</button>
+            <button class="wf-btn" data-action="clear-input" title="清空输入框">清空</button>
+          </div>
+        </div>
+        <div class="wf-connector">›</div>
+        <div class="wf-phase" data-phase="decompose">
+          <div class="wf-phase-header">
+            <span class="wf-phase-icon">🔬</span>
+            <span class="wf-phase-name">拆解</span>
+          </div>
+          <div class="wf-phase-actions">
+            <button class="wf-btn wf-btn-primary" data-action="project" title="项目拆解模式">🔗 拆解</button>
+            <button class="wf-btn" data-action="hatch" title="孵化实验室">🥚 孵化</button>
+            <button class="wf-btn" data-action="knowledge-dim" title="7维度知识分析">🧠 维度</button>
+            <button class="wf-btn" data-action="search" title="联网搜索补充信息">🔍 搜索</button>
+          </div>
+          <button class="wf-btn wf-btn-return" data-action="return-main" title="返回主线" hidden>↩ 返回</button>
+        </div>
+        <div class="wf-connector">›</div>
+        <div class="wf-phase" data-phase="fill">
+          <div class="wf-phase-header">
+            <span class="wf-phase-icon">✅</span>
+            <span class="wf-phase-name">填入</span>
+          </div>
+          <div class="wf-phase-actions">
+            <button class="wf-btn wf-btn-primary" data-action="auto" title="AI 自动规划填入今日">⚡ 自动填入</button>
+            <button class="wf-btn" data-action="append" title="追加到已有任务">＋ 追加</button>
+            <button class="wf-btn" data-action="overwrite" title="清空后覆盖填入">🔄 覆盖</button>
+          </div>
+        </div>
+        <div class="wf-connector">›</div>
+        <div class="wf-phase" data-phase="execute">
+          <div class="wf-phase-header">
+            <span class="wf-phase-icon">📝</span>
+            <span class="wf-phase-name">执行</span>
+          </div>
+          <div class="wf-phase-actions">
+            <button class="wf-btn" data-action="go-record" title="切换到记录页">去记录</button>
+            <button class="wf-btn" data-action="pomodoro" title="启动专注计时">⏱ 专注</button>
+            <button class="wf-btn" data-action="screenshot" title="截图记录到时间格子">📷 截图</button>
+          </div>
+        </div>
+        <div class="wf-connector">›</div>
+        <div class="wf-phase" data-phase="review">
+          <div class="wf-phase-header">
+            <span class="wf-phase-icon">📊</span>
+            <span class="wf-phase-name">复盘</span>
+          </div>
+          <div class="wf-phase-actions">
+            <button class="wf-btn" data-action="go-review" title="切换到复盘页">去复盘</button>
+            <button class="wf-btn" data-action="ai-review" title="AI 智能生成复盘">🤖 AI复盘</button>
+            <button class="wf-btn" data-action="export" title="导出数据">⬇ 导出</button>
+          </div>
+        </div>
       </div>
     </section>
   </main>
