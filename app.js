@@ -1612,6 +1612,12 @@
     clearGridsBtn: document.getElementById("clearGridsBtn"),
     chatSuggestions: document.getElementById("chatSuggestions"),
     workflow: document.getElementById("workflow"),
+    featureBar: document.getElementById("featureBar"),
+    fbDims: document.getElementById("fbDims"),
+    fbDimsMore: document.getElementById("fbDimsMore"),
+    fbHatchHistory: document.getElementById("fbHatchHistory"),
+    fbHatchStart: document.getElementById("fbHatchStart"),
+    fbIndicators: document.getElementById("fbIndicators"),
     todayBtn: document.getElementById("todayBtn"),
     calendarBtn: document.getElementById("calendarBtn"),
     calendarDialog: document.getElementById("calendarDialog"),
@@ -8600,6 +8606,129 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     return html;
   }
 
+  // ---------- 特性增强条 (feature-bar) + 工具栏更多菜单 ----------
+  const ACTIVE_DIMS_KEY = "mandala-active-dims";
+  function loadActiveDims() {
+    try { return JSON.parse(localStorage.getItem(ACTIVE_DIMS_KEY)) || []; } catch { return []; }
+  }
+  function saveActiveDims(dims) {
+    localStorage.setItem(ACTIVE_DIMS_KEY, JSON.stringify(dims));
+  }
+
+  let activeDims = loadActiveDims();
+
+  function renderFeatureBar() {
+    if (!el.fbDims) return;
+    el.fbDims.innerHTML = KNOWLEDGE_DIMENSIONS.map((d) => {
+      const isActive = activeDims.includes(d.code);
+      return `<button class="fb-dim-chip ${isActive ? "active" : ""}" data-dim="${d.code}"
+        style="background:${d.color}20;color:${d.color};border-color:${isActive ? d.color : "transparent"}"
+        title="${d.name}：${d.subs.map((s) => s.name).join(" / ")}">
+        ${d.code}
+      </button>`;
+    }).join("");
+    el.fbDims.querySelectorAll(".fb-dim-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        const code = chip.dataset.dim;
+        const idx = activeDims.indexOf(code);
+        if (idx >= 0) activeDims.splice(idx, 1);
+        else activeDims.push(code);
+        saveActiveDims(activeDims);
+        renderFeatureBar();
+        renderFbIndicators();
+      });
+      chip.addEventListener("click", () => {
+        const code = chip.dataset.dim;
+        const dim = KNOWLEDGE_DIMENSIONS.find((d) => d.code === code);
+        if (dim) {
+          toast(`${dim.name} (${code})：${dim.subs.map((s) => s.name).join(" / ")}`, "info");
+        }
+      });
+    });
+  }
+
+  function renderFbIndicators() {
+    if (!el.fbIndicators) return;
+    const indicators = [];
+    if (activeDims.length > 0) {
+      indicators.push(`<span class="fb-indicator" style="background:rgba(124,92,255,.12);color:#7c5cff;border-color:rgba(124,92,255,.3)">🧠 ${activeDims.length}维度激活</span>`);
+    }
+    if (state.chatState === "project_breakdown") {
+      indicators.push(`<span class="fb-indicator" style="background:rgba(251,191,36,.12);color:#fbbf24;border-color:rgba(251,191,36,.3)">🔬 拆解中</span>`);
+    }
+    if (state.settings.mcpEnabled) {
+      indicators.push(`<span class="fb-indicator" style="background:rgba(59,130,246,.12);color:#3b82f6;border-color:rgba(59,130,246,.3)">🔌 MCP</span>`);
+    }
+    if (state.settings.searchEnabled) {
+      indicators.push(`<span class="fb-indicator" style="background:rgba(74,222,128,.12);color:#4ade80;border-color:rgba(74,222,128,.3)">🔍 联网</span>`);
+    }
+    el.fbIndicators.innerHTML = indicators.join("");
+  }
+
+  // 7维度更多按钮 → 打开知识维度对话框
+  if (el.fbDimsMore) {
+    el.fbDimsMore.addEventListener("click", () => {
+      openKnowledgeDimDialog();
+    });
+  }
+
+  // 孵化历史 + 开始
+  if (el.fbHatchHistory) {
+    el.fbHatchHistory.addEventListener("click", () => {
+      if (typeof openHatchHistoryDialog === "function") openHatchHistoryDialog();
+      else openHatchDialog({});
+    });
+  }
+  if (el.fbHatchStart) {
+    el.fbHatchStart.addEventListener("click", () => openHatchDialog({}));
+  }
+
+  // 工具栏「更多」菜单
+  const moreBtn = document.getElementById("moreBtn");
+  const moreMenu = document.getElementById("moreMenu");
+  if (moreBtn && moreMenu) {
+    moreBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      moreMenu.hidden = !moreMenu.hidden;
+    });
+    document.addEventListener("click", (e) => {
+      if (!moreMenu.hidden && !moreMenu.contains(e.target) && e.target !== moreBtn) {
+        moreMenu.hidden = true;
+      }
+    });
+    moreMenu.querySelectorAll(".tmm-item").forEach((item) => {
+      item.addEventListener("click", () => {
+        const action = item.dataset.action;
+        moreMenu.hidden = true;
+        if (action === "screenshot") {
+          document.getElementById("screenshotBtn")?.click();
+        } else if (action === "batch") {
+          document.getElementById("batchBtn")?.click();
+        } else if (action === "template") {
+          document.getElementById("templateBtn")?.click();
+        } else if (action === "undo") {
+          document.getElementById("undoBtn")?.click();
+        } else if (action === "clear") {
+          document.getElementById("clearGridsBtn")?.click();
+        } else if (action === "export") {
+          document.getElementById("exportBtn")?.click();
+        } else if (action === "ical") {
+          document.getElementById("icalBtn")?.click();
+        } else if (action === "import") {
+          document.getElementById("importFile")?.click();
+        } else if (action === "shortcut") {
+          document.getElementById("shortcutBtn")?.click();
+        } else if (action === "settings") {
+          document.getElementById("settingsBtn")?.click();
+        }
+      });
+    });
+  }
+
+  // 初始渲染
+  renderFeatureBar();
+  renderFbIndicators();
+
   // ---------- 流程导向快捷操作 (workflow) ----------
   function updateWorkflowPhase() {
     if (!el.workflow) return;
@@ -8621,6 +8750,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       const returnBtn = decomposePhase.querySelector(".wf-btn-return");
       if (returnBtn) returnBtn.hidden = !isBranch;
     }
+    // 同步特性指示器
+    renderFbIndicators();
   }
 
   document.querySelectorAll(".wf-btn").forEach((btn) => {
