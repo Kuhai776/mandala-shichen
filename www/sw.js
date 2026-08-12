@@ -1,6 +1,6 @@
 // 曼陀罗时辰 Service Worker
 // 策略：network-first（优先网络，失败回退缓存），避免缓存旧资源导致页面卡死
-const CACHE_NAME = "mandala-v39"; // 版本号升级（v38→v39 孵化自动入箱+7维度模板+任务级父子收纳+安卓兼容）
+const CACHE_NAME = "mandala-v41"; // v40→v41 时辰对齐+撤销+自动快照+连续打卡
 const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.json"];
 
 self.addEventListener("install", (event) => {
@@ -24,6 +24,26 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return; // 跨域不拦截
 
+  // 带版本号的静态资源（app.js?v=x、styles.css?v=x）与图片/字体：cache-first 秒开
+  // 版本号变化时由 index.html 强制换 URL，天然避免陈旧缓存
+  const versioned = /[?&]v=\d+/.test(url.search);
+  const immutableExt = /\.(png|jpe?g|gif|webp|svg|woff2?|ttf|eot|json|ics)$/.test(url.pathname);
+  if (versioned || immutableExt) {
+    event.respondWith(
+      caches.match(req).then((cached) => {
+        if (cached) return cached;
+        return fetch(req).then((resp) => {
+          if (resp && resp.status === 200) {
+            const clone = resp.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
+          }
+          return resp;
+        });
+      })
+    );
+    return;
+  }
+
   // 导航请求（HTML）始终走网络优先，确保拿到最新页面
   if (req.mode === "navigate") {
     event.respondWith(
@@ -38,7 +58,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 静态资源：network-first，网络失败再用缓存
+  // 其余静态资源：network-first，网络失败再用缓存
   event.respondWith(
     fetch(req)
       .then((resp) => {

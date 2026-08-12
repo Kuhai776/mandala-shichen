@@ -23,7 +23,7 @@
           await Promise.all(keys.map(function (k) { return caches.delete(k); }));
         }
         // 检测当前 app.js 版本，若仍是旧的则强制带时间戳 reload
-        var APP_VERSION = "20260812a";
+        var APP_VERSION = "20260812b";
         if (sessionStorage.getItem("mandala-app-ver") !== APP_VERSION) {
           sessionStorage.setItem("mandala-app-ver", APP_VERSION);
           if (!location.search || location.search.indexOf("t=") === -1) {
@@ -86,7 +86,7 @@
       } catch (e) { console.warn("[polyfill] dialog 降级失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260812a" />
+  <link rel="stylesheet" href="styles.css?v=20260812b" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
 </head>
@@ -861,6 +861,14 @@
             <div class="time-display" id="storageInfo">—</div>
           </div>
           <div class="form-group">
+            <label>自动快照备份</label>
+            <p class="panel-desc">每天首次打开自动备份一份完整数据（保留最近 7 份），可随时一键恢复，防误删/数据损坏。</p>
+            <div class="dialog-actions" style="justify-content:flex-start;">
+              <button class="tool-btn" id="snapshotNowBtn">📸 立即备份</button>
+            </div>
+            <div id="snapshotList" style="margin-top:8px;display:flex;flex-direction:column;gap:6px;"></div>
+          </div>
+          <div class="form-group">
             <label>清空数据</label>
             <div class="dialog-actions" style="justify-content:flex-start;">
               <button class="danger-btn" id="clearTodayData">清空当日</button>
@@ -1477,6 +1485,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=20260812a" defer></script>
+  <script src="app.js?v=20260812b" defer></script>
 </body>
 </html>

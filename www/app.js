@@ -87,13 +87,18 @@
     SECONDS_PER_CELL = SECONDS_PER_PERIOD / cells;
     START_SECONDS = start * 3600;
 
-    // 生成时辰名/地支：从 start 对应的地支开始，循环取用
-    // 子时=23-1（跨午夜），这里按"startHour 对应地支"简单映射：地支索引 = (startHour+1)%12
-    const startGlyphIdx = (start + 1) % 12;
+    // 生成时辰名/地支：按每个时段「起始时刻」对应的传统十二时辰精确对齐
+    // 传统十二时辰（每 2 时辰一个地支，子时=23-1 跨午夜）：
+    //   23→子(0) 1→丑(1) 3→寅(2) 5→卯(3) 7→辰(4) 9→巳(5)
+    //   11→午(6) 13→未(7) 15→申(8) 17→酉(9) 19→戌(10) 21→亥(11)
+    // 映射公式：glyphIdx = Math.floor(((hour + 1) % 24) / 2)
+    function glyphIdxOfHour(hour) {
+      return Math.floor(((hour + 1) % 24) / 2) % 12;
+    }
     PERIOD_NAMES = [];
     PERIOD_GLYPHS = [];
     for (let i = 0; i < periodCount; i++) {
-      const gi = (startGlyphIdx + i) % 12;
+      const gi = glyphIdxOfHour(start + i * periodHours);
       PERIOD_GLYPHS.push(FULL_GLYPHS[gi]);
       PERIOD_NAMES.push(FULL_PERIOD_NAMES[gi]);
     }
@@ -132,9 +137,16 @@
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.3.10";
-  const APP_VERSION_DATE = "2026-08-10";
+  const APP_VERSION = "2.5.0";
+  const APP_VERSION_DATE = "2026-08-12";
   const APP_CHANGELOG = [
+    { v: "2.5.0", date: "2026-08-12", items: [
+      "修复：时辰名称与时间精确对齐（申时=15-17点等十二时辰正确映射，自定义时段也准确）",
+      "性能：realm 感知渲染（只重绘当前页面，操作更跟手）+ 静态资源缓存秒开 + 更快的启动",
+      "新增：删除撤销（清空当日/批量删除后 toast 一键恢复）",
+      "新增：自动快照备份（每天首次打开备份一份，保留 7 份，设置里可恢复/删除/立即备份）",
+      "新增：复盘页🔥连续打卡统计（连续完成天数 + 最佳记录）",
+    ]},
     { v: "2.3.10", date: "2026-08-10", items: [
       "新增：孵化结果「📥 加入收集箱」按钮，选中步骤每步一条拆成收集箱条目（带维度/时长/风险标记）",
       "新增：收集箱弹窗顶部当前时辰九宫格预览（可 ‹ › 切换时辰，当前格高亮）",
@@ -1496,22 +1508,36 @@
   }
 
   // ---------- Toast ----------
-  function toast(msg, type, duration) {
+  // 支持可选操作按钮：toast(msg, type, duration, {label, onClick, timeout})
+  function toast(msg, type, duration, action) {
     const container = document.getElementById("toastContainer");
     const el = document.createElement("div");
     el.className = `toast ${type || ""}`;
-    el.textContent = msg;
+    el.innerHTML = `<span class="toast-msg"></span>`;
+    el.querySelector(".toast-msg").textContent = msg;
     el.addEventListener("click", () => {
       el.classList.add("hide");
       setTimeout(() => el.remove(), 300);
     });
+    if (action && action.label && typeof action.onClick === "function") {
+      const btn = document.createElement("button");
+      btn.className = "toast-action";
+      btn.textContent = action.label;
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        try { action.onClick(); } catch (err) { console.warn("toast action 失败", err); }
+        el.classList.add("hide");
+        setTimeout(() => el.remove(), 300);
+      });
+      el.appendChild(btn);
+    }
     container.appendChild(el);
     setTimeout(() => {
       if (el.parentNode) {
         el.classList.add("hide");
         setTimeout(() => el.remove(), 300);
       }
-    }, duration || 2400);
+    }, (action && action.timeout) || duration || 2400);
   }
 
   // ---------- 快捷键视觉浮层 ----------
@@ -1714,6 +1740,8 @@
     exportBtn: document.getElementById("exportBtn"),
     importBtn: document.getElementById("importBtn"),
     importFile: document.getElementById("importFile"),
+    snapshotNowBtn: document.getElementById("snapshotNowBtn"),
+    snapshotList: document.getElementById("snapshotList"),
     fabAdd: document.getElementById("fabAdd"),
     shortcutBtn: document.getElementById("shortcutBtn"),
     shortcutDialog: document.getElementById("shortcutDialog"),
@@ -2626,9 +2654,10 @@
     updateDateLabel();
     renderLongtaskBar();
     renderPeriodTabs();
-    renderMandala();
-    renderRecord();
-    renderReview();
+    // 性能优化：realm 感知渲染，只重绘当前可见页面（切 realm 由 setRealm 负责对应渲染）
+    if (state.realm === "plan") renderMandala();
+    else if (state.realm === "record") renderRecord();
+    else if (state.realm === "review") renderReview();
     renderOverview();
     renderClock();
     renderChatBadges();
@@ -2684,7 +2713,8 @@
         btn.classList.toggle("active", btn.dataset.realm === realm);
       });
     }
-    // 切到记录/复盘时同步重新渲染当前时辰内容
+    // 切到目标 realm 时重新渲染对应页面（与 renderAll 的条件渲染配合）
+    if (realm === "plan") renderMandala();
     if (realm === "record") renderRecord();
     if (realm === "review") renderReview();
     updateChatPlaceholder();
@@ -3376,6 +3406,29 @@
   }
 
   // 时辰总汇总
+  // 连续打卡统计：从今天向前数，每天「有任务且无未完成任务」计 1 天
+  const STREAK_KEY = "mandala-streak-v1"; // { best: N }
+  function computeStreak() {
+    let streak = 0;
+    const cur = strToDate(state.currentDate);
+    for (let i = 0; i < 400; i++) {
+      const d = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() - i);
+      const date = dateToStr(d);
+      const tasks = getDayTasks(date);
+      const total = Object.values(tasks).reduce((s, arr) => s + arr.length, 0);
+      if (!total) break; // 空档即断
+      const undone = Object.values(tasks).reduce((s, arr) => s + arr.filter((t) => !t.done).length, 0);
+      if (undone > 0) break; // 有未完成任务即断
+      streak++;
+    }
+    return streak;
+  }
+  function getBestStreak() { return load(STREAK_KEY, { best: 0 }).best || 0; }
+  function updateBestStreak(streak) {
+    if (streak <= 0) return;
+    const rec = load(STREAK_KEY, { best: 0 });
+    if (streak > (rec.best || 0)) { rec.best = streak; save(STREAK_KEY, rec); }
+  }
   function renderReviewSummary() {
     if (!el.reviewSummary) return;
     const dayTasks = getDayTasks(state.currentDate);
@@ -3390,7 +3443,17 @@
       }
     });
     const doneRate = filled ? Math.round((doneCount / filled) * 100) : 0;
+    // 连续打卡
+    const streak = computeStreak();
+    const best = getBestStreak();
+    updateBestStreak(streak);
     el.reviewSummary.innerHTML = `
+      <div class="streak-banner ${streak > 0 ? "on" : ""}">
+        <span class="streak-flame">${streak > 0 ? "🔥" : "🤝"}</span>
+        <span class="streak-text">连续打卡 <b>${streak}</b> 天</span>
+        ${best > 0 ? `<span class="streak-best">最佳 ${best} 天</span>` : ""}
+        <span class="streak-tip">每天无未完成任务即算打卡成功</span>
+      </div>
       <div class="summary-card">
         <div class="summary-num">${totalTasks}</div>
         <div class="summary-label">总任务</div>
@@ -9355,14 +9418,32 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       return;
     }
     if (!confirm(`清空 ${formatDateLabel(state.currentDate)} 的所有格子任务（共 ${count} 条）？`)) return;
-    state.tasks[state.currentDate] = {};
-    state.done[state.currentDate] = {};
-    state.checklists[state.currentDate] = {};
+    // 备份以便撤销
+    const date = state.currentDate;
+    const backupTasks = JSON.parse(JSON.stringify(state.tasks[date] || {}));
+    const backupDone = JSON.parse(JSON.stringify(state.done[date] || {}));
+    const backupChecklists = JSON.parse(JSON.stringify(state.checklists[date] || {}));
+    state.tasks[date] = {};
+    state.done[date] = {};
+    state.checklists[date] = {};
     save(STORAGE_KEY, state.tasks);
     save(DONE_KEY, state.done);
     save(CHECKLIST_KEY, state.checklists);
     renderAll();
-    toast(`已清空 ${count} 条任务`, "success");
+    toast(`已清空 ${count} 条任务`, "success", 0, {
+      label: "↩ 撤销",
+      timeout: 6000,
+      onClick: () => {
+        state.tasks[date] = backupTasks;
+        state.done[date] = backupDone;
+        state.checklists[date] = backupChecklists;
+        save(STORAGE_KEY, state.tasks);
+        save(DONE_KEY, state.done);
+        save(CHECKLIST_KEY, state.checklists);
+        renderAll();
+        toast("已恢复清空前的任务", "success");
+      },
+    });
   }
 
   el.clearGridsBtn.addEventListener("click", clearCurrentDayGrids);
@@ -9569,15 +9650,35 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   function batchDelete() {
     if (!state.batchSelected.size) return;
     if (!confirm(`删除 ${state.batchSelected.size} 个格子的任务？`)) return;
+    // 备份以便撤销
+    const date = state.currentDate;
+    const backup = {};
     state.batchSelected.forEach((k) => {
       const [p, c] = k.split("-").map(Number);
+      backup[k] = {
+        tasks: JSON.parse(JSON.stringify(getCellTasks(p, c))),
+        done: getCellDone(p, c),
+      };
       setCellTasks(p, c, []);
       setCellDone(p, c, false);
     });
     state.batchSelected.clear();
     renderAll();
     updateBatchCount();
-    toast("已批量删除", "info");
+    toast(`已批量删除 ${Object.keys(backup).length} 个格子`, "info", 0, {
+      label: "↩ 撤销",
+      timeout: 6000,
+      onClick: () => {
+        Object.keys(backup).forEach((k) => {
+          const [p, c] = k.split("-").map(Number);
+          setCellTasks(p, c, backup[k].tasks);
+          setCellDone(p, c, backup[k].done);
+        });
+        renderAll();
+        updateBatchCount();
+        toast("已恢复批量删除的任务", "success");
+      },
+    });
   }
 
   function batchMove() {
@@ -11920,6 +12021,108 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     return html;
   }
 
+  // ---------- 自动快照备份（每日一份，保留 7 份） ----------
+  const SNAPSHOT_KEY = "mandala-snapshots-v1";
+  const MAX_SNAPSHOTS = 7;
+  function getSnapshots() { return load(SNAPSHOT_KEY, { lastDate: "", list: [] }); }
+  function buildSnapshotData() {
+    return {
+      date: state.currentDate,
+      tasks: state.tasks, done: state.done, checklists: state.checklists, repeats: state.repeats,
+      records: state.records, reviews: state.reviews,
+      inbox: load(INBOX_KEY, []), inboxMainlines: load(INBOX_MAINLINES_KEY, []),
+      longTasks: load(LONGTASK_KEY, []),
+    };
+  }
+  function saveSnapshot(manual) {
+    const snap = getSnapshots();
+    const item = { ts: Date.now(), date: state.currentDate, manual: !!manual, data: buildSnapshotData() };
+    snap.list.unshift(item);
+    if (snap.list.length > MAX_SNAPSHOTS) snap.list.length = MAX_SNAPSHOTS;
+    snap.lastDate = state.currentDate;
+    try { save(SNAPSHOT_KEY, snap); }
+    catch (e) {
+      // 空间不足：缩小到 3 份再试
+      snap.list = snap.list.slice(0, 3);
+      try { save(SNAPSHOT_KEY, snap); } catch (e2) { console.warn("快照保存失败", e2); }
+    }
+    renderSnapshotList();
+    return item;
+  }
+  // 每天首次打开自动备份一份
+  function autoSnapshotToday() {
+    const snap = getSnapshots();
+    if (snap.lastDate === state.currentDate) return false;
+    saveSnapshot(false);
+    return true;
+  }
+  function restoreSnapshot(idx) {
+    const snap = getSnapshots();
+    const item = snap.list[idx];
+    if (!item || !item.data) return;
+    const days = Object.keys(item.data.tasks || {}).length;
+    if (!confirm(`恢复到 ${formatDateLabel(item.date)} 的快照？\n当前数据会被覆盖（${days} 天任务）。建议先手动导出备份。`)) return;
+    if (item.data.tasks) state.tasks = item.data.tasks;
+    if (item.data.done) state.done = item.data.done;
+    if (item.data.checklists) state.checklists = item.data.checklists;
+    if (item.data.repeats) state.repeats = item.data.repeats;
+    if (item.data.records) state.records = item.data.records;
+    if (item.data.reviews) state.reviews = item.data.reviews;
+    if (item.data.inbox) { inboxItems = item.data.inbox; saveInbox(); }
+    if (item.data.inboxMainlines) { inboxMainlines = item.data.inboxMainlines; saveMainlines(); }
+    if (item.data.longTasks) { longTasks = item.data.longTasks; saveLongTasks(); }
+    save(STORAGE_KEY, state.tasks);
+    save(DONE_KEY, state.done);
+    save(CHECKLIST_KEY, state.checklists);
+    save(REPEAT_KEY, state.repeats);
+    save(RECORD_KEY, state.records);
+    save(REVIEW_KEY, state.reviews);
+    refreshRepeats();
+    renderAll();
+    toast("已恢复到所选快照", "success");
+  }
+  function deleteSnapshot(idx) {
+    const snap = getSnapshots();
+    if (!snap.list[idx]) return;
+    snap.list.splice(idx, 1);
+    try { save(SNAPSHOT_KEY, snap); } catch (e) { /* 忽略 */ }
+    renderSnapshotList();
+    toast("快照已删除", "info");
+  }
+  function renderSnapshotList() {
+    if (!el.snapshotList) return;
+    const snap = getSnapshots();
+    if (!snap.list.length) {
+      el.snapshotList.innerHTML = '<div style="font-size:12px;color:var(--text-muted);">暂无快照，明天首次打开或点「立即备份」生成</div>';
+      return;
+    }
+    el.snapshotList.innerHTML = snap.list.map((s, idx) => {
+      const t = new Date(s.ts);
+      const label = `${t.getMonth() + 1}月${t.getDate()}日 ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
+      const isToday = s.date === state.currentDate;
+      return `<div class="snapshot-item" data-idx="${idx}">
+        <span class="snapshot-label">${s.manual ? "📸" : "🌙"} ${label}${isToday ? "（今日）" : ""}</span>
+        <span class="snapshot-actions">
+          <button class="snapshot-btn" data-act="restore" data-idx="${idx}" title="恢复到此时刻">↩ 恢复</button>
+          <button class="snapshot-btn danger" data-act="del" data-idx="${idx}" title="删除快照">✕</button>
+        </span>
+      </div>`;
+    }).join("");
+    el.snapshotList.querySelectorAll(".snapshot-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = parseInt(btn.dataset.idx);
+        if (btn.dataset.act === "restore") restoreSnapshot(idx);
+        else deleteSnapshot(idx);
+      });
+    });
+  }
+  if (el.snapshotNowBtn) {
+    el.snapshotNowBtn.addEventListener("click", () => {
+      saveSnapshot(true);
+      toast("已生成手动快照", "success");
+    });
+  }
+
   // ---------- 导出/导入 ----------
   el.exportBtn.addEventListener("click", () => {
     const data = {
@@ -12233,6 +12436,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     renderDraftBanner();
     loadPomoState();
     checkUrlSync();
+    autoSnapshotToday(); // 自动快照：每天首次打开备份一份
+    renderSnapshotList();
     pullSync(); // Hermes 联动：启动拉取远程数据合并
     renderHermesNotes(); // 恢复今日 Hermes notes 显示
     // 首次使用引导（延迟展示，等渲染完成）
