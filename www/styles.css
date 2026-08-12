@@ -1232,6 +1232,12 @@ body:has(.pomodoro-bar[style*="display: block"]) .realm-fab {
   margin: 0 auto;
   position: relative;
 }
+/* 安卓旧 WebView 兼容：不支持 aspect-ratio 时用固定高度保布局 */
+@supports not (aspect-ratio: 1 / 1) {
+  .mandala-grid { height: min(90vw, 480px); }
+  .overview-mini-grid { min-height: 90px; }
+  .cal-day { height: 44px; }
+}
 
 /* 时辰地支水印：九宫格中心透出大地支字，与 Hermes 台词统一 */
 .mandala-grid::before {
@@ -5359,7 +5365,9 @@ dialog.inbox-dialog-fullscreen {
   width: 100vw;
   max-width: 100vw;
   height: 100vh;
+  height: 100dvh;
   max-height: 100vh;
+  max-height: 100dvh;
   border: none;
   border-radius: 0;
   padding: 0;
@@ -5513,6 +5521,61 @@ dialog.inbox-dialog-fullscreen::backdrop {
 }
 .inbox-item-src {
   font-size: 11px;
+}
+/* 任务级主线/支线（父任务收纳子任务） */
+.inbox-parent-mark {
+  font-size: 10px;
+  color: var(--accent, #7c5cff);
+  background: rgba(124, 92, 255, 0.1);
+  border: 1px solid rgba(124, 92, 255, 0.25);
+  border-radius: 4px;
+  padding: 0 4px;
+  margin-left: 2px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.inbox-child-count {
+  font-size: 10px;
+  color: var(--accent, #7c5cff);
+  font-weight: 600;
+  margin-left: 2px;
+}
+.inbox-item-fold {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 10px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+.inbox-item-fold:hover {
+  background: rgba(124, 92, 255, 0.12);
+  color: var(--accent, #7c5cff);
+}
+.inbox-children {
+  margin-left: 22px;
+  padding-left: 10px;
+  border-left: 2px solid rgba(124, 92, 255, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.inbox-item.is-child .inbox-item-text {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.inbox-item.has-children {
+  border-left: 2px solid var(--accent, #7c5cff);
+}
+.hatch-summary-auto .hatch-summary-value {
+  font-size: 12px;
 }
 
 .inbox-tag-chips {
@@ -6284,8 +6347,10 @@ dialog.inbox-dialog-fullscreen::backdrop {
   padding: 0;
   max-width: 100vw;
   max-height: 100vh;
+  max-height: 100dvh;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   background: var(--bg, #1a1a2e);
   border: none;
   border-radius: 0;
