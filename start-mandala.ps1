@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     曼陀罗时辰 · PowerShell 一键启动 + 开机自启脚本
 .DESCRIPTION

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Mandala Shichen - One-click clone and start
 .DESCRIPTION
