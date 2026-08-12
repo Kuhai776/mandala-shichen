@@ -20,6 +20,12 @@ param(
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
 $RepoUrl = "https://github.com/Kuhai776/mandala-shichen.git"
+# GitHub 国内镜像（clone 失败时自动尝试）
+$MirrorRepos = @(
+  "https://ghproxy.net/https://github.com/Kuhai776/mandala-shichen.git",
+  "https://mirror.ghproxy.com/https://github.com/Kuhai776/mandala-shichen.git",
+  "https://ghfast.top/https://github.com/Kuhai776/mandala-shichen.git"
+)
 
 function Write-Step { param([string]$Msg) Write-Host "[1/4] " -ForegroundColor Cyan -NoNewline; Write-Host $Msg }
 function Write-OK   { param([string]$Msg) Write-Host "[OK]   " -ForegroundColor Green -NoNewline; Write-Host $Msg }
@@ -37,27 +43,39 @@ if (-not $SkipGit) {
     Write-Step "检查 git..."
     $gitCmd = Get-Command git -ErrorAction SilentlyContinue
     if (-not $gitCmd) {
-        Write-Warn "未检测到 git，尝试使用 PowerShell 内置下载（zip 包）..."
-        # 退化方案：下载 zip 并解压
-        $zipUrl = "https://github.com/Kuhai776/mandala-shichen/archive/refs/heads/main.zip"
+        Write-Warn "未检测到 git，使用 PowerShell 内置下载（zip 包 + 国内镜像）..."
         $zipPath = Join-Path $env:TEMP "mandala-shichen.zip"
-        try {
-            Write-Info "下载仓库 zip 包..."
-            Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
-            if (Test-Path $InstallDir) { Remove-Item $InstallDir -Recurse -Force }
-            Expand-Archive -Path $zipPath -DestinationPath $env:TEMP -Force
-            $extracted = Join-Path $env:TEMP "mandala-shichen-main"
-            if (Test-Path $extracted) {
-                Move-Item $extracted $InstallDir -Force
-            }
-            Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-            Write-OK "已下载并解压到: $InstallDir"
-        } catch {
-            Write-Err "下载失败: $($_.Exception.Message)"
+        $allZipUrls = @(
+            "https://ghproxy.net/https://github.com/Kuhai776/mandala-shichen/archive/refs/heads/main.zip",
+            "https://mirror.ghproxy.com/https://github.com/Kuhai776/mandala-shichen/archive/refs/heads/main.zip",
+            "https://github.com/Kuhai776/mandala-shichen/archive/refs/heads/main.zip"
+        )
+        $dlOk = $false
+        foreach ($zu in $allZipUrls) {
+            try {
+                Write-Info "下载: $zu"
+                Invoke-WebRequest -Uri $zu -OutFile $zipPath -UseBasicParsing -TimeoutSec 60
+                $dlOk = $true; break
+            } catch { Write-Warn "失败: $($_.Exception.Message)" }
+        }
+        if (-not $dlOk) {
+            Write-Err "所有下载源失败"
             Write-Host ""
             Write-Host "  解决方案:" -ForegroundColor Yellow
             Write-Host "  1. 安装 Git: https://git-scm.com/download/win" -ForegroundColor Yellow
             Write-Host "  2. 或手动下载 zip: https://github.com/Kuhai776/mandala-shichen/archive/refs/heads/main.zip" -ForegroundColor Yellow
+            Read-Host "按回车键退出"
+            exit 1
+        }
+        try {
+            if (Test-Path $InstallDir) { Remove-Item $InstallDir -Recurse -Force }
+            Expand-Archive -Path $zipPath -DestinationPath $env:TEMP -Force
+            $extracted = Join-Path $env:TEMP "mandala-shichen-main"
+            if (Test-Path $extracted) { Move-Item $extracted $InstallDir -Force }
+            Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+            Write-OK "已下载并解压到: $InstallDir"
+        } catch {
+            Write-Err "解压失败: $($_.Exception.Message)"
             Read-Host "按回车键退出"
             exit 1
         }
@@ -81,14 +99,54 @@ if (-not $SkipGit -and $gitCmd) {
     } else {
         Write-Info "正在 clone 仓库到: $InstallDir"
         if (Test-Path $InstallDir) { Remove-Item $InstallDir -Recurse -Force }
+        $cloneOk = $false
+        # 先试官方源
         git clone $RepoUrl $InstallDir 2>&1 | Out-Host
-        if ($LASTEXITCODE -ne 0) {
-            Write-Err "git clone 失败"
-            Read-Host "按回车键退出"
-            exit 1
+        if ($LASTEXITCODE -eq 0 -and (Test-Path (Join-Path $InstallDir "www"))) { $cloneOk = $true }
+        # 失败则尝试镜像源
+        if (-not $cloneOk) {
+            Write-Warn "官方源 clone 失败，尝试国内镜像..."
+            foreach ($mirror in $MirrorRepos) {
+                Write-Info "尝试: $mirror"
+                if (Test-Path $InstallDir) { Remove-Item $InstallDir -Recurse -Force -ErrorAction SilentlyContinue }
+                git clone $mirror $InstallDir 2>&1 | Out-Host
+                if ($LASTEXITCODE -eq 0 -and (Test-Path (Join-Path $InstallDir "www"))) {
+                    $cloneOk = $true
+                    Write-OK "镜像 clone 成功"
+                    break
+                }
+            }
+        }
+        if (-not $cloneOk) {
+            Write-Err "所有 git 源均失败，回退到 zip 下载..."
+            $zipUrl = "https://github.com/Kuhai776/mandala-shichen/archive/refs/heads/main.zip"
+            $zipMirrors = @(
+                "https://ghproxy.net/https://github.com/Kuhai776/mandala-shichen/archive/refs/heads/main.zip",
+                "https://mirror.ghproxy.com/https://github.com/Kuhai776/mandala-shichen/archive/refs/heads/main.zip"
+            )
+            $zipPath = Join-Path $env:TEMP "mandala-shichen.zip"
+            $dlOk = $false
+            $allZipUrls = @($zipUrl) + $zipMirrors
+            foreach ($zu in $allZipUrls) {
+                try {
+                    Write-Info "下载: $zu"
+                    Invoke-WebRequest -Uri $zu -OutFile $zipPath -UseBasicParsing -TimeoutSec 60
+                    $dlOk = $true; break
+                } catch { Write-Warn "下载失败: $($_.Exception.Message)" }
+            }
+            if (-not $dlOk) {
+                Write-Err "所有下载源失败，请检查网络"
+                Read-Host "按回车键退出"
+                exit 1
+            }
+            if (Test-Path $InstallDir) { Remove-Item $InstallDir -Recurse -Force }
+            Expand-Archive -Path $zipPath -DestinationPath $env:TEMP -Force
+            $extracted = Join-Path $env:TEMP "mandala-shichen-main"
+            if (Test-Path $extracted) { Move-Item $extracted $InstallDir -Force }
+            Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
         }
         Set-Location $InstallDir
-        Write-OK "仓库已 clone 到: $InstallDir"
+        Write-OK "仓库已就绪: $InstallDir"
     }
 } else {
     Set-Location $InstallDir
