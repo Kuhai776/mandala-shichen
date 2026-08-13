@@ -87,13 +87,18 @@
     SECONDS_PER_CELL = SECONDS_PER_PERIOD / cells;
     START_SECONDS = start * 3600;
 
-    // 生成时辰名/地支：从 start 对应的地支开始，循环取用
-    // 子时=23-1（跨午夜），这里按"startHour 对应地支"简单映射：地支索引 = (startHour+1)%12
-    const startGlyphIdx = (start + 1) % 12;
+    // 生成时辰名/地支：按每个时段「起始时刻」对应的传统十二时辰精确对齐
+    // 传统十二时辰（每 2 时辰一个地支，子时=23-1 跨午夜）：
+    //   23→子(0) 1→丑(1) 3→寅(2) 5→卯(3) 7→辰(4) 9→巳(5)
+    //   11→午(6) 13→未(7) 15→申(8) 17→酉(9) 19→戌(10) 21→亥(11)
+    // 映射公式：glyphIdx = Math.floor(((hour + 1) % 24) / 2)
+    function glyphIdxOfHour(hour) {
+      return Math.floor(((hour + 1) % 24) / 2) % 12;
+    }
     PERIOD_NAMES = [];
     PERIOD_GLYPHS = [];
     for (let i = 0; i < periodCount; i++) {
-      const gi = (startGlyphIdx + i) % 12;
+      const gi = glyphIdxOfHour(start + i * periodHours);
       PERIOD_GLYPHS.push(FULL_GLYPHS[gi]);
       PERIOD_NAMES.push(FULL_PERIOD_NAMES[gi]);
     }
@@ -132,9 +137,24 @@
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.3.10";
-  const APP_VERSION_DATE = "2026-08-10";
+  const APP_VERSION = "2.5.2";
+  const APP_VERSION_DATE = "2026-08-13";
   const APP_CHANGELOG = [
+    { v: "2.5.2", date: "2026-08-13", items: [
+      "新增：收集箱支线维度绑定（主线/支线都可关联 7 大维度并显示徽标；收集箱快速添加支线可选维度，编辑弹窗每行支线带维度下拉）",
+      "优化：整体布局收窄至 1024px，安卓窄屏下更紧凑居中、不再整体右偏",
+    ]},
+    { v: "2.5.1", date: "2026-08-13", items: [
+      "修复：九宫格与 AI 规划区整体右偏/右侧被裁切（根因：CSS Grid 子项 min-content 撑宽页面，现网格子项可收缩，任何宽度下都完整居中显示）",
+      "优化：安卓窄屏防溢出加固（长标题换行、代码块/长消息自动折行、九宫格正方形自适应）",
+    ]},
+    { v: "2.5.0", date: "2026-08-12", items: [
+      "修复：时辰名称与时间精确对齐（申时=15-17点等十二时辰正确映射，自定义时段也准确）",
+      "性能：realm 感知渲染（只重绘当前页面，操作更跟手）+ 静态资源缓存秒开 + 更快的启动",
+      "新增：删除撤销（清空当日/批量删除后 toast 一键恢复）",
+      "新增：自动快照备份（每天首次打开备份一份，保留 7 份，设置里可恢复/删除/立即备份）",
+      "新增：复盘页🔥连续打卡统计（连续完成天数 + 最佳记录）",
+    ]},
     { v: "2.3.10", date: "2026-08-10", items: [
       "新增：孵化结果「📥 加入收集箱」按钮，选中步骤每步一条拆成收集箱条目（带维度/时长/风险标记）",
       "新增：收集箱弹窗顶部当前时辰九宫格预览（可 ‹ › 切换时辰，当前格高亮）",
@@ -1496,22 +1516,36 @@
   }
 
   // ---------- Toast ----------
-  function toast(msg, type, duration) {
+  // 支持可选操作按钮：toast(msg, type, duration, {label, onClick, timeout})
+  function toast(msg, type, duration, action) {
     const container = document.getElementById("toastContainer");
     const el = document.createElement("div");
     el.className = `toast ${type || ""}`;
-    el.textContent = msg;
+    el.innerHTML = `<span class="toast-msg"></span>`;
+    el.querySelector(".toast-msg").textContent = msg;
     el.addEventListener("click", () => {
       el.classList.add("hide");
       setTimeout(() => el.remove(), 300);
     });
+    if (action && action.label && typeof action.onClick === "function") {
+      const btn = document.createElement("button");
+      btn.className = "toast-action";
+      btn.textContent = action.label;
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        try { action.onClick(); } catch (err) { console.warn("toast action 失败", err); }
+        el.classList.add("hide");
+        setTimeout(() => el.remove(), 300);
+      });
+      el.appendChild(btn);
+    }
     container.appendChild(el);
     setTimeout(() => {
       if (el.parentNode) {
         el.classList.add("hide");
         setTimeout(() => el.remove(), 300);
       }
-    }, duration || 2400);
+    }, (action && action.timeout) || duration || 2400);
   }
 
   // ---------- 快捷键视觉浮层 ----------
@@ -1714,6 +1748,8 @@
     exportBtn: document.getElementById("exportBtn"),
     importBtn: document.getElementById("importBtn"),
     importFile: document.getElementById("importFile"),
+    snapshotNowBtn: document.getElementById("snapshotNowBtn"),
+    snapshotList: document.getElementById("snapshotList"),
     fabAdd: document.getElementById("fabAdd"),
     shortcutBtn: document.getElementById("shortcutBtn"),
     shortcutDialog: document.getElementById("shortcutDialog"),
@@ -2626,9 +2662,10 @@
     updateDateLabel();
     renderLongtaskBar();
     renderPeriodTabs();
-    renderMandala();
-    renderRecord();
-    renderReview();
+    // 性能优化：realm 感知渲染，只重绘当前可见页面（切 realm 由 setRealm 负责对应渲染）
+    if (state.realm === "plan") renderMandala();
+    else if (state.realm === "record") renderRecord();
+    else if (state.realm === "review") renderReview();
     renderOverview();
     renderClock();
     renderChatBadges();
@@ -2684,7 +2721,8 @@
         btn.classList.toggle("active", btn.dataset.realm === realm);
       });
     }
-    // 切到记录/复盘时同步重新渲染当前时辰内容
+    // 切到目标 realm 时重新渲染对应页面（与 renderAll 的条件渲染配合）
+    if (realm === "plan") renderMandala();
     if (realm === "record") renderRecord();
     if (realm === "review") renderReview();
     updateChatPlaceholder();
@@ -3376,6 +3414,29 @@
   }
 
   // 时辰总汇总
+  // 连续打卡统计：从今天向前数，每天「有任务且无未完成任务」计 1 天
+  const STREAK_KEY = "mandala-streak-v1"; // { best: N }
+  function computeStreak() {
+    let streak = 0;
+    const cur = strToDate(state.currentDate);
+    for (let i = 0; i < 400; i++) {
+      const d = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() - i);
+      const date = dateToStr(d);
+      const tasks = getDayTasks(date);
+      const total = Object.values(tasks).reduce((s, arr) => s + arr.length, 0);
+      if (!total) break; // 空档即断
+      const undone = Object.values(tasks).reduce((s, arr) => s + arr.filter((t) => !t.done).length, 0);
+      if (undone > 0) break; // 有未完成任务即断
+      streak++;
+    }
+    return streak;
+  }
+  function getBestStreak() { return load(STREAK_KEY, { best: 0 }).best || 0; }
+  function updateBestStreak(streak) {
+    if (streak <= 0) return;
+    const rec = load(STREAK_KEY, { best: 0 });
+    if (streak > (rec.best || 0)) { rec.best = streak; save(STREAK_KEY, rec); }
+  }
   function renderReviewSummary() {
     if (!el.reviewSummary) return;
     const dayTasks = getDayTasks(state.currentDate);
@@ -3390,7 +3451,17 @@
       }
     });
     const doneRate = filled ? Math.round((doneCount / filled) * 100) : 0;
+    // 连续打卡
+    const streak = computeStreak();
+    const best = getBestStreak();
+    updateBestStreak(streak);
     el.reviewSummary.innerHTML = `
+      <div class="streak-banner ${streak > 0 ? "on" : ""}">
+        <span class="streak-flame">${streak > 0 ? "🔥" : "🤝"}</span>
+        <span class="streak-text">连续打卡 <b>${streak}</b> 天</span>
+        ${best > 0 ? `<span class="streak-best">最佳 ${best} 天</span>` : ""}
+        <span class="streak-tip">每天无未完成任务即算打卡成功</span>
+      </div>
       <div class="summary-card">
         <div class="summary-num">${totalTasks}</div>
         <div class="summary-label">总任务</div>
@@ -4878,6 +4949,17 @@ ${recordItems.join("\n") || "（无）"}
     el.hatchResult.hidden = false;
     el.hatchError.hidden = true;
     setHatchFsStatus("done", `完成 · ${result.steps.length} 步`);
+    // 自动将孵化步骤拆分进收集箱（无需手动点「加入收集箱」）
+    try {
+      const added = autoHatchStepsToInbox(result);
+      if (added > 0) {
+        const rawOutput = el.hatchStreamBody ? el.hatchStreamBody.textContent : "";
+        recordHatchHistory(hatchState.taskHash, hatchState.taskText, result, added, { rawOutput });
+        if (el.hatchSummary) {
+          // 在摘要行追加一条提示（不打扰用户，点击「加入收集箱」时不会重复）
+        }
+      }
+    } catch (e) { console.warn("自动入箱失败:", e); }
     // 过渡动画
     el.hatchResult.classList.remove("hatch-result-enter");
     void el.hatchResult.offsetWidth; // 触发重排
@@ -4895,6 +4977,7 @@ ${recordItems.join("\n") || "（无）"}
       <div class="hatch-summary-row"><span class="hatch-summary-label">风险等级</span><span class="hatch-summary-value ${riskClass}">${riskText}</span></div>
       ${result.first_blocker ? `<div class="hatch-summary-row"><span class="hatch-summary-label">最可能卡点</span><span class="hatch-summary-value">${escapeHtml(result.first_blocker)}</span></div>` : ""}
       <div class="hatch-summary-row"><span class="hatch-summary-label">拆解耗时</span><span class="hatch-summary-value">${elapsedSec}s</span></div>
+      <div class="hatch-summary-row hatch-summary-auto"><span class="hatch-summary-label">自动入箱</span><span class="hatch-summary-value" style="color:var(--accent,#7c5cff);">✓ 步骤已自动拆分进收集箱</span></div>
     `;
 
     // 捷径
@@ -5180,6 +5263,49 @@ ${recordItems.join("\n") || "（无）"}
     if (!text && el.hatchTaskInput) setTimeout(() => el.hatchTaskInput.focus(), 100);
   }
 
+  // 内置 7 维度+子维度引导问题模板（0 token，无 AI 也能按 7 维度提问）
+  function buildTemplateOnboardQuestions(taskText) {
+    const t = (taskText || "").trim();
+    const dims = KNOWLEDGE_DIMENSIONS;
+    // 每个子维度的核心追问模板
+    const subQ = (dimCode, subKey) => {
+      const d = dims.find((x) => x.code === dimCode);
+      if (!d) return "";
+      const s = d.subs.find((x) => x.key === subKey);
+      return s ? s.q : "";
+    };
+    // 用 HATCH_DIM_TEMPLATES 作为子维度问题模板（已针对任务填空）
+    const tmpl = HATCH_DIM_TEMPLATES;
+    // 基础 4 问（本质/必要前提/第一性原理/成功标准）+ 7 维度各挑核心子维度
+    const questions = [
+      { label: "本质", question: `用一句话说清「${t}」的核心本质是什么？`, dim: "", sub: "" },
+      { label: "必要前提", question: `完成「${t}」需要哪些前置条件或基础？`, dim: "", sub: "" },
+      { label: "第一性原理", question: `「${t}」最底层的原理/不可再分的要素是什么？`, dim: "", sub: "" },
+      { label: "成功标准", question: `怎样算「${t}」成功完成？可量化的标准是什么？`, dim: "", sub: "" },
+    ];
+    // 7 维度：每个维度挑最有代表性的 1 个子维度（共 7 题）
+    const dimPicks = [
+      { code: "Cl", sub: "def", label: "清晰度Cl" },
+      { code: "Cp", sub: "structure", label: "完整性Cp" },
+      { code: "B", sub: "condition", label: "边界感B" },
+      { code: "L", sub: "upstream", label: "关联度L" },
+      { code: "Ev", sub: "iteration", label: "进化感Ev" },
+      { code: "P", sub: "chunk", label: "精炼度P" },
+      { code: "Rh", sub: "cycle", label: "节奏感Rh" },
+    ];
+    dimPicks.forEach((dp) => {
+      const tmplFn = tmpl[`${dp.code}.${dp.sub}`];
+      const fallback = subQ(dp.code, dp.sub);
+      questions.push({
+        label: dp.label,
+        question: tmplFn ? tmplFn(t) : (fallback ? fallback.replace(/知识/g, `「${t}」`) : `关于「${t}」的 ${dp.code} 子维度：${dp.sub}`),
+        dim: dp.code,
+        sub: dp.sub,
+      });
+    });
+    return questions;
+  }
+
   // AI 根据任务生成针对性基石问题
   async function generateOnboardQuestions() {
     const text = (el.hatchTaskInput ? el.hatchTaskInput.value : "").trim();
@@ -5189,7 +5315,14 @@ ${recordItems.join("\n") || "（无）"}
       return;
     }
     if (!state.settings.apiUrl || !state.settings.apiKey) {
-      toast("请先在设置中配置 AI API", "error");
+      // 无 AI 时使用内置 7 维度模板（0 token，保证按 7 维度+子维度提问）
+      const tmplQs = buildTemplateOnboardQuestions(text);
+      toast("未配置 AI API，使用内置 7 维度模板提问", "info");
+      renderOnboardQuestions(tmplQs);
+      if (el.hatchOnboardGen) el.hatchOnboardGen.hidden = true;
+      if (el.hatchOnboardActions) el.hatchOnboardActions.hidden = false;
+      if (el.hatchOnboardTip) el.hatchOnboardTip.textContent = `💡 内置 7 维度模板生成了 ${tmplQs.length} 个问题，答完点「开始孵化」`;
+      toast(`已生成 ${tmplQs.length} 个 7 维度问题`, "success");
       return;
     }
     if (el.hatchGenBtn) el.hatchGenBtn.disabled = true;
@@ -5247,6 +5380,16 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       toast(`已生成 ${questions.length} 个针对性问题`, "success");
     } catch (e) {
       console.error("生成问询失败:", e);
+      // AI 失败时 fallback 到内置 7 维度模板，保证按 7 维度+子维度提问
+      const tmplQs = buildTemplateOnboardQuestions(text);
+      if (tmplQs && tmplQs.length) {
+        renderOnboardQuestions(tmplQs);
+        if (el.hatchOnboardGen) el.hatchOnboardGen.hidden = true;
+        if (el.hatchOnboardActions) el.hatchOnboardActions.hidden = false;
+        if (el.hatchOnboardTip) el.hatchOnboardTip.textContent = `⚠️ AI 生成失败，已用内置 7 维度模板（${tmplQs.length} 问），答完点「开始孵化」`;
+        toast("AI 失败，已用内置 7 维度模板", "info");
+        return;
+      }
       if (el.hatchGenTip) el.hatchGenTip.textContent = "❌ 生成失败：" + (e.message || "未知错误") + "，可跳过直接孵化";
       if (el.hatchGenBtn) el.hatchGenBtn.disabled = false;
       // 生成失败时显示「跳过问询直接孵化」按钮
@@ -5492,19 +5635,14 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
   }
 
   // 把孵化选中步骤拆成收集箱条目（每步一条，带维度/时长/风险标记）
-  function applyHatchToInbox() {
-    if (!hatchState.result || !hatchState.acceptedSet) return;
-    const acceptedSteps = (hatchState.result.steps || [])
-      .filter((_, i) => hatchState.acceptedSet.has(i));
-    if (!acceptedSteps.length) {
-      toast("未选择任何步骤", "info");
-      return;
-    }
-    const rawOutput = el.hatchStreamBody ? el.hatchStreamBody.textContent : "";
-    // 去重
+  // 把孵化步骤自动拆分进收集箱（去重，返回新增条数）
+  function autoHatchStepsToInbox(result) {
+    if (!result || !Array.isArray(result.steps) || !result.steps.length) return 0;
+    // 去重键：纯文本 + 维度
     const existingKeys = new Set(inboxItems.map((i) => `${(i.text || "").replace(/\s*#\w+(→\d+)?#\s*$/, "").trim()}|${(i.tags || []).join(",")}`));
     let added = 0;
-    acceptedSteps.forEach((s) => {
+    result.steps.forEach((s) => {
+      if (!s || !s.text) return;
       let taskText = s.text;
       const tags = [];
       if (s.target_dim) {
@@ -5521,14 +5659,16 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         tags,
         mainline: null,
         sideline: null,
+        parentId: null,
         priority: 0,
         due: null,
+        estimate: null,
         done: false,
         createdAt: Date.now(),
         kind: "hatch",
         meta: {
           source: "hatch",
-          hatchTask: hatchState.taskText,
+          hatchTask: hatchState.taskText || "",
           dim: s.target_dim || "",
           dimGoal: s.dim_goal || null,
           estimate: s.est_min || 0,
@@ -5537,11 +5677,25 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       });
       added++;
     });
+    if (added) saveInbox();
+    return added;
+  }
+
+  function applyHatchToInbox() {
+    if (!hatchState.result || !hatchState.acceptedSet) return;
+    const acceptedSteps = (hatchState.result.steps || [])
+      .filter((_, i) => hatchState.acceptedSet.has(i));
+    if (!acceptedSteps.length) {
+      toast("未选择任何步骤", "info");
+      return;
+    }
+    const rawOutput = el.hatchStreamBody ? el.hatchStreamBody.textContent : "";
+    // 复用公共去重入箱逻辑（按选中步骤）
+    const added = autoHatchStepsToInbox({ steps: acceptedSteps });
     if (!added) {
       toast("所选步骤已在收集箱中", "info");
       return;
     }
-    saveInbox();
     // 记录孵化历史
     recordHatchHistory(hatchState.taskHash, hatchState.taskText, hatchState.result, added, { rawOutput });
     const dimCount = acceptedSteps.filter((s) => s.target_dim).length;
@@ -9272,14 +9426,32 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       return;
     }
     if (!confirm(`清空 ${formatDateLabel(state.currentDate)} 的所有格子任务（共 ${count} 条）？`)) return;
-    state.tasks[state.currentDate] = {};
-    state.done[state.currentDate] = {};
-    state.checklists[state.currentDate] = {};
+    // 备份以便撤销
+    const date = state.currentDate;
+    const backupTasks = JSON.parse(JSON.stringify(state.tasks[date] || {}));
+    const backupDone = JSON.parse(JSON.stringify(state.done[date] || {}));
+    const backupChecklists = JSON.parse(JSON.stringify(state.checklists[date] || {}));
+    state.tasks[date] = {};
+    state.done[date] = {};
+    state.checklists[date] = {};
     save(STORAGE_KEY, state.tasks);
     save(DONE_KEY, state.done);
     save(CHECKLIST_KEY, state.checklists);
     renderAll();
-    toast(`已清空 ${count} 条任务`, "success");
+    toast(`已清空 ${count} 条任务`, "success", 0, {
+      label: "↩ 撤销",
+      timeout: 6000,
+      onClick: () => {
+        state.tasks[date] = backupTasks;
+        state.done[date] = backupDone;
+        state.checklists[date] = backupChecklists;
+        save(STORAGE_KEY, state.tasks);
+        save(DONE_KEY, state.done);
+        save(CHECKLIST_KEY, state.checklists);
+        renderAll();
+        toast("已恢复清空前的任务", "success");
+      },
+    });
   }
 
   el.clearGridsBtn.addEventListener("click", clearCurrentDayGrids);
@@ -9486,15 +9658,35 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   function batchDelete() {
     if (!state.batchSelected.size) return;
     if (!confirm(`删除 ${state.batchSelected.size} 个格子的任务？`)) return;
+    // 备份以便撤销
+    const date = state.currentDate;
+    const backup = {};
     state.batchSelected.forEach((k) => {
       const [p, c] = k.split("-").map(Number);
+      backup[k] = {
+        tasks: JSON.parse(JSON.stringify(getCellTasks(p, c))),
+        done: getCellDone(p, c),
+      };
       setCellTasks(p, c, []);
       setCellDone(p, c, false);
     });
     state.batchSelected.clear();
     renderAll();
     updateBatchCount();
-    toast("已批量删除", "info");
+    toast(`已批量删除 ${Object.keys(backup).length} 个格子`, "info", 0, {
+      label: "↩ 撤销",
+      timeout: 6000,
+      onClick: () => {
+        Object.keys(backup).forEach((k) => {
+          const [p, c] = k.split("-").map(Number);
+          setCellTasks(p, c, backup[k].tasks);
+          setCellDone(p, c, backup[k].done);
+        });
+        renderAll();
+        updateBatchCount();
+        toast("已恢复批量删除的任务", "success");
+      },
+    });
   }
 
   function batchMove() {
@@ -10512,6 +10704,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   let inboxMultiSelect = new Set(); // 多选 idx 集合
   let inboxMultiSelectMode = false;
   let inboxMode = "quick"; // 当前收集箱模式：quick / mainline / long
+  const inboxCollapsedParents = new Set(); // 已折叠的父任务 id（任务级主线/支线）
 
   // 旧数据迁移（v1 → v2）
   function migrateInboxItem(it) {
@@ -10598,6 +10791,21 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     });
     saveMainlines();
     saveInbox();
+  }
+  function updateSideline(mainlineId, sidelineId, patch) {
+    const ml = getMainline(mainlineId);
+    if (!ml) return;
+    const sl = ml.sidelines.find((s) => s.id === sidelineId);
+    if (sl) { Object.assign(sl, patch); saveMainlines(); }
+  }
+  // 7 维度选项 HTML（主线/支线共用：code + 全名）
+  function dimSelectOptions(selected) {
+    return '<option value="">不关联</option>' + KNOWLEDGE_DIMENSIONS.map((d) =>
+      `<option value="${d.code}" ${selected === d.code ? "selected" : ""}>${d.code} · ${d.name}</option>`).join("");
+  }
+  // 支线维度徽标（code 缩略显示，与主线徽标一致）
+  function sidelineDimBadge(sl, mlColor) {
+    return sl && sl.dim ? `<span class="ml-sl-dim" style="background:${mlColor}20;color:${mlColor};">${escapeHtml(sl.dim)}</span>` : "";
   }
 
   // 任务归属
@@ -10721,7 +10929,16 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       toast("该格子已有相同任务", "info");
       return;
     }
-    const newTask = { text, ...meta };
+    // 若该任务有子任务，把子任务文本一并拼入（任务级主线/支线），并在文字中标记层级
+    const children = inboxItems.filter((c) => c.parentId === it.id);
+    let taskText = text;
+    if (children.length) {
+      const childLines = children
+        .map((c) => "  ↳ " + (c.text || "").trim())
+        .filter(Boolean);
+      if (childLines.length) taskText = taskText + "\n" + childLines.join("\n");
+    }
+    const newTask = { text: taskText, ...meta };
     // 携带 inbox 任务的归属和孵化信息
     if (it.mainline) newTask.mainline = it.mainline;
     if (it.sideline) newTask.sideline = it.sideline;
@@ -10813,6 +11030,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         return `<div class="ml-sl-item" data-ml="${ml.id}" data-sl="${sl.id}">
           <span class="ml-sl-bullet" style="background:${ml.color};"></span>
           <span class="ml-sl-name">${escapeHtml(sl.name)}</span>
+          ${sidelineDimBadge(sl, ml.color)}
           <span class="ml-sl-count">${slTasks.filter((t) => !t.done).length}/${slTasks.length}</span>
           <button class="ml-sl-del" data-ml="${ml.id}" data-sl="${sl.id}" title="删除支线">✕</button>
         </div>`;
@@ -10832,6 +11050,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         ${ml.desc ? `<div class="ml-desc">${escapeHtml(ml.desc)}</div>` : ""}
         <div class="ml-sl-list">${slHtml}</div>
         <div class="ml-sl-add">
+          <select class="ml-sl-dim-sel" data-ml="${ml.id}" title="新支线关联维度">${dimSelectOptions("")}</select>
           <input type="text" class="ml-sl-input" data-ml="${ml.id}" placeholder="新支线名称（回车添加）" maxlength="20" />
         </div>
       </div>`;
@@ -10869,7 +11088,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         if (e.key === "Enter") {
           const name = inp.value.trim();
           if (name) {
-            addSideline(inp.dataset.ml, name);
+            const dimSel = el.mlList.querySelector(`.ml-sl-dim-sel[data-ml="${inp.dataset.ml}"]`);
+            addSideline(inp.dataset.ml, name, dimSel ? dimSel.value : "");
             inp.value = "";
             renderMainlineList();
           }
@@ -10891,10 +11111,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         <label>颜色</label>
         <input type="color" id="mleColor" value="${ml.color}" style="width:40px;height:32px;" />
         <label>关联维度</label>
-        <select id="mleDim">
-          <option value="">不关联</option>
-          ${DIM_CODES.map((d) => `<option value="${d}" ${ml.dim === d ? "selected" : ""}>${d}</option>`).join("")}
-        </select>
+        <select id="mleDim">${dimSelectOptions(ml.dim)}</select>
         <label>描述</label>
         <input type="text" id="mleDesc" value="${escapeHtml(ml.desc || "")}" maxlength="60" style="flex:1;" />
         <button class="tool-btn" id="mleSave" style="background:var(--accent);color:#fff;">💾 保存</button>
@@ -10905,12 +11122,15 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         const slTasks = tasks.filter((t) => t.sideline === sl.id);
         return `<div class="mle-sl-row">
           <span class="ml-sl-bullet" style="background:${ml.color};"></span>
-          <span>${escapeHtml(sl.name)}</span>
+          <span class="mle-sl-name">${escapeHtml(sl.name)}</span>
+          ${sidelineDimBadge(sl, ml.color)}
           <span class="ml-sl-count">${slTasks.filter((t) => !t.done).length}/${slTasks.length}</span>
+          <select class="mle-sl-dim" data-ml="${ml.id}" data-sl="${sl.id}" title="关联维度（分支）">${dimSelectOptions(sl.dim || "")}</select>
           <button class="mle-sl-del" data-sl="${sl.id}">✕</button>
         </div>`;
       }).join("")}</div>
       <div class="mle-sl-add">
+        <select id="mleSlDim" title="新支线关联维度">${dimSelectOptions("")}</select>
         <input type="text" id="mleSlName" placeholder="新支线名称（回车添加）" maxlength="20" />
       </div>
       <hr style="margin:16px 0;border:none;border-top:1px solid var(--border);" />
@@ -10940,12 +11160,20 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         openMlEdit(mlId); // 重新打开
       });
     });
+    // 支线关联维度：改动即保存
+    el.mlEditBody.querySelectorAll(".mle-sl-dim").forEach((sel) => {
+      sel.addEventListener("change", () => {
+        updateSideline(mlId, sel.dataset.sl, { dim: sel.value });
+        openMlEdit(mlId); // 重新打开刷新徽标
+      });
+    });
     const slInput = document.getElementById("mleSlName");
+    const slDimSel = document.getElementById("mleSlDim");
     if (slInput) {
       slInput.addEventListener("keydown", (e) => {
         if (e.key === "Enter") {
           const name = slInput.value.trim();
-          if (name) { addSideline(mlId, name); slInput.value = ""; openMlEdit(mlId); }
+          if (name) { addSideline(mlId, name, slDimSel ? slDimSel.value : ""); slInput.value = ""; openMlEdit(mlId); }
         }
       });
     }
@@ -11017,6 +11245,57 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     });
   }
 
+  // 任务级主线/支线收纳弹窗（把任务收纳到另一个任务下，如「嵌入式」收纳「STM32」）
+  function openLinkParentDialog(taskId) {
+    const it = inboxItems.find((i) => i.id === taskId);
+    if (!it) return;
+    // 候选父任务：收集箱里其他任务（排除自己、排除自己的子任务，避免循环引用）
+    const childIds = new Set();
+    const collectChildren = (pid) => {
+      inboxItems.forEach((c) => { if (c.parentId === pid && !childIds.has(c.id)) { childIds.add(c.id); collectChildren(c.id); } });
+    };
+    collectChildren(taskId);
+    const candidates = inboxItems.filter((c) => c.id !== taskId && !childIds.has(c.id));
+    if (!candidates.length) {
+      toast("收集箱中暂无其他任务可收纳", "info");
+      return;
+    }
+    const curParent = it.parentId ? inboxItems.find((p) => p.id === it.parentId) : null;
+    el.assignBody.innerHTML = `
+      <p style="margin:0 0 6px;color:var(--text-secondary);font-size:13px;">把 <b style="color:var(--accent);">${escapeHtml(it.text.slice(0, 30))}</b> 收纳到哪个父任务下？（任务级主线/支线）</p>
+      <p style="margin:0 0 12px;color:var(--text-muted);font-size:12px;">被收纳的任务会显示在父任务下方缩进展示，点击父任务可展开/收起子任务</p>
+      <div class="assign-form">
+        <label>父任务</label>
+        <select id="assignMl" style="flex:1;">
+          <option value="">— 取消收纳（独立任务）—</option>
+          ${candidates.map((c) => `<option value="${c.id}" ${curParent && curParent.id === c.id ? "selected" : ""}>${escapeHtml(c.text.slice(0, 40))}${c.parentId ? "（子任务）" : ""}</option>`).join("")}
+        </select>
+      </div>
+      <div class="assign-actions">
+        <button class="tool-btn" id="assignCancel">取消</button>
+        <button class="tool-btn" id="assignOk" style="background:var(--accent);color:#fff;">收纳</button>
+      </div>
+    `;
+    el.assignDialog.showModal();
+    document.getElementById("assignCancel").addEventListener("click", () => el.assignDialog.close());
+    document.getElementById("assignOk").addEventListener("click", () => {
+      const parentId = document.getElementById("assignMl").value;
+      it.parentId = parentId || null;
+      // 收纳后清空主线/支线归属，以任务级父任务为准
+      if (parentId) { it.mainline = null; it.sideline = null; }
+      saveInbox();
+      el.assignDialog.close();
+      renderInboxList();
+      renderInboxStats();
+      if (parentId) {
+        const p = inboxItems.find((x) => x.id === parentId);
+        toast(`已收纳到「${p ? p.text.slice(0, 20) : "父任务"}」下`, "success");
+      } else {
+        toast("已取消收纳", "info");
+      }
+    });
+  }
+
   // 统计行
   function renderInboxStats() {
     if (!el.inboxStatsInline) return;
@@ -11038,7 +11317,9 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     // 按主线分组
     const grouped = {};
     const ungrouped = [];
+    // 顶层任务：无父任务的（子任务跟随父任务渲染）
     filtered.forEach((item) => {
+      if (item.parentId) return; // 子任务由父任务递归渲染
       if (item.mainline) {
         if (!grouped[item.mainline]) grouped[item.mainline] = {};
         const slKey = item.sideline || "_none";
@@ -11071,9 +11352,9 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       (ml.sidelines || []).forEach((sl) => {
         if (!grouped[ml.id][sl.id]) return;
         html += `<div class="inbox-sl-group">
-          <div class="inbox-sl-head"><span class="inbox-sl-bullet" style="background:${ml.color};"></span><span>${escapeHtml(sl.name)}</span><span class="inbox-sl-count">${grouped[ml.id][sl.id].filter((i) => !i.done).length}</span></div>
+          <div class="inbox-sl-head"><span class="inbox-sl-bullet" style="background:${ml.color};"></span><span>${escapeHtml(sl.name)}</span>${sidelineDimBadge(sl, ml.color)}<span class="inbox-sl-count">${grouped[ml.id][sl.id].filter((i) => !i.done).length}</span></div>
           <div class="inbox-sl-body">`;
-        html += grouped[ml.id][sl.id].map((item) => renderInboxItemHtml(item)).join("");
+        html += grouped[ml.id][sl.id].map((item) => renderInboxItemWithChildren(item)).join("");
         html += `</div></div>`;
       });
       // 无支线
@@ -11083,7 +11364,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         } else {
           html += `<div class="inbox-sl-body">`;
         }
-        html += grouped[ml.id]["_none"].map((item) => renderInboxItemHtml(item)).join("");
+        html += grouped[ml.id]["_none"].map((item) => renderInboxItemWithChildren(item)).join("");
         if (ml.sidelines && ml.sidelines.length) html += `</div></div>`; else html += `</div>`;
       }
       html += `</div></div>`;
@@ -11091,7 +11372,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     // 未分组
     if (ungrouped.length) {
       html += `<div class="inbox-ungrouped"><div class="inbox-ungrouped-head"><span>📂 未分组</span><span class="inbox-sl-count">${ungrouped.filter((i) => !i.done).length}</span></div><div class="inbox-sl-body">`;
-      html += ungrouped.map((item) => renderInboxItemHtml(item)).join("");
+      html += ungrouped.map((item) => renderInboxItemWithChildren(item)).join("");
       html += `</div></div>`;
     }
     el.inboxList.innerHTML = html;
@@ -11127,6 +11408,14 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     // 速记/孵化型
     const dragAttr = item.done ? "" : 'draggable="true"';
     const fromHatch = item.kind === "hatch" ? '<span class="inbox-item-src" title="来自孵化">🥚</span>' : "";
+    // 父任务归属（任务级主线/支线：如「嵌入式」收纳「STM32」）
+    let parentMark = "";
+    if (item.parentId) {
+      const parent = inboxItems.find((p) => p.id === item.parentId);
+      parentMark = `<span class="inbox-parent-mark" title="收纳于父任务">📎 ${parent ? escapeHtml(parent.text) : "已删除的父任务"}</span>`;
+    }
+    const childCount = inboxItems.filter((c) => c.parentId === item.id).length;
+    const childMark = childCount ? `<span class="inbox-child-count" title="${childCount} 个子任务">↳${childCount}</span>` : "";
     const priorityBadge = item.priority === 2 ? '<span class="inbox-priority-badge p-urgent" title="紧急">⚡</span>'
       : item.priority === 1 ? '<span class="inbox-priority-badge p-important" title="重要">★</span>' : "";
     const tagsHtml = (item.tags || []).map((t) => `<span class="inbox-item-tag" style="background:${tagColor(t)}20;color:${tagColor(t)};">${escapeHtml(t)}</span>`).join("");
@@ -11141,23 +11430,46 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     })() : "";
     const checked = inboxMultiSelect.has(realIdx) ? "checked" : "";
     const msCb = inboxMultiSelectMode ? `<input type="checkbox" class="inbox-ms-cb" data-idx="${realIdx}" ${checked} />` : "";
-    return `<div class="inbox-item ${item.done ? "done" : ""}" data-idx="${realIdx}" data-id="${escapeHtml(item.id)}" ${dragAttr}>
+    // 父任务折叠开关（有子任务时显示）
+    const collapsed = inboxCollapsedParents.has(item.id);
+    const foldBtn = childCount
+      ? `<button class="inbox-item-fold" data-idx="${realIdx}" title="${collapsed ? "展开子任务" : "收起子任务"}">${collapsed ? "▶" : "▼"}</button>`
+      : "";
+    return `<div class="inbox-item ${item.done ? "done" : ""} ${item.parentId ? "is-child" : (childCount ? "has-children" : "")}" data-idx="${realIdx}" data-id="${escapeHtml(item.id)}" ${dragAttr}>
       ${msCb}
+      ${foldBtn}
       <span class="inbox-item-cb ${item.done ? "checked" : ""}" data-idx="${realIdx}">${item.done ? "✓" : ""}</span>
       <span class="inbox-item-grip" title="拖到九宫格规划，或拖到主线头归组">⠿</span>
       ${priorityBadge}
       <span class="inbox-item-text" data-idx="${realIdx}" title="单击发给AI，双击编辑">${escapeHtml(item.text)}</span>
+      ${childMark}
+      ${parentMark}
       ${fromHatch}
       ${tagsHtml}
       ${dueStr}
       <span class="inbox-item-date">${dateStr}</span>
       <button class="inbox-item-act" data-act="assign" data-idx="${realIdx}" title="归属主线/支线">📂</button>
+      <button class="inbox-item-act" data-act="link" data-idx="${realIdx}" title="${item.parentId ? "改/取消收纳于父任务" : "收纳到父任务（任务级主线/支线）"}">🔗</button>
       <button class="inbox-item-act" data-act="prio" data-idx="${realIdx}" title="设置优先级">⭐</button>
       <button class="inbox-item-act" data-act="due" data-idx="${realIdx}" title="设置截止时间">📅</button>
       <button class="inbox-item-act" data-act="hatch" data-idx="${realIdx}" title="🥚 AI 孵化拆解为子步骤">🥚</button>
       <button class="inbox-item-act" data-act="tolong" data-idx="${realIdx}" title="转为长期任务">🗺️</button>
       <button class="inbox-item-del" data-idx="${realIdx}" title="删除">✕</button>
     </div>`;
+  }
+
+  // 渲染任务及其子任务（任务级主线/支线层级）
+  function renderInboxItemWithChildren(item) {
+    let html = renderInboxItemHtml(item);
+    // 折叠时不渲染子任务
+    if (inboxCollapsedParents.has(item.id)) return html;
+    const children = inboxItems.filter((c) => c.parentId === item.id);
+    if (children.length) {
+      html += `<div class="inbox-children">`;
+      children.forEach((child) => { html += renderInboxItemWithChildren(child); });
+      html += `</div>`;
+    }
+    return html;
   }
 
   // 绑定条目事件
@@ -11180,10 +11492,28 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     el.inboxList.querySelectorAll(".inbox-item-del").forEach((btn) => {
       btn.addEventListener("click", () => {
         const idx = parseInt(btn.dataset.idx);
+        const removedId = inboxItems[idx] ? inboxItems[idx].id : null;
         inboxItems.splice(idx, 1);
+        // 删除父任务时，解除其子任务的父引用（不删除子任务，回收到独立任务）
+        if (removedId) {
+          inboxItems.forEach((c) => { if (c.parentId === removedId) c.parentId = null; });
+          inboxCollapsedParents.delete(removedId);
+        }
         saveInbox();
         updateInboxTagDatalist();
         renderInboxFilter();
+        renderInboxList();
+      });
+    });
+    // 父任务折叠/展开
+    el.inboxList.querySelectorAll(".inbox-item-fold").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const idx = parseInt(btn.dataset.idx);
+        const it = inboxItems[idx];
+        if (!it) return;
+        if (inboxCollapsedParents.has(it.id)) inboxCollapsedParents.delete(it.id);
+        else inboxCollapsedParents.add(it.id);
         renderInboxList();
       });
     });
@@ -11200,6 +11530,10 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         }
         if (act === "assign") {
           openAssignDialog(it.id);
+          return;
+        }
+        if (act === "link") {
+          openLinkParentDialog(it.id);
           return;
         }
         if (act === "prio") {
@@ -11721,6 +12055,108 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     return html;
   }
 
+  // ---------- 自动快照备份（每日一份，保留 7 份） ----------
+  const SNAPSHOT_KEY = "mandala-snapshots-v1";
+  const MAX_SNAPSHOTS = 7;
+  function getSnapshots() { return load(SNAPSHOT_KEY, { lastDate: "", list: [] }); }
+  function buildSnapshotData() {
+    return {
+      date: state.currentDate,
+      tasks: state.tasks, done: state.done, checklists: state.checklists, repeats: state.repeats,
+      records: state.records, reviews: state.reviews,
+      inbox: load(INBOX_KEY, []), inboxMainlines: load(INBOX_MAINLINES_KEY, []),
+      longTasks: load(LONGTASK_KEY, []),
+    };
+  }
+  function saveSnapshot(manual) {
+    const snap = getSnapshots();
+    const item = { ts: Date.now(), date: state.currentDate, manual: !!manual, data: buildSnapshotData() };
+    snap.list.unshift(item);
+    if (snap.list.length > MAX_SNAPSHOTS) snap.list.length = MAX_SNAPSHOTS;
+    snap.lastDate = state.currentDate;
+    try { save(SNAPSHOT_KEY, snap); }
+    catch (e) {
+      // 空间不足：缩小到 3 份再试
+      snap.list = snap.list.slice(0, 3);
+      try { save(SNAPSHOT_KEY, snap); } catch (e2) { console.warn("快照保存失败", e2); }
+    }
+    renderSnapshotList();
+    return item;
+  }
+  // 每天首次打开自动备份一份
+  function autoSnapshotToday() {
+    const snap = getSnapshots();
+    if (snap.lastDate === state.currentDate) return false;
+    saveSnapshot(false);
+    return true;
+  }
+  function restoreSnapshot(idx) {
+    const snap = getSnapshots();
+    const item = snap.list[idx];
+    if (!item || !item.data) return;
+    const days = Object.keys(item.data.tasks || {}).length;
+    if (!confirm(`恢复到 ${formatDateLabel(item.date)} 的快照？\n当前数据会被覆盖（${days} 天任务）。建议先手动导出备份。`)) return;
+    if (item.data.tasks) state.tasks = item.data.tasks;
+    if (item.data.done) state.done = item.data.done;
+    if (item.data.checklists) state.checklists = item.data.checklists;
+    if (item.data.repeats) state.repeats = item.data.repeats;
+    if (item.data.records) state.records = item.data.records;
+    if (item.data.reviews) state.reviews = item.data.reviews;
+    if (item.data.inbox) { inboxItems = item.data.inbox; saveInbox(); }
+    if (item.data.inboxMainlines) { inboxMainlines = item.data.inboxMainlines; saveMainlines(); }
+    if (item.data.longTasks) { longTasks = item.data.longTasks; saveLongTasks(); }
+    save(STORAGE_KEY, state.tasks);
+    save(DONE_KEY, state.done);
+    save(CHECKLIST_KEY, state.checklists);
+    save(REPEAT_KEY, state.repeats);
+    save(RECORD_KEY, state.records);
+    save(REVIEW_KEY, state.reviews);
+    refreshRepeats();
+    renderAll();
+    toast("已恢复到所选快照", "success");
+  }
+  function deleteSnapshot(idx) {
+    const snap = getSnapshots();
+    if (!snap.list[idx]) return;
+    snap.list.splice(idx, 1);
+    try { save(SNAPSHOT_KEY, snap); } catch (e) { /* 忽略 */ }
+    renderSnapshotList();
+    toast("快照已删除", "info");
+  }
+  function renderSnapshotList() {
+    if (!el.snapshotList) return;
+    const snap = getSnapshots();
+    if (!snap.list.length) {
+      el.snapshotList.innerHTML = '<div style="font-size:12px;color:var(--text-muted);">暂无快照，明天首次打开或点「立即备份」生成</div>';
+      return;
+    }
+    el.snapshotList.innerHTML = snap.list.map((s, idx) => {
+      const t = new Date(s.ts);
+      const label = `${t.getMonth() + 1}月${t.getDate()}日 ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
+      const isToday = s.date === state.currentDate;
+      return `<div class="snapshot-item" data-idx="${idx}">
+        <span class="snapshot-label">${s.manual ? "📸" : "🌙"} ${label}${isToday ? "（今日）" : ""}</span>
+        <span class="snapshot-actions">
+          <button class="snapshot-btn" data-act="restore" data-idx="${idx}" title="恢复到此时刻">↩ 恢复</button>
+          <button class="snapshot-btn danger" data-act="del" data-idx="${idx}" title="删除快照">✕</button>
+        </span>
+      </div>`;
+    }).join("");
+    el.snapshotList.querySelectorAll(".snapshot-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = parseInt(btn.dataset.idx);
+        if (btn.dataset.act === "restore") restoreSnapshot(idx);
+        else deleteSnapshot(idx);
+      });
+    });
+  }
+  if (el.snapshotNowBtn) {
+    el.snapshotNowBtn.addEventListener("click", () => {
+      saveSnapshot(true);
+      toast("已生成手动快照", "success");
+    });
+  }
+
   // ---------- 导出/导入 ----------
   el.exportBtn.addEventListener("click", () => {
     const data = {
@@ -12034,6 +12470,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     renderDraftBanner();
     loadPomoState();
     checkUrlSync();
+    autoSnapshotToday(); // 自动快照：每天首次打开备份一份
+    renderSnapshotList();
     pullSync(); // Hermes 联动：启动拉取远程数据合并
     renderHermesNotes(); // 恢复今日 Hermes notes 显示
     // 首次使用引导（延迟展示，等渲染完成）
