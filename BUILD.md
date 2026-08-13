@@ -106,7 +106,7 @@ adb install -r android/app/build/outputs/apk/release/app-release.apk  # 覆盖�
 
 - `appId`: `com.kuhai.mandala`
 - `appName`: 曼陀罗时辰
-- `webDir`: `.`（仓库根目录，PWA 静态文件直接作为 Web 资源）
+- `webDir`: `www`（PWA 静态文件统一放在 www 目录，作为 Web 资源）
 - `server.url`: `https://mandala.lz-oc.xyz`（可选，让 APK 从远程加载最新版，而非打包的本地文件）
 
 **server.url 模式**：APK 启动时从 `https://mandala.lz-oc.xyz` 加载，代码更新后无需重新打包 APK。
@@ -118,6 +118,6 @@ adb install -r android/app/build/outputs/apk/release/app-release.apk  # 覆盖�
 |---|---|
 | `cap add android` 失败 | 检查 ANDROID_HOME 环境变量，确认 Android SDK 已装 |
 | 构建报 SDK 版本错误 | 在 Android Studio SDK Manager 装 Platform 34 |
-| APK 白屏 | 检查 capacitor.config.json 的 webDir 路径，确认 index.html 在根目录 |
+| APK 白屏 | 检查 capacitor.config.json 的 webDir 路径，确认 www/index.html 存在且资源已 `npm run sync` |
 | 震动不生效 | 确认手机未开省电模式，检查 @capacitor/haptics 是否已 install |
 | 状态栏不隐藏 | 检查 @capacitor/status-bar 插件版本，6.0+ 需 Capacitor 6 |
