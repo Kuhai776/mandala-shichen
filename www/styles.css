@@ -424,7 +424,7 @@ textarea, input, select {
   grid-template-columns: 1fr;
   gap: 16px;
   padding: 16px;
-  max-width: 1200px;
+  max-width: 1024px;
   margin: 0 auto;
 }
 
@@ -444,7 +444,7 @@ textarea, input, select {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  max-width: 1200px;
+  max-width: 1024px;
   margin-left: auto;
   margin-right: auto;
 }
@@ -2407,7 +2407,7 @@ body:has(.pomodoro-bar[style*="display: block"]) .realm-fab {
 /* ---------- 全天概览 ---------- */
 .overview-section {
   padding: 0 16px 24px;
-  max-width: 1200px;
+  max-width: 1024px;
   margin: 0 auto;
 }
 
@@ -5700,7 +5700,7 @@ dialog.inbox-dialog-fullscreen::backdrop {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  max-width: 1200px;
+  max-width: 1024px;
   margin-left: auto;
   margin-right: auto;
 }
@@ -7549,18 +7549,23 @@ dialog.inbox-dialog-fullscreen::backdrop {
 .ml-sl-count { margin-left:auto; font-size:10px; color:var(--text-secondary); }
 .ml-sl-del { background:none; border:none; color:var(--text-secondary); cursor:pointer; font-size:12px; }
 .ml-sl-del:hover { color:#ff6b6b; }
-.ml-sl-add { margin-top:6px; }
-.ml-sl-input { width:100%; padding:6px 8px; background:var(--input-bg); border:1px solid var(--input-border); border-radius:6px; color:var(--text-primary); font-size:12px; }
+.ml-sl-dim { font-size:10px; padding:1px 6px; border-radius:8px; font-weight:600; flex-shrink:0; }
+.ml-sl-add { display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; }
+.ml-sl-dim-sel { padding:5px 6px; background:var(--input-bg); border:1px solid var(--input-border); border-radius:6px; color:var(--text-primary); font-size:11px; max-width:110px; }
+.ml-sl-input { flex:1; min-width:120px; padding:6px 8px; background:var(--input-bg); border:1px solid var(--input-border); border-radius:6px; color:var(--text-primary); font-size:12px; }
 
 /* 主线编辑弹窗 */
 .ml-edit-form { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 .ml-edit-form label { font-size:12px; color:var(--text-secondary); }
 .ml-edit-form input, .ml-edit-form select { padding:6px 8px; background:var(--input-bg); border:1px solid var(--input-border); border-radius:6px; color:var(--text-primary); font-size:13px; }
 .mle-sl-list { margin:8px 0; }
-.mle-sl-row { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--border); }
+.mle-sl-row { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+.mle-sl-name { color:var(--text-primary); }
+.mle-sl-dim { padding:4px 6px; background:var(--input-bg); border:1px solid var(--input-border); border-radius:6px; color:var(--text-primary); font-size:11px; max-width:110px; }
 .mle-sl-del { margin-left:auto; background:none; border:none; color:#ff6b6b; cursor:pointer; }
-.mle-sl-add { margin-top:8px; }
-.mle-sl-add input { width:100%; padding:6px 8px; background:var(--input-bg); border:1px solid var(--input-border); border-radius:6px; color:var(--text-primary); }
+.mle-sl-add { display:flex; gap:6px; margin-top:8px; align-items:center; flex-wrap:wrap; }
+.mle-sl-add select { padding:5px 6px; background:var(--input-bg); border:1px solid var(--input-border); border-radius:6px; color:var(--text-primary); font-size:11px; max-width:110px; }
+.mle-sl-add input { flex:1; min-width:120px; padding:6px 8px; background:var(--input-bg); border:1px solid var(--input-border); border-radius:6px; color:var(--text-primary); }
 .mle-tasks { max-height:200px; overflow-y:auto; }
 .mle-task { display:flex; gap:8px; padding:6px 0; font-size:13px; border-bottom:1px solid var(--border); }
 .mle-task.done { opacity:0.5; text-decoration:line-through; }

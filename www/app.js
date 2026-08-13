@@ -137,9 +137,13 @@
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.5.1";
+  const APP_VERSION = "2.5.2";
   const APP_VERSION_DATE = "2026-08-13";
   const APP_CHANGELOG = [
+    { v: "2.5.2", date: "2026-08-13", items: [
+      "新增：收集箱支线维度绑定（主线/支线都可关联 7 大维度并显示徽标；收集箱快速添加支线可选维度，编辑弹窗每行支线带维度下拉）",
+      "优化：整体布局收窄至 1024px，安卓窄屏下更紧凑居中、不再整体右偏",
+    ]},
     { v: "2.5.1", date: "2026-08-13", items: [
       "修复：九宫格与 AI 规划区整体右偏/右侧被裁切（根因：CSS Grid 子项 min-content 撑宽页面，现网格子项可收缩，任何宽度下都完整居中显示）",
       "优化：安卓窄屏防溢出加固（长标题换行、代码块/长消息自动折行、九宫格正方形自适应）",
@@ -10788,6 +10792,21 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     saveMainlines();
     saveInbox();
   }
+  function updateSideline(mainlineId, sidelineId, patch) {
+    const ml = getMainline(mainlineId);
+    if (!ml) return;
+    const sl = ml.sidelines.find((s) => s.id === sidelineId);
+    if (sl) { Object.assign(sl, patch); saveMainlines(); }
+  }
+  // 7 维度选项 HTML（主线/支线共用：code + 全名）
+  function dimSelectOptions(selected) {
+    return '<option value="">不关联</option>' + KNOWLEDGE_DIMENSIONS.map((d) =>
+      `<option value="${d.code}" ${selected === d.code ? "selected" : ""}>${d.code} · ${d.name}</option>`).join("");
+  }
+  // 支线维度徽标（code 缩略显示，与主线徽标一致）
+  function sidelineDimBadge(sl, mlColor) {
+    return sl && sl.dim ? `<span class="ml-sl-dim" style="background:${mlColor}20;color:${mlColor};">${escapeHtml(sl.dim)}</span>` : "";
+  }
 
   // 任务归属
   function assignTaskToMainline(taskId, mainlineId, sidelineId) {
@@ -11011,6 +11030,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         return `<div class="ml-sl-item" data-ml="${ml.id}" data-sl="${sl.id}">
           <span class="ml-sl-bullet" style="background:${ml.color};"></span>
           <span class="ml-sl-name">${escapeHtml(sl.name)}</span>
+          ${sidelineDimBadge(sl, ml.color)}
           <span class="ml-sl-count">${slTasks.filter((t) => !t.done).length}/${slTasks.length}</span>
           <button class="ml-sl-del" data-ml="${ml.id}" data-sl="${sl.id}" title="删除支线">✕</button>
         </div>`;
@@ -11030,6 +11050,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         ${ml.desc ? `<div class="ml-desc">${escapeHtml(ml.desc)}</div>` : ""}
         <div class="ml-sl-list">${slHtml}</div>
         <div class="ml-sl-add">
+          <select class="ml-sl-dim-sel" data-ml="${ml.id}" title="新支线关联维度">${dimSelectOptions("")}</select>
           <input type="text" class="ml-sl-input" data-ml="${ml.id}" placeholder="新支线名称（回车添加）" maxlength="20" />
         </div>
       </div>`;
@@ -11067,7 +11088,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         if (e.key === "Enter") {
           const name = inp.value.trim();
           if (name) {
-            addSideline(inp.dataset.ml, name);
+            const dimSel = el.mlList.querySelector(`.ml-sl-dim-sel[data-ml="${inp.dataset.ml}"]`);
+            addSideline(inp.dataset.ml, name, dimSel ? dimSel.value : "");
             inp.value = "";
             renderMainlineList();
           }
@@ -11089,10 +11111,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         <label>颜色</label>
         <input type="color" id="mleColor" value="${ml.color}" style="width:40px;height:32px;" />
         <label>关联维度</label>
-        <select id="mleDim">
-          <option value="">不关联</option>
-          ${DIM_CODES.map((d) => `<option value="${d}" ${ml.dim === d ? "selected" : ""}>${d}</option>`).join("")}
-        </select>
+        <select id="mleDim">${dimSelectOptions(ml.dim)}</select>
         <label>描述</label>
         <input type="text" id="mleDesc" value="${escapeHtml(ml.desc || "")}" maxlength="60" style="flex:1;" />
         <button class="tool-btn" id="mleSave" style="background:var(--accent);color:#fff;">💾 保存</button>
@@ -11103,12 +11122,15 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         const slTasks = tasks.filter((t) => t.sideline === sl.id);
         return `<div class="mle-sl-row">
           <span class="ml-sl-bullet" style="background:${ml.color};"></span>
-          <span>${escapeHtml(sl.name)}</span>
+          <span class="mle-sl-name">${escapeHtml(sl.name)}</span>
+          ${sidelineDimBadge(sl, ml.color)}
           <span class="ml-sl-count">${slTasks.filter((t) => !t.done).length}/${slTasks.length}</span>
+          <select class="mle-sl-dim" data-ml="${ml.id}" data-sl="${sl.id}" title="关联维度（分支）">${dimSelectOptions(sl.dim || "")}</select>
           <button class="mle-sl-del" data-sl="${sl.id}">✕</button>
         </div>`;
       }).join("")}</div>
       <div class="mle-sl-add">
+        <select id="mleSlDim" title="新支线关联维度">${dimSelectOptions("")}</select>
         <input type="text" id="mleSlName" placeholder="新支线名称（回车添加）" maxlength="20" />
       </div>
       <hr style="margin:16px 0;border:none;border-top:1px solid var(--border);" />
@@ -11138,12 +11160,20 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         openMlEdit(mlId); // 重新打开
       });
     });
+    // 支线关联维度：改动即保存
+    el.mlEditBody.querySelectorAll(".mle-sl-dim").forEach((sel) => {
+      sel.addEventListener("change", () => {
+        updateSideline(mlId, sel.dataset.sl, { dim: sel.value });
+        openMlEdit(mlId); // 重新打开刷新徽标
+      });
+    });
     const slInput = document.getElementById("mleSlName");
+    const slDimSel = document.getElementById("mleSlDim");
     if (slInput) {
       slInput.addEventListener("keydown", (e) => {
         if (e.key === "Enter") {
           const name = slInput.value.trim();
-          if (name) { addSideline(mlId, name); slInput.value = ""; openMlEdit(mlId); }
+          if (name) { addSideline(mlId, name, slDimSel ? slDimSel.value : ""); slInput.value = ""; openMlEdit(mlId); }
         }
       });
     }
@@ -11322,7 +11352,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       (ml.sidelines || []).forEach((sl) => {
         if (!grouped[ml.id][sl.id]) return;
         html += `<div class="inbox-sl-group">
-          <div class="inbox-sl-head"><span class="inbox-sl-bullet" style="background:${ml.color};"></span><span>${escapeHtml(sl.name)}</span><span class="inbox-sl-count">${grouped[ml.id][sl.id].filter((i) => !i.done).length}</span></div>
+          <div class="inbox-sl-head"><span class="inbox-sl-bullet" style="background:${ml.color};"></span><span>${escapeHtml(sl.name)}</span>${sidelineDimBadge(sl, ml.color)}<span class="inbox-sl-count">${grouped[ml.id][sl.id].filter((i) => !i.done).length}</span></div>
           <div class="inbox-sl-body">`;
         html += grouped[ml.id][sl.id].map((item) => renderInboxItemWithChildren(item)).join("");
         html += `</div></div>`;
