@@ -552,6 +552,10 @@ textarea, input, select {
 
 .realm-page {
   position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   background: var(--bg-card);
   border-radius: var(--radius);
@@ -7603,5 +7607,78 @@ dialog.inbox-dialog-fullscreen::backdrop {
 .hh-step-text { flex:1; color:var(--text-primary); }
 .hh-step-est { font-size:11px; color:var(--text-secondary); }
 .hh-shortcut, .hh-blocker { font-size:12px; color:var(--text-secondary); margin:6px 0; padding:6px 8px; background:var(--input-bg); border-radius:6px; }
+
+/* ============================================================
+ * v2.5.1 网格子项防溢出根治（所有宽度生效，非仅 ≤480px）
+ * 根因：CSS Grid 子项默认 min-width:auto，轨道会被子项 min-content
+ *       撑宽（实测 390px 视口下 body 被撑到 450px+），导致整页超出
+ *       视口、右侧被裁切；两栏时九宫格列被挤压到 min-content、
+ *       聊天列溢出到视口右侧。
+ * 修复：允许网格子项收缩到轨道宽度，超宽内容在内部滚动/换行，
+ *       九宫格与 AI 规划区在任何宽度下都完整居中显示。
+ * ============================================================ */
+.app-main > * { min-width: 0; }
+.realm-container, .chat-section,
+.chat-header, .chat-header h2, .chat-badges, .chat-messages,
+.chat-input-area, .chat-input, .stage-progress, .quick-toggle,
+.qt-group, .qt-group-chips, .feature-bar, .chat-input-meta, .chat-suggestions,
+.workflow, .wf-phase, .mandala-header, .plan-jump, .record-toolbar,
+.review-header, .review-actions, .review-summary { min-width: 0; }
+
+/* ============================================================
+ * v2.5.0 安卓窄屏防溢出加固
+ * 目标：任何手机宽度下（320-480px）九宫格与 AI 规划区完整显示，
+ *       杜绝「靠最右只显示一部分」的横向截断
+ * ============================================================ */
+@media (max-width: 480px) {
+  html, body { max-width: 100%; }
+  body { width: 100%; }
+
+  /* 主要容器强制不超过视口宽 */
+  .app-main, .app-header, .realm-switcher, .realm-container,
+  .realm-page, .chat-section, .overview-section, .feature-bar,
+  .workflow, .period-tabs, .toolbar, .chat-input-area { max-width: 100%; }
+
+  .realm-page { overflow-x: hidden; }
+
+  /* 九宫格：在手机宽度下始终完整居中显示（正方形） */
+  .mandala-grid {
+    max-width: calc(100vw - 40px);
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  @supports not (aspect-ratio: 1 / 1) {
+    .mandala-grid { height: calc(100vw - 40px); }
+  }
+
+  /* 聊天区头部：长标题不撑破布局 */
+  .chat-header { flex-wrap: wrap; }
+  .chat-header h2 { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-badges { flex-wrap: wrap; min-width: 0; max-width: 100%; }
+  .chat-input-area { flex-wrap: nowrap; min-width: 0; }
+  .chat-input { min-width: 0; }
+  .quick-reply-hint { white-space: normal; word-break: break-word; }
+  .fill-mode-toggle { min-width: 0; }
+
+  /* 流程导向操作：按钮行允许换行 */
+  .workflow .wf-phase { min-width: 0; }
+  .wf-phase-actions { flex-wrap: wrap; }
+
+  /* 标题/长文本通用兜底 */
+  .mandala-title, .record-title, .review-title, .realm-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .record-toolbar { flex-wrap: wrap; }
+  .review-actions { flex-wrap: wrap; }
+  .plan-jump { flex-wrap: wrap; }
+
+  /* 代码块/长消息横向可控，不撑破页面 */
+  pre, code { white-space: pre-wrap; word-break: break-word; max-width: 100%; }
+  .message-content { min-width: 0; overflow-wrap: break-word; word-break: break-word; }
+  table { max-width: 100%; }
+  .markdown-body img, .message-content img { max-width: 100%; height: auto; }
+
+  /* 全屏对话框（孵化/收集箱）确保不溢出 */
+  .inbox-fullscreen-content, .hatch-fs-content { max-width: 100%; overflow-x: hidden; }
+}
 
 
