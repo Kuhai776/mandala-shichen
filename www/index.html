@@ -23,7 +23,7 @@
           await Promise.all(keys.map(function (k) { return caches.delete(k); }));
         }
         // 检测当前 app.js 版本，若仍是旧的则强制带时间戳 reload
-        var APP_VERSION = "20260813c";
+        var APP_VERSION = "20260814a";
         if (sessionStorage.getItem("mandala-app-ver") !== APP_VERSION) {
           sessionStorage.setItem("mandala-app-ver", APP_VERSION);
           if (!location.search || location.search.indexOf("t=") === -1) {
@@ -86,7 +86,7 @@
       } catch (e) { console.warn("[polyfill] dialog 降级失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260813c" />
+  <link rel="stylesheet" href="styles.css?v=20260814a" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
   <script src="lib/mermaid.min.js"></script>
@@ -95,7 +95,7 @@
   <!-- 顶部状态栏 -->
   <header class="app-header">
     <div class="header-left">
-      <h1 class="app-title">曼陀罗时辰 <span class="version-badge" id="versionBadge" title="点击查看更新日志">v2.6.0</span></h1>
+      <h1 class="app-title">曼陀罗时辰 <span class="version-badge" id="versionBadge" title="点击查看更新日志">v2.7.0</span></h1>
       <p class="app-subtitle" id="dateLabel">AI 对话式日程规划</p>
     </div>
     <div class="header-right">
@@ -183,6 +183,10 @@
         <div class="mandala-header">
           <button class="icon-btn nav-btn" id="prevPeriod" aria-label="上一时辰">‹</button>
           <div class="mandala-title" id="mandalaTitle">第 1 时辰 · 5:00 - 7:00</div>
+          <div class="plan-view-switch" id="planViewSwitch" title="切换视图">
+            <button class="pv-tab active" data-pv="grid">九宫格</button>
+            <button class="pv-tab" data-pv="kanban">看板</button>
+          </div>
           <button class="icon-btn nav-btn" id="nextPeriod" aria-label="下一时辰">›</button>
         </div>
         <div class="mandala-grid" id="mandalaGrid"></div>
@@ -1119,6 +1123,7 @@
           </div>
           <div class="hatch-onboard-actions" id="hatchOnboardActions" hidden>
             <span class="hatch-onboard-tip" id="hatchOnboardTip">💡 答得越具体，AI 拆解越精准</span>
+            <button class="tool-btn" id="hatchRegenBtn" title="清空当前问题，重新生成">↩ 重新问询</button>
             <button class="primary-btn" id="hatchStartBtn">🥚 开始孵化</button>
           </div>
         </div>
@@ -1290,7 +1295,7 @@
   <dialog class="changelog-dialog" id="changelogDialog">
     <div class="dialog-content">
       <div class="dialog-header">
-        <h3>📋 更新日志 <span class="version-badge" id="changelogVersion">v1.8.0</span></h3>
+        <h3>📋 更新日志 <span class="version-badge" id="changelogVersion">v2.7.0</span></h3>
         <button class="icon-btn" id="closeChangelog" aria-label="关闭">✕</button>
       </div>
       <div class="dialog-body" id="changelogBody"></div>
@@ -1347,6 +1352,8 @@
             </select>
             <input type="text" id="inboxCategory" placeholder="#标签 (逗号分隔多个)" maxlength="60" list="inboxTagList" style="width:140px;" />
             <datalist id="inboxTagList"></datalist>
+            <input type="datetime-local" id="inboxNewStart" title="开始日期（可选）" style="padding:4px 8px;width:150px;" />
+            <input type="datetime-local" id="inboxNewDue" title="截止日期（可选）" style="padding:4px 8px;width:150px;" />
             <button class="tool-btn" id="inboxAddBtn" style="background:var(--accent);color:#fff;">＋ 添加</button>
           </div>
           <div class="inbox-tag-chips" id="inboxTagChips"></div>
@@ -1453,6 +1460,30 @@
     </div>
   </dialog>
 
+  <!-- 收集箱条目日期设置弹窗（开始/截止，日历选择） -->
+  <dialog class="stat-dialog" id="inboxDateDialog">
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <h3>📅 设置日期</h3>
+        <button class="icon-btn" id="closeInboxDate" aria-label="关闭">✕</button>
+      </div>
+      <div class="dialog-body" style="display:flex;flex-direction:column;gap:12px;padding:16px;">
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--text-dim);">
+          开始日期（可选）
+          <input type="datetime-local" id="inboxDateStart" />
+        </label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--text-dim);">
+          截止日期（可选）
+          <input type="datetime-local" id="inboxDateDue" />
+        </label>
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <button class="tool-btn" id="inboxDateClear" style="color:var(--danger,#e74c3c);">清除日期</button>
+          <button class="tool-btn" id="inboxDateSave" style="background:var(--accent);color:#fff;">保存</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
   <!-- 主线编辑/支线管理弹窗 -->
   <dialog class="stat-dialog" id="mlEditDialog">
     <div class="dialog-content dialog-lg">
@@ -1486,6 +1517,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=20260813c" defer></script>
+  <script src="app.js?v=20260814a" defer></script>
 </body>
 </html>

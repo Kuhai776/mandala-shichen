@@ -7,27 +7,9 @@
  *   done  = { "2026-07-28": { "0-0": true } }
  * ============================================================ */
 
-// ---------- 启动期 SW 强制清理（解决覆盖安装后仍加载旧资源的问题）----------
-// 必须在任何业务逻辑前执行，确保拿到最新代码
-(async () => {
-  try {
-    if ("serviceWorker" in navigator) {
-      // 1. 注销所有已注册的 Service Worker
-      const regs = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(regs.map((r) => r.unregister()));
-      // 2. 清空所有 CacheStorage（含 mandala-v21/v22/v23 旧缓存）
-      if ("caches" in window) {
-        const keys = await caches.keys();
-        await Promise.all(keys.map((k) => caches.delete(k)));
-      }
-      // 3. 重新注册最新 SW（sw.js 已是 v23）
-      await navigator.serviceWorker.register("./sw.js?v=20260809h", { scope: "./" });
-      console.log("[SW] 已清理旧缓存并重新注册");
-    }
-  } catch (e) {
-    console.warn("[SW] 清理失败（不影响功能）:", e);
-  }
-})();
+// ---------- Service Worker 版本指纹（统一注册参数）----------
+// 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
+const SW_VER = "20260814a";
 
 (function () {
   "use strict";
@@ -137,9 +119,16 @@
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.6.0";
-  const APP_VERSION_DATE = "2026-08-13";
+  const APP_VERSION = "2.7.0";
+  const APP_VERSION_DATE = "2026-08-14";
   const APP_CHANGELOG = [
+    { v: "2.7.0", date: "2026-08-14", items: [
+      "新增：主界面待办 Kanban 看板（计划页「九宫格/看板」切换，按标签横向分列，点击卡片勾选完成）",
+      "新增：收集箱开始日期（速记新增可选开始/截止日期，日历选择；条目展示「今天开始/已开始X天/N天后开始」与逾期状态）",
+      "新增：数据全量备份（快照/导出/同步码纳入孵化历史、回溯站、对话、模板、番茄钟、维度开关；导入支持合并去重）",
+      "新增：孵化问询进度感（已答 X/N 题实时进度 + 「↩ 重新问询」按钮）；历史看板支持关键词搜索；复盘连续打卡里程碑徽章（7/14/21/30/60/100 天）",
+      "修复：孵化历史看板监听器累积（多次打开会重复触发操作）、截图附件冗余分支、SW 版本指纹统一",
+    ]},
     { v: "2.6.0", date: "2026-08-13", items: [
       "新增：🕰️ 孵化历史升级为 Kanban 看板（按 7 知识维度 tag 横向分列，卡片收纳 + 点击展开详情）",
       "新增：🕸 孵化过程 mermaid 流程图（任务 → 引导问答 → 拆解步骤 → 产出，格子回看同样支持）",
@@ -749,6 +738,7 @@
     notifyEnabled: load(NOTIFY_KEY, false),
     activePeriod: 0,
     editingCell: null,
+    planView: "grid", // 计划页视图：grid 九宫格 / kanban 看板
     lastNotifiedCell: -1,
     lastAdvanceNotifiedCell: -1, // 提前提醒已通知的格子
     currentDate: dateToStr(new Date()),
@@ -1788,6 +1778,14 @@
     closeInbox: document.getElementById("closeInbox"),
     inboxInput: document.getElementById("inboxInput"),
     inboxCategory: document.getElementById("inboxCategory"),
+    inboxNewStart: document.getElementById("inboxNewStart"),
+    inboxNewDue: document.getElementById("inboxNewDue"),
+    inboxDateDialog: document.getElementById("inboxDateDialog"),
+    inboxDateStart: document.getElementById("inboxDateStart"),
+    inboxDateDue: document.getElementById("inboxDateDue"),
+    inboxDateClear: document.getElementById("inboxDateClear"),
+    inboxDateSave: document.getElementById("inboxDateSave"),
+    closeInboxDate: document.getElementById("closeInboxDate"),
     inboxAddBtn: document.getElementById("inboxAddBtn"),
     inboxList: document.getElementById("inboxList"),
     inboxFilter: document.getElementById("inboxFilter"),
@@ -1864,6 +1862,7 @@
     hatchOnboardBody: document.getElementById("hatchOnboardBody"),
     hatchOnboardToggle: document.getElementById("hatchOnboardToggle"),
     hatchStartBtn: document.getElementById("hatchStartBtn"),
+    hatchRegenBtn: document.getElementById("hatchRegenBtn"),
     hatchOnboardTip: document.getElementById("hatchOnboardTip"),
     hatchOnboardGen: document.getElementById("hatchOnboardGen"),
     hatchOnboardQs: document.getElementById("hatchOnboardQs"),
@@ -2311,6 +2310,12 @@
 
   // ---------- 渲染：九宫格（支持多任务自适应） ----------
   function renderMandala() {
+    // 看板视图：按 tag 横向分列展示当天全部待办
+    if (state.planView === "kanban") {
+      renderKanbanTodo();
+      return;
+    }
+    el.mandalaGrid.classList.remove("kanban-mode");
     const period = state.activePeriod;
     const range = getPeriodRange(period);
     el.mandalaTitle.textContent =
@@ -2501,6 +2506,105 @@
 
       el.mandalaGrid.appendChild(cellEl);
     }
+  }
+
+  // ---------- 渲染：待办看板（按 tag 横向分列，当天全部任务） ----------
+  function renderKanbanTodo() {
+    el.mandalaGrid.classList.add("kanban-mode");
+    const period = state.activePeriod;
+    const range = getPeriodRange(period);
+    el.mandalaTitle.textContent = `看板 · ${PERIOD_NAMES[period]} · ${state.currentDate}`;
+    const hintEl = document.getElementById("mandalaHint");
+    if (hintEl) hintEl.textContent = "看板视图：按标签分列当天全部待办，点击卡片切换完成状态，✎ 打开编辑";
+    renderPeriodNav(el.planPeriodNav);
+
+    const day = state.tasks[state.currentDate] || {};
+    const items = [];
+    Object.keys(day).forEach((key) => {
+      const m = key.match(/^(\d+)-(\d+)$/);
+      if (!m) return;
+      const p = +m[1], c = +m[2];
+      (day[key] || []).forEach((t, idx) => {
+        if (!t || !taskText(t)) return;
+        items.push({ task: t, idx, period: p, cell: c });
+      });
+    });
+
+    if (!items.length) {
+      el.mandalaGrid.innerHTML = `<div class="kanban-empty">今日暂无待办任务，点击右下角 ➕ 添加</div>`;
+      bindKanbanEvents();
+      return;
+    }
+
+    // 按 tag 分组（无标签归入"未分类"）
+    const NONE = "__none__";
+    const groups = new Map();
+    items.forEach((it) => {
+      const tag = (it.task.tag || "").trim();
+      const key = tag || NONE;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(it);
+    });
+    // 列排序：未完成任务多的优先，其次标签名
+    const colKeys = [...groups.keys()].sort((a, b) => {
+      const ua = groups.get(a).filter((x) => !x.task.done).length;
+      const ub = groups.get(b).filter((x) => !x.task.done).length;
+      if (ub !== ua) return ub - ua;
+      if (a === NONE) return 1;
+      if (b === NONE) return -1;
+      return a.localeCompare(b, "zh");
+    });
+
+    const board = document.createElement("div");
+    board.className = "kanban-board";
+    colKeys.forEach((key) => {
+      const col = document.createElement("div");
+      col.className = "kanban-col";
+      const name = key === NONE ? "未分类" : key;
+      const color = key === NONE ? "#8b8b9e" : tagColor(key);
+      const colItems = groups.get(key).slice().sort((a, b) => (+a.task.done) - (+b.task.done) || a.period - b.period || a.cell - b.cell);
+      const doneCount = colItems.filter((x) => x.task.done).length;
+      col.innerHTML = `
+        <div class="kanban-col-head"><span class="kanban-col-dot" style="background:${color}"></span><span class="kanban-col-name">${escapeHtml(name)}</span><span class="kanban-col-count">${doneCount}/${colItems.length}</span></div>
+        <div class="kanban-col-body">
+          ${colItems.map((it) => {
+            const t = it.task;
+            const loc = `${PERIOD_GLYPHS[it.period] || it.period}·${it.cell + 1}格`;
+            const prio = t.priority === "high" ? '<span class="kanban-prio high" title="高优先级">⚡</span>'
+              : t.priority === "low" ? '<span class="kanban-prio low" title="低优先级">▽</span>' : "";
+            const est = t.estimate ? `<span class="kanban-est">${escapeHtml(t.estimate)}</span>` : "";
+            return `<div class="kanban-card ${t.done ? "done" : ""}" data-p="${it.period}" data-c="${it.cell}" data-i="${it.idx}" title="点击切换完成">
+              <div class="kanban-card-main"><span class="kanban-card-cb">${t.done ? "✓" : ""}</span><span class="kanban-card-text">${escapeHtml(taskText(t))}</span></div>
+              <div class="kanban-card-meta"><span class="kanban-loc">${loc}</span>${prio}${est}<button class="kanban-edit" data-p="${it.period}" data-c="${it.cell}" title="打开编辑">✎</button></div>
+            </div>`;
+          }).join("")}
+        </div>`;
+      board.appendChild(col);
+    });
+    el.mandalaGrid.innerHTML = "";
+    el.mandalaGrid.appendChild(board);
+    bindKanbanEvents();
+  }
+
+  // 看板事件委托（mandalaGrid 常驻，仅绑定一次）
+  let kanbanBound = false;
+  function bindKanbanEvents() {
+    if (kanbanBound) return;
+    kanbanBound = true;
+    el.mandalaGrid.addEventListener("click", (e) => {
+      const edit = e.target.closest(".kanban-edit");
+      const card = e.target.closest(".kanban-card");
+      if (edit) {
+        e.stopPropagation();
+        const p = +edit.dataset.p, c = +edit.dataset.c;
+        openTaskDialog(p, c);
+        return;
+      }
+      if (card) {
+        const p = +card.dataset.p, c = +card.dataset.c, i = +card.dataset.i;
+        toggleTaskDone(p, c, i);
+      }
+    });
   }
 
   // ---------- 曼陀罗区域手势：左右滑动切换时辰 ----------
@@ -3460,12 +3564,21 @@
     const streak = computeStreak();
     const best = getBestStreak();
     updateBestStreak(streak);
+    // 里程碑激励
+    const milestones = [7, 14, 21, 30, 60, 100];
+    const reached = milestones.filter((m) => m <= streak);
+    const next = milestones.find((m) => m > streak);
+    const badgeHtml = reached.length
+      ? `<span class="streak-badge" title="已解锁里程碑">${reached.map((m) => (m >= 30 ? "🏆" : m >= 14 ? "🎖" : "🥉")).join("")}</span>`
+      : "";
+    const nextTip = next ? ` · 距 ${next} 天里程碑还差 <b>${next - streak}</b> 天` : "";
     el.reviewSummary.innerHTML = `
       <div class="streak-banner ${streak > 0 ? "on" : ""}">
         <span class="streak-flame">${streak > 0 ? "🔥" : "🤝"}</span>
         <span class="streak-text">连续打卡 <b>${streak}</b> 天</span>
+        ${badgeHtml}
         ${best > 0 ? `<span class="streak-best">最佳 ${best} 天</span>` : ""}
-        <span class="streak-tip">每天无未完成任务即算打卡成功</span>
+        <span class="streak-tip">每天无未完成任务即算打卡成功${nextTip}</span>
       </div>
       <div class="summary-card">
         <div class="summary-num">${totalTasks}</div>
@@ -5415,6 +5528,22 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     if (!el.hatchOnboardQs) return;
     el.hatchOnboardQs.innerHTML = "";
     hatchState.onboardQuestions = questions;
+    // 顶部进度条（已答 / 总数）
+    const progressEl = document.createElement("div");
+    progressEl.className = "hoq-progress";
+    progressEl.id = "hoqProgress";
+    progressEl.textContent = `📊 已答 0 / ${questions.length} 题 · 答完点「开始孵化」`;
+    el.hatchOnboardQs.appendChild(progressEl);
+    const updateProgress = () => {
+      const all = [...el.hatchOnboardQs.querySelectorAll("textarea[data-hoq-idx]")];
+      const answered = all.length - all.filter((t) => !t.value.trim()).length;
+      const p = el.hatchOnboardQs.querySelector("#hoqProgress");
+      if (p) p.textContent = `📊 已答 ${answered} / ${questions.length} 题 · 答完点「开始孵化」`;
+      const tip = el.hatchOnboardTip;
+      if (tip) tip.textContent = answered < questions.length
+        ? `💡 已答 ${answered}/${questions.length}，答得越具体，AI 拆解越精准`
+        : `✅ 全部答完！点「开始孵化」让 AI 基于你的答案拆解`;
+    };
     questions.forEach((q, i) => {
       const div = document.createElement("div");
       div.className = "hatch-onboard-q";
@@ -5431,7 +5560,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       const hint = q.hint
         ? `<div class="hoq-hint">💬 ${escapeHtml(q.hint)}</div>`
         : "";
-      div.innerHTML = `<label><span class="hoq-num">${num}</span> ${q.label || ""}：${dimBadge}<span class="hoq-q">${q.question || ""}</span></label>${hint}
+      div.innerHTML = `<label><span class="hoq-num">${num}</span> <span class="hoq-pos">${i + 1}/${questions.length}</span>${q.label || ""}：${dimBadge}<span class="hoq-q">${q.question || ""}</span></label>${hint}
         <textarea data-hoq-idx="${i}" rows="2" placeholder="在这里写下你的思考…"></textarea>`;
       el.hatchOnboardQs.appendChild(div);
       // 自适应高度：输入时随内容增长，方便长作答
@@ -5439,8 +5568,10 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       ta.addEventListener("input", () => {
         ta.style.height = "auto";
         ta.style.height = Math.min(ta.scrollHeight + 2, 160) + "px";
+        updateProgress();
       });
     });
+    updateProgress();
   }
 
   // 收集动态问题答案，拼成上下文喂给 AI
@@ -5816,14 +5947,20 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     // ---- 顶部统计 ----
     const totalSteps = sorted.reduce((n, h) => n + (h.steps || []).length, 0);
     const totalAcc = sorted.reduce((n, h) => n + (h.accepted_count || 0), 0);
+    const kw = (body.dataset.kw || "").trim().toLowerCase();
+    const filtered = kw ? sorted.filter((h) => {
+      const hay = [h.task_text || h.task || h.title || "", ...(h.steps || []).map((s) => s.text || s.title || "")].join(" ").toLowerCase();
+      return hay.includes(kw);
+    }) : sorted;
     const toolbar = `<div class="hh-kb-toolbar">
       <span class="hh-kb-toolbar-title">🧭 按知识维度分类</span>
-      <span class="hh-kb-toolbar-stat">${sorted.length} 次孵化 · ${totalAcc}/${totalSteps} 步被接受</span>
+      <input class="hh-kb-search" id="hhKbSearch" type="text" placeholder="🔍 搜索任务 / 步骤…" value="${escapeHtml(body.dataset.kw || "")}" />
+      <span class="hh-kb-toolbar-stat">${filtered.length} 次孵化 · ${totalAcc}/${totalSteps} 步被接受</span>
     </div>`;
 
     // ---- 看板（横向滚动，列 = tag）----
     const board = `<div class="hh-kb-board">${columns.map((col) => {
-      const items = sorted.filter((h) => colOf(h) === col.key);
+      const items = filtered.filter((h) => colOf(h) === col.key);
       if (!items.length) return `<div class="hh-kb-col hh-kb-col-empty" data-col="${col.key}">
         <div class="hh-kb-col-head"><span class="hh-kb-col-dot" style="background:${col.color}"></span><span class="hh-kb-col-name">${col.name}</span><span class="hh-kb-col-count">0</span></div>
         <div class="hh-kb-col-body"><div class="hh-kb-col-empty-tip">暂无</div></div>
@@ -5836,8 +5973,27 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
 
     body.innerHTML = toolbar + board;
 
-    // ---- 事件委托：展开卡片 / 操作按钮 ----
-    body.addEventListener("click", (e) => {
+    // ---- 事件委托：展开卡片 / 操作按钮（仅在首次渲染时绑定一次，避免监听器累积）----
+    if (!body.dataset.hatchBound) {
+      body.dataset.hatchBound = "1";
+      // 搜索过滤（防抖 + 重建后恢复焦点）
+      let searchTimer = null;
+      body.addEventListener("input", (e) => {
+        const search = e.target.closest(".hh-kb-search");
+        if (!search) return;
+        body.dataset.kw = search.value;
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => {
+          renderHatchHistory();
+          const again = body.querySelector(".hh-kb-search");
+          if (again) {
+            again.focus();
+            const len = again.value.length;
+            again.setSelectionRange(len, len);
+          }
+        }, 150);
+      });
+      body.addEventListener("click", (e) => {
       const del = e.target.closest(".hh-del");
       const rehatch = e.target.closest(".hh-rehatch");
       const toGrid = e.target.closest(".hh-to-grid");
@@ -5887,7 +6043,8 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
           }
         }
       }
-    });
+      });
+    }
   }
 
   // 填充卡片展开详情（问答 + 步骤 + mermaid 过程图）
@@ -6089,6 +6246,17 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
   if (el.realmFabHatch) el.realmFabHatch.addEventListener("click", () => openHatchDialog({}));
   if (el.hatchGenBtn) el.hatchGenBtn.addEventListener("click", generateOnboardQuestions);
   if (el.hatchStartBtn) el.hatchStartBtn.addEventListener("click", startHatchFromForm);
+  // 重新问询：清空当前问题，回到生成初始态（保留任务描述）
+  if (el.hatchRegenBtn) el.hatchRegenBtn.addEventListener("click", () => {
+    if (el.hatchOnboardQs) el.hatchOnboardQs.innerHTML = "";
+    if (el.hatchOnboardGen) el.hatchOnboardGen.hidden = false;
+    if (el.hatchOnboardActions) el.hatchOnboardActions.hidden = true;
+    if (el.hatchGenBtn) el.hatchGenBtn.disabled = false;
+    if (el.hatchGenTip) el.hatchGenTip.textContent = "填好任务后点此，AI 会针对你的任务提 5-7 个关键问题（含 7 维度子维度）";
+    if (el.hatchOnboardTip) el.hatchOnboardTip.textContent = "💡 答得越具体，AI 拆解越精准";
+    hatchState.onboardQuestions = [];
+    toast("已清空问题，可重新生成或修改任务描述", "info");
+  });
   if (el.hatchTaskInput) el.hatchTaskInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); startHatchFromForm(); }
   });
@@ -6274,6 +6442,19 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
   el.nextPeriod.addEventListener("click", () => {
     state.activePeriod = (state.activePeriod + 1) % PERIOD_COUNT; renderAll();
   });
+  // 计划页视图切换：九宫格 / 看板
+  const planViewSwitch = document.getElementById("planViewSwitch");
+  if (planViewSwitch) {
+    planViewSwitch.addEventListener("click", (e) => {
+      const tab = e.target.closest(".pv-tab");
+      if (!tab) return;
+      const view = tab.dataset.pv;
+      if (!view || view === state.planView) return;
+      state.planView = view;
+      planViewSwitch.querySelectorAll(".pv-tab").forEach((t) => t.classList.toggle("active", t === tab));
+      renderAll();
+    });
+  }
   // 记录页时辰导航（与计划页同步）
   if (el.prevPeriodR) el.prevPeriodR.addEventListener("click", () => {
     state.activePeriod = (state.activePeriod - 1 + PERIOD_COUNT) % PERIOD_COUNT; renderAll();
@@ -9511,11 +9692,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         input.addEventListener("change", async () => {
           const files = Array.from(input.files || []);
           if (!files.length) return;
-          if (files.length === 1) {
-            showScreenshotAttachDialog(files[0]);
-          } else {
-            showScreenshotAttachDialog(files[0]);
-          }
+          showScreenshotAttachDialog(files[0]);
         });
         input.click();
       }
@@ -9527,11 +9704,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       } else if (action === "ai-review") {
         generateAiReview();
       } else if (action === "export") {
-        const data = {
-          version: 5, exportedAt: new Date().toISOString(),
-          tasks: state.tasks, done: state.done, checklists: state.checklists, repeats: state.repeats,
-          records: state.records, reviews: state.reviews,
-        };
+        const data = buildFullBackupData();
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -9539,7 +9712,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         a.download = `mandala-${new Date().toISOString().slice(0, 10)}.json`;
         a.click();
         URL.revokeObjectURL(url);
-        toast("已导出 JSON（含记录与复盘）", "success");
+        toast("已导出全量 JSON（含孵化历史/回溯站/对话/模板等）", "success");
       }
     });
   });
@@ -10860,6 +11033,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   let inboxMultiSelectMode = false;
   let inboxMode = "quick"; // 当前收集箱模式：quick / mainline / long
   const inboxCollapsedParents = new Set(); // 已折叠的父任务 id（任务级主线/支线）
+  let inboxDateEditingIdx = -1; // 正在编辑日期的条目 idx（日期弹窗）
 
   // 旧数据迁移（v1 → v2）
   function migrateInboxItem(it) {
@@ -10872,6 +11046,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     if (it.sideline === undefined) it.sideline = null;
     if (it.parentId === undefined) it.parentId = null;
     if (it.priority === undefined) it.priority = 0;
+    if (it.start === undefined) it.start = null;
     if (it.due === undefined) it.due = null;
     if (it.estimate === undefined) it.estimate = null;
     if (it.note === undefined) it.note = "";
@@ -11583,6 +11758,15 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       const label = diff < 0 ? `逾期${-diff}天` : diff === 0 ? "今日到期" : `${diff}天后`;
       return `<span class="inbox-due ${cls}">📅 ${label}</span>`;
     })() : "";
+    const startStr = item.start ? (() => {
+      const now = new Date(); now.setHours(0, 0, 0, 0);
+      const st = new Date(item.start);
+      st.setHours(0, 0, 0, 0);
+      const diff = Math.round((st - now) / 86400000);
+      const cls = diff <= 0 ? "is-start-now" : "is-start-future";
+      const label = diff <= 0 ? (diff === 0 ? "今天开始" : `已开始${-diff}天`) : `${diff}天后开始`;
+      return `<span class="inbox-start ${cls}">🚀 ${label}</span>`;
+    })() : "";
     const checked = inboxMultiSelect.has(realIdx) ? "checked" : "";
     const msCb = inboxMultiSelectMode ? `<input type="checkbox" class="inbox-ms-cb" data-idx="${realIdx}" ${checked} />` : "";
     // 父任务折叠开关（有子任务时显示）
@@ -11601,6 +11785,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       ${parentMark}
       ${fromHatch}
       ${tagsHtml}
+      ${startStr}
       ${dueStr}
       <span class="inbox-item-date">${dateStr}</span>
       <button class="inbox-item-act" data-act="assign" data-idx="${realIdx}" title="归属主线/支线">📂</button>
@@ -11699,13 +11884,11 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
           return;
         }
         if (act === "due") {
-          const cur = it.due ? new Date(it.due).toISOString().slice(0, 10) : "";
-          const v = prompt("设置截止日期（YYYY-MM-DD，留空清除）：", cur);
-          if (v !== null) {
-            it.due = v ? new Date(v + "T23:59:59").getTime() : null;
-            saveInbox();
-            renderInboxList();
-          }
+          inboxDateEditingIdx = idx;
+          el.inboxDateStart.value = it.start ? new Date(it.start).toISOString().slice(0, 16) : "";
+          el.inboxDateDue.value = it.due ? new Date(it.due).toISOString().slice(0, 16) : "";
+          if (el.inboxDateDialog.showModal) el.inboxDateDialog.showModal();
+          else { el.inboxDateDialog.setAttribute("open", ""); }
           return;
         }
         // tolong
@@ -11881,6 +12064,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     if (!text) { toast("请输入内容", "error"); return; }
     const tagStr = el.inboxCategory.value.trim();
     const tags = tagStr ? tagStr.split(/[,，]/).map((s) => s.trim()).filter(Boolean) : [];
+    const startVal = el.inboxNewStart.value;
+    const dueVal = el.inboxNewDue.value;
     inboxItems.unshift({
       id: genId("inb"),
       text,
@@ -11888,13 +12073,16 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       mainline: el.inboxNewMainline.value || null,
       sideline: el.inboxNewSideline.value || null,
       priority: parseInt(el.inboxNewPriority.value) || 0,
-      due: null,
+      start: startVal ? new Date(startVal).getTime() : null,
+      due: dueVal ? new Date(dueVal).getTime() : null,
       done: false,
       createdAt: Date.now(),
     });
     saveInbox();
     el.inboxInput.value = "";
     el.inboxCategory.value = "";
+    el.inboxNewStart.value = "";
+    el.inboxNewDue.value = "";
     updateInboxTagDatalist();
     renderInboxFilter();
     renderInboxList();
@@ -11906,6 +12094,27 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   el.inboxCategory.addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); el.inboxAddBtn.click(); }
   });
+  // 日期设置弹窗：保存 / 清除 / 关闭
+  const applyInboxDate = (clear) => {
+    const it = inboxItems[inboxDateEditingIdx];
+    if (it) {
+      if (clear) {
+        it.start = null;
+        it.due = null;
+      } else {
+        it.start = el.inboxDateStart.value ? new Date(el.inboxDateStart.value).getTime() : null;
+        it.due = el.inboxDateDue.value ? new Date(el.inboxDateDue.value).getTime() : null;
+      }
+      saveInbox();
+      renderInboxList();
+    }
+    inboxDateEditingIdx = -1;
+    if (el.inboxDateDialog.close) el.inboxDateDialog.close();
+    else el.inboxDateDialog.removeAttribute("open");
+  };
+  if (el.inboxDateSave) el.inboxDateSave.addEventListener("click", () => applyInboxDate(false));
+  if (el.inboxDateClear) el.inboxDateClear.addEventListener("click", () => applyInboxDate(true));
+  if (el.closeInboxDate) el.closeInboxDate.addEventListener("click", () => { inboxDateEditingIdx = -1; el.inboxDateDialog.close(); });
   el.inboxTimeFilter.addEventListener("change", () => {
     inboxTimeFilter = el.inboxTimeFilter.value;
     renderInboxList();
@@ -12214,14 +12423,26 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   const SNAPSHOT_KEY = "mandala-snapshots-v1";
   const MAX_SNAPSHOTS = 7;
   function getSnapshots() { return load(SNAPSHOT_KEY, { lastDate: "", list: [] }); }
-  function buildSnapshotData() {
+  // 全量备份数据装配（快照 / 导出 / 同步码共用，v6 全量）
+  function buildFullBackupData() {
     return {
-      date: state.currentDate,
+      version: 6,
+      exportedAt: new Date().toISOString(),
       tasks: state.tasks, done: state.done, checklists: state.checklists, repeats: state.repeats,
       records: state.records, reviews: state.reviews,
       inbox: load(INBOX_KEY, []), inboxMainlines: load(INBOX_MAINLINES_KEY, []),
       longTasks: load(LONGTASK_KEY, []),
+      hatchHistory: load(HATCH_HISTORY_KEY, []),
+      trash: load(TRASH_KEY, []),
+      chat: load(CHAT_KEY, []),
+      templates: load(TPL_KEY, []),
+      convTemplates: load(CONV_TPL_KEY, []),
+      pomo: load(POMO_STATE_KEY, null),
+      activeDims: load(ACTIVE_DIMS_KEY, null),
     };
+  }
+  function buildSnapshotData() {
+    return { date: state.currentDate, ...buildFullBackupData() };
   }
   function saveSnapshot(manual) {
     const snap = getSnapshots();
@@ -12260,6 +12481,14 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     if (item.data.inbox) { inboxItems = item.data.inbox; saveInbox(); }
     if (item.data.inboxMainlines) { inboxMainlines = item.data.inboxMainlines; saveMainlines(); }
     if (item.data.longTasks) { longTasks = item.data.longTasks; saveLongTasks(); }
+    // 全量键（v6+）：孵化历史 / 回溯站 / 对话 / 模板 / 番茄钟 / 维度开关
+    if (item.data.hatchHistory) save(HATCH_HISTORY_KEY, item.data.hatchHistory);
+    if (item.data.trash) save(TRASH_KEY, item.data.trash);
+    if (item.data.chat) save(CHAT_KEY, item.data.chat);
+    if (item.data.templates) save(TPL_KEY, item.data.templates);
+    if (item.data.convTemplates) save(CONV_TPL_KEY, item.data.convTemplates);
+    if (item.data.pomo) save(POMO_STATE_KEY, item.data.pomo);
+    if (item.data.activeDims) save(ACTIVE_DIMS_KEY, item.data.activeDims);
     save(STORAGE_KEY, state.tasks);
     save(DONE_KEY, state.done);
     save(CHECKLIST_KEY, state.checklists);
@@ -12314,11 +12543,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
 
   // ---------- 导出/导入 ----------
   el.exportBtn.addEventListener("click", () => {
-    const data = {
-      version: 5, exportedAt: new Date().toISOString(),
-      tasks: state.tasks, done: state.done, checklists: state.checklists, repeats: state.repeats,
-      records: state.records, reviews: state.reviews,
-    };
+    const data = buildFullBackupData();
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -12326,8 +12551,51 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     a.download = `mandala-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    toast("已导出 JSON（含记录与复盘）", "success");
+    toast("已导出全量 JSON（含孵化历史/回溯站/对话/模板等）", "success");
   });
+
+  // 应用全量备份中的附加键（v6+）：收集箱/主线/长任务按 id 合并，孵化历史按 task_hash 合并，其余覆盖
+  function applyBackupExtraKeys(data) {
+    if (!data || typeof data !== "object") return;
+    if (Array.isArray(data.inbox)) {
+      const seen = new Set(inboxItems.map((i) => i.id));
+      data.inbox.forEach((i) => { if (i && i.id && !seen.has(i.id)) { inboxItems.push(migrateInboxItem(i)); seen.add(i.id); } });
+      saveInbox();
+    }
+    if (Array.isArray(data.inboxMainlines)) {
+      const seen = new Set(inboxMainlines.map((m) => m.id));
+      data.inboxMainlines.forEach((m) => { if (m && m.id && !seen.has(m.id)) { inboxMainlines.push(m); seen.add(m.id); } });
+      saveMainlines();
+    }
+    if (Array.isArray(data.longTasks)) {
+      const seen = new Set(longTasks.map((t) => t.id));
+      data.longTasks.forEach((t) => { if (t && t.id && !seen.has(t.id)) { longTasks.push(t); seen.add(t.id); } });
+      saveLongTasks();
+    }
+    if (Array.isArray(data.hatchHistory)) {
+      const old = load(HATCH_HISTORY_KEY, []);
+      const seen = new Set(old.map((h) => h.task_hash));
+      const merged = old.concat(data.hatchHistory.filter((h) => h && h.task_hash && !seen.has(h.task_hash)));
+      save(HATCH_HISTORY_KEY, merged.slice(0, 50));
+    }
+    if (Array.isArray(data.trash)) {
+      const old = load(TRASH_KEY, []);
+      save(TRASH_KEY, old.concat(data.trash).slice(0, 50));
+    }
+    if (data.chat) save(CHAT_KEY, data.chat);
+    if (Array.isArray(data.templates)) {
+      const old = load(TPL_KEY, []);
+      const seen = new Set(old.map((t) => t.id));
+      save(TPL_KEY, old.concat(data.templates.filter((t) => t && t.id && !seen.has(t.id))));
+    }
+    if (Array.isArray(data.convTemplates)) {
+      const old = load(CONV_TPL_KEY, []);
+      const seen = new Set(old.map((t) => t.id));
+      save(CONV_TPL_KEY, old.concat(data.convTemplates.filter((t) => t && t.id && !seen.has(t.id))));
+    }
+    if (data.pomo) save(POMO_STATE_KEY, data.pomo);
+    if (data.activeDims) save(ACTIVE_DIMS_KEY, data.activeDims);
+  }
 
   el.importBtn.addEventListener("click", () => el.importFile.click());
   el.importFile.addEventListener("change", async () => {
@@ -12369,6 +12637,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
           state.reviews[d] = data.reviews[d];
         });
       }
+      // 全量键（v6+）合并应用
+      applyBackupExtraKeys(data);
       save(STORAGE_KEY, state.tasks);
       save(DONE_KEY, state.done);
       save(CHECKLIST_KEY, state.checklists);
@@ -12409,15 +12679,11 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   }
 
   el.genSyncCodeBtn.addEventListener("click", () => {
-    const payload = {
-      v: 1, t: "full",
-      tasks: state.tasks, done: state.done,
-      checklists: state.checklists, repeats: state.repeats,
-    };
+    const payload = buildFullBackupData();
     const code = encodeSyncData(payload);
     el.syncCodeArea.value = code;
     const kb = (code.length / 1024).toFixed(1);
-    toast(`已生成同步码（${kb} KB），复制后粘贴到另一设备`, "success");
+    toast(`已生成全量同步码（${kb} KB），复制后粘贴到另一设备`, "success");
   });
 
   el.genSyncLinkBtn.addEventListener("click", () => {
@@ -12462,6 +12728,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       Object.assign(state.checklists[d], payload.checklists[d]);
     });
     if (payload.repeats) Object.assign(state.repeats, payload.repeats);
+    // 全量键（v6+）合并应用
+    applyBackupExtraKeys(payload);
     save(STORAGE_KEY, state.tasks);
     save(DONE_KEY, state.done);
     save(CHECKLIST_KEY, state.checklists);
@@ -12652,7 +12920,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     setupForegroundClipboardCheck();
     // 注册 Service Worker（PWA 离线，network-first 策略避免缓存问题）
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("./sw.js?v=4").catch((e) => console.warn("SW 注册失败", e));
+      navigator.serviceWorker.register(`./sw.js?v=${SW_VER}`).catch((e) => console.warn("SW 注册失败", e));
     }
     // 系统对接：处理 share_target 分享内容 / shortcuts 快捷入口
     handleLaunchParams();
