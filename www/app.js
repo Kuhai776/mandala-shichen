@@ -137,9 +137,14 @@
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.5.2";
+  const APP_VERSION = "2.6.0";
   const APP_VERSION_DATE = "2026-08-13";
   const APP_CHANGELOG = [
+    { v: "2.6.0", date: "2026-08-13", items: [
+      "新增：🕰️ 孵化历史升级为 Kanban 看板（按 7 知识维度 tag 横向分列，卡片收纳 + 点击展开详情）",
+      "新增：🕸 孵化过程 mermaid 流程图（任务 → 引导问答 → 拆解步骤 → 产出，格子回看同样支持）",
+      "升级：🧭 基石问询改为教练式引导（8-10 个层层递进的问题，每题带「为什么问/怎么答」引导提示；答案改为可上下滑动的多行输入）",
+    ]},
     { v: "2.5.2", date: "2026-08-13", items: [
       "新增：收集箱支线维度绑定（主线/支线都可关联 7 大维度并显示徽标；收集箱快速添加支线可选维度，编辑弹窗每行支线带维度下拉）",
       "优化：整体布局收窄至 1024px，安卓窄屏下更紧凑居中、不再整体右偏",
@@ -4341,6 +4346,8 @@ ${recordItems.join("\n") || "（无）"}
     if (!rec) { toast("孵化记录已不存在", "info"); return; }
     el.cellHatchViewTitle.textContent = `🥚 孵化过程 · ${rec.task_text.slice(0, 30)}`;
     el.cellHatchViewBody.innerHTML = renderHatchHistoryDetail(rec);
+    const mmEl = el.cellHatchViewBody.querySelector(".hh-mermaid");
+    if (mmEl) renderHatchMermaid(mmEl, rec);
     el.cellHatchViewDialog.showModal();
   });
   el.closeCellHatchView.addEventListener("click", () => el.cellHatchViewDialog.close());
@@ -4646,7 +4653,7 @@ ${recordItems.join("\n") || "（无）"}
     // 收集引导问答（用于回看孵化过程）
     const qaPairs = [];
     if (el.hatchOnboardQs && hatchState.onboardQuestions) {
-      const inputs = el.hatchOnboardQs.querySelectorAll("input[data-hoq-idx]");
+      const inputs = el.hatchOnboardQs.querySelectorAll("textarea[data-hoq-idx]");
       inputs.forEach((inp) => {
         const idx = parseInt(inp.getAttribute("data-hoq-idx"), 10);
         const q = hatchState.onboardQuestions[idx];
@@ -5278,20 +5285,20 @@ ${recordItems.join("\n") || "（无）"}
     const tmpl = HATCH_DIM_TEMPLATES;
     // 基础 4 问（本质/必要前提/第一性原理/成功标准）+ 7 维度各挑核心子维度
     const questions = [
-      { label: "本质", question: `用一句话说清「${t}」的核心本质是什么？`, dim: "", sub: "" },
-      { label: "必要前提", question: `完成「${t}」需要哪些前置条件或基础？`, dim: "", sub: "" },
-      { label: "第一性原理", question: `「${t}」最底层的原理/不可再分的要素是什么？`, dim: "", sub: "" },
-      { label: "成功标准", question: `怎样算「${t}」成功完成？可量化的标准是什么？`, dim: "", sub: "" },
+      { label: "本质", question: `用一句话说清「${t}」的核心本质是什么？`, hint: "别急着写做法，先想清楚这件事到底要解决谁的什么问题。", dim: "", sub: "" },
+      { label: "必要前提", question: `完成「${t}」需要哪些前置条件或基础？`, hint: "盘点手上已有的资源/信息/工具，以及还缺什么才能开始。", dim: "", sub: "" },
+      { label: "第一性原理", question: `「${t}」最底层的原理/不可再分的要素是什么？`, hint: "抛开现有做法，回到最根本的规律：这件事本质依赖什么？", dim: "", sub: "" },
+      { label: "成功标准", question: `怎样算「${t}」成功完成？可量化的标准是什么？`, hint: "想想完成后谁能验收、用什么指标证明做到了。", dim: "", sub: "" },
     ];
     // 7 维度：每个维度挑最有代表性的 1 个子维度（共 7 题）
     const dimPicks = [
-      { code: "Cl", sub: "def", label: "清晰度Cl" },
-      { code: "Cp", sub: "structure", label: "完整性Cp" },
-      { code: "B", sub: "condition", label: "边界感B" },
-      { code: "L", sub: "upstream", label: "关联度L" },
-      { code: "Ev", sub: "iteration", label: "进化感Ev" },
-      { code: "P", sub: "chunk", label: "精炼度P" },
-      { code: "Rh", sub: "cycle", label: "节奏感Rh" },
+      { code: "Cl", sub: "def", label: "清晰度Cl", hint: "把模糊词换成具体对象：什么、给谁、做到什么程度。" },
+      { code: "Cp", sub: "structure", label: "完整性Cp", hint: "列一下这件事的全部组成部分，看看有没有漏掉的关键环节。" },
+      { code: "B", sub: "condition", label: "边界感B", hint: "明确做与不做的界限：哪些绝对不做、做到哪算完。" },
+      { code: "L", sub: "upstream", label: "关联度L", hint: "想想它依赖什么上游、又能支撑什么下游，别孤立地做。" },
+      { code: "Ev", sub: "iteration", label: "进化感Ev", hint: "第一版做到 60 分就够了，之后怎么迭代升级？" },
+      { code: "P", sub: "chunk", label: "精炼度P", hint: "把大目标切成 30 分钟能完成的小块，拆到多细才顺手？" },
+      { code: "Rh", sub: "cycle", label: "节奏感Rh", hint: "安排在什么时段、什么频率推进，才能持续不中断？" },
     ];
     dimPicks.forEach((dp) => {
       const tmplFn = tmpl[`${dp.code}.${dp.sub}`];
@@ -5299,6 +5306,7 @@ ${recordItems.join("\n") || "（无）"}
       questions.push({
         label: dp.label,
         question: tmplFn ? tmplFn(t) : (fallback ? fallback.replace(/知识/g, `「${t}」`) : `关于「${t}」的 ${dp.code} 子维度：${dp.sub}`),
+        hint: dp.hint,
         dim: dp.code,
         sub: dp.sub,
       });
@@ -5331,22 +5339,26 @@ ${recordItems.join("\n") || "（无）"}
       const dimList = KNOWLEDGE_DIMENSIONS.map((d) =>
         `   - ${d.code} ${d.name}：${d.subs.map((s) => s.name).join(" / ")}`
       ).join("\n");
-      const prompt = `你是一位任务拆解教练。请根据以下任务，提出 5-7 个「基石问题」帮助用户厘清任务本质。
+      const prompt = `你是一位经验丰富的任务拆解教练。你不是在机械提问，而是在用「对话式引导」帮用户把模糊的念头变成清晰可执行的计划。请针对以下任务提出 8-10 个层层递进的「引导问题」。
 
 任务：${text}
 
-要求：
-1. 问题必须针对该任务的具体内容，不要泛泛而谈
-2. 必须覆盖这 4 个基础维度：本质/必要前提/第一性原理/成功标准
-3. 额外从「7 维度知识体系」中挑 2-3 个与该任务最相关的维度提问，并明确针对其「子维度」发问（每个被选维度挑 1 个最相关的子维度切入）：
+引导风格要求：
+1. 问题口语化、自然，像教练在聊天中顺势追问，不要生硬地罗列术语
+2. 每个问题带「hint」字段：用一句话告诉用户"为什么问这个、从哪个角度想、怎么答"（例如 hint: "想想你最终要交付什么，别人会怎么验收"）
+3. 问题顺序要符合认知逻辑：先厘清目标与本质，再挖前提与障碍，再落到具体做法与验收，最后是时间与节奏
+4. 必须覆盖 4 个基础维度（本质/必要前提/第一性原理/成功标准），再结合任务从「7 维度知识体系」挑 3-4 个最相关的维度（含子维度）深入追问：
 ${dimList}
-4. 子维度核心追问参考（用于把问题问得更具体）：
+5. 子维度核心追问参考（用于把问题问得更具体）：
 ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s.name + "：「" + s.q + "」").join("；")).join("\n")}
-5. 每个问题简短、直击要害、用户能一句话答完
-6. 返回 JSON 数组，格式：[{"label":"本质","question":"问题文本","dim":"Cl","sub":"def"},{"label":"必要前提","question":"...","dim":"","sub":""}]
-7. label 从这 12 个里选：本质、必要前提、第一性原理、成功标准、约束、清晰度Cl、完整性Cp、边界感B、关联度L、进化感Ev、精炼度P、节奏感Rh
-8. 若选 7 维度问题，label 用「清晰度Cl」这种格式，dim 填对应代码（Cl/Cp/B/L/Ev/P/Rh），sub 填对应子维度 key（如 def/boundary/repr/structure/steps/condition/fail/limit/upstream/isomorphic/crossdomain/version/iteration/chunk/fluency/cycle/freq/predict/duration/timing），否则 dim 与 sub 都留空
-9. 只返回 JSON，不要任何解释`;
+6. 问题要直击要害，但给足思考引导；用户能用 1-3 句话答完，不用写作文
+7. 不要问"你想做什么"这种废话；直接切入具体细节，帮用户发现没想过的盲点
+
+返回 JSON 数组，格式：[{"label":"本质","question":"问题文本","hint":"引导提示","dim":"Cl","sub":"def"},...]
+- label 从这 12 个里选：本质、必要前提、第一性原理、成功标准、约束、清晰度Cl、完整性Cp、边界感B、关联度L、进化感Ev、精炼度P、节奏感Rh
+- 若选 7 维度问题，label 用「清晰度Cl」这种格式，dim 填对应代码（Cl/Cp/B/L/Ev/P/Rh），sub 填对应子维度 key（如 def/boundary/repr/structure/steps/condition/fail/limit/upstream/isomorphic/crossdomain/version/iteration/chunk/fluency/cycle/freq/predict/duration/timing），否则 dim 与 sub 都留空
+- hint 必须具体、有引导性，不能是空话
+- 只返回 JSON，不要任何解释`;
 
       const provider = state.settings.apiProvider || "openai";
       const resp = await fetch(state.settings.apiUrl, {
@@ -5359,7 +5371,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
           model: state.settings.apiModel,
           messages: [{ role: "user", content: prompt }],
           temperature: 0.4,
-          max_tokens: 900,
+          max_tokens: 1600,
         }),
       });
       if (!resp.ok) throw new Error("API " + resp.status);
@@ -5398,7 +5410,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     }
   }
 
-  // 渲染动态问题到面板（带 7 维度+子维度徽章）
+  // 渲染动态问题到面板（带 7 维度+子维度徽章 + 引导提示 + 多行作答）
   function renderOnboardQuestions(questions) {
     if (!el.hatchOnboardQs) return;
     el.hatchOnboardQs.innerHTML = "";
@@ -5406,7 +5418,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     questions.forEach((q, i) => {
       const div = document.createElement("div");
       div.className = "hatch-onboard-q";
-      const num = ["①", "②", "③", "④", "⑤", "⑥", "⑦"][i] || (i + 1) + ".";
+      const num = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"][i] || (i + 1) + ".";
       // 7 维度+子维度徽章（若有 dim 字段）
       let dimBadge = "";
       if (q.dim) {
@@ -5416,16 +5428,25 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         const subLabel = subObj ? subObj.name : (q.sub || "");
         dimBadge = `<span class="hoq-dim-badge" style="background:${color}22;color:${color};border-color:${color}44;" title="${subObj ? subObj.q : ""}">${q.dim}${subLabel ? "·" + subLabel : ""}</span>`;
       }
-      div.innerHTML = `<label><span class="hoq-num">${num}</span> ${q.label || ""}：${dimBadge}<span class="hoq-q">${q.question || ""}</span></label>
-        <input type="text" data-hoq-idx="${i}" placeholder="一句话回答…" />`;
+      const hint = q.hint
+        ? `<div class="hoq-hint">💬 ${escapeHtml(q.hint)}</div>`
+        : "";
+      div.innerHTML = `<label><span class="hoq-num">${num}</span> ${q.label || ""}：${dimBadge}<span class="hoq-q">${q.question || ""}</span></label>${hint}
+        <textarea data-hoq-idx="${i}" rows="2" placeholder="在这里写下你的思考…"></textarea>`;
       el.hatchOnboardQs.appendChild(div);
+      // 自适应高度：输入时随内容增长，方便长作答
+      const ta = div.querySelector("textarea");
+      ta.addEventListener("input", () => {
+        ta.style.height = "auto";
+        ta.style.height = Math.min(ta.scrollHeight + 2, 160) + "px";
+      });
     });
   }
 
   // 收集动态问题答案，拼成上下文喂给 AI
   function collectOnboardContext() {
     if (!el.hatchOnboardQs || !hatchState.onboardQuestions) return "";
-    const inputs = el.hatchOnboardQs.querySelectorAll("input[data-hoq-idx]");
+    const inputs = el.hatchOnboardQs.querySelectorAll("textarea[data-hoq-idx]");
     const parts = [];
     inputs.forEach((inp) => {
       const idx = parseInt(inp.getAttribute("data-hoq-idx"), 10);
@@ -5736,6 +5757,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     }
     if (rec.shortcut) html += `<div class="hh-shortcut">⚡ 捷径：${escapeHtml(rec.shortcut)}</div>`;
     if (rec.first_blocker) html += `<div class="hh-blocker">🚧 首个障碍：${escapeHtml(rec.first_blocker)}</div>`;
+    html += `<div class="hh-section-title">🕸 孵化过程图</div><div class="hh-mermaid"></div>`;
     html += `</div>`;
     return html;
   }
@@ -5748,82 +5770,215 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       body.innerHTML = `<div class="hatch-history-empty">尚无孵化记录</div>`;
       return;
     }
-    // 倒序展示（最新在前）
     const sorted = [...list].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-    body.innerHTML = sorted.map((h, idx) => {
-      const dimSteps = (h.steps || []).filter((s) => s.target_dim);
-      const dimTags = dimSteps.length
-        ? dimSteps.map((s) => `<span class="hh-dim-tag">${s.target_dim}${s.dim_goal ? `→${s.dim_goal}` : ""}</span>`).join("")
-        : "";
-      const stepRows = (h.steps || []).map((s, i) => {
-        const dimMark = s.target_dim ? ` <span class="hh-step-dim">${s.target_dim}${s.dim_goal ? `→${s.dim_goal}` : ""}</span>` : "";
-        const estMark = s.est_min ? `<span class="hh-step-est">${s.est_min}min</span>` : "";
-        const riskMark = s.risk ? `<span class="hh-step-risk" title="风险">⚠</span>` : "";
-        return `<div class="hh-step"><span class="hh-step-idx">${i + 1}</span><span class="hh-step-text">${escapeHtml(s.text || "")}${dimMark}</span>${estMark}${riskMark}</div>`;
-      }).join("");
-      const qaRows = (h.qa_pairs || []).map((qa) => {
+
+    // ---- Kanban 列定义：7 大维度 + 未标注 ----
+    const columns = [
+      ...KNOWLEDGE_DIMENSIONS.map((d) => ({ key: d.code, name: d.name, color: d.color })),
+      { key: "__none__", name: "未标注", color: "#8b8b9e" },
+    ];
+    const tagsOf = (h) => {
+      const s = new Set((h.steps || []).map((x) => x.target_dim).filter(Boolean));
+      return [...s];
+    };
+    const colOf = (h) => {
+      const tags = tagsOf(h);
+      return tags.length ? tags[0] : "__none__";
+    };
+
+    // ---- 单张卡片（摘要 + 可展开详情）----
+    const cardHtml = (h) => {
+      const tags = tagsOf(h);
+      const dimTags = tags.map((t) => `<span class="hh-dim-tag">${t}</span>`).join("");
+      const shortcutMark = h.shortcut ? `<div class="hh-shortcut">⚡ ${escapeHtml(h.shortcut)}</div>` : "";
+      return `<div class="hh-kb-card" data-hash="${escapeHtml(h.task_hash || "")}">
+        <div class="hh-kb-card-head">
+          <span class="hh-task-text">${escapeHtml(h.task_text || "")}</span>
+          <span class="hh-time">${formatHatchTime(h.created_at)}</span>
+        </div>
+        <div class="hh-meta">
+          <span class="hh-meta-item">${h.accepted_count || 0}/${h.total_count || 0} 步</span>
+          ${h.est_total_min ? `<span class="hh-meta-item">⏱ ${h.est_total_min}min</span>` : ""}
+          <span class="hh-meta-item">${escapeHtml((h.last_scene || "") + (h.last_mode || ""))}</span>
+          ${dimTags ? `<span class="hh-dim-list">${dimTags}</span>` : ""}
+        </div>
+        ${shortcutMark}
+        <div class="hh-kb-card-detail" hidden></div>
+        <div class="hh-card-actions">
+          <button class="hh-btn hh-kb-toggle">▼ 展开</button>
+          <button class="hh-btn hh-rehatch" data-hash="${escapeHtml(h.task_hash || "")}" data-text="${escapeHtml(h.task_text || "")}">🔄 重新孵化</button>
+          <button class="hh-btn hh-to-grid" data-hash="${escapeHtml(h.task_hash || "")}" ${h.steps && h.steps.length ? "" : "disabled"}>📋 安排到格子</button>
+          <button class="hh-btn hh-del" data-hash="${escapeHtml(h.task_hash || "")}">🗑 删除</button>
+        </div>
+      </div>`;
+    };
+
+    // ---- 顶部统计 ----
+    const totalSteps = sorted.reduce((n, h) => n + (h.steps || []).length, 0);
+    const totalAcc = sorted.reduce((n, h) => n + (h.accepted_count || 0), 0);
+    const toolbar = `<div class="hh-kb-toolbar">
+      <span class="hh-kb-toolbar-title">🧭 按知识维度分类</span>
+      <span class="hh-kb-toolbar-stat">${sorted.length} 次孵化 · ${totalAcc}/${totalSteps} 步被接受</span>
+    </div>`;
+
+    // ---- 看板（横向滚动，列 = tag）----
+    const board = `<div class="hh-kb-board">${columns.map((col) => {
+      const items = sorted.filter((h) => colOf(h) === col.key);
+      if (!items.length) return `<div class="hh-kb-col hh-kb-col-empty" data-col="${col.key}">
+        <div class="hh-kb-col-head"><span class="hh-kb-col-dot" style="background:${col.color}"></span><span class="hh-kb-col-name">${col.name}</span><span class="hh-kb-col-count">0</span></div>
+        <div class="hh-kb-col-body"><div class="hh-kb-col-empty-tip">暂无</div></div>
+      </div>`;
+      return `<div class="hh-kb-col" data-col="${col.key}">
+        <div class="hh-kb-col-head"><span class="hh-kb-col-dot" style="background:${col.color}"></span><span class="hh-kb-col-name">${col.name}</span><span class="hh-kb-col-count">${items.length}</span></div>
+        <div class="hh-kb-col-body">${items.map(cardHtml).join("")}</div>
+      </div>`;
+    }).join("")}</div>`;
+
+    body.innerHTML = toolbar + board;
+
+    // ---- 事件委托：展开卡片 / 操作按钮 ----
+    body.addEventListener("click", (e) => {
+      const del = e.target.closest(".hh-del");
+      const rehatch = e.target.closest(".hh-rehatch");
+      const toGrid = e.target.closest(".hh-to-grid");
+      const card = e.target.closest(".hh-kb-card");
+      if (del) {
+        const hash = del.getAttribute("data-hash");
+        const item = sorted.find((h) => h.task_hash === hash);
+        if (item) {
+          const fullList = loadHatchHistory();
+          saveHatchHistory(fullList.filter((h) => h.task_hash !== hash));
+          renderHatchHistory();
+          toast("已删除该孵化记录", "info");
+        }
+        return;
+      }
+      if (rehatch) {
+        const text = rehatch.getAttribute("data-text") || "";
+        if (!text) return;
+        closeHatchHistoryDialog();
+        openHatchDialog({ text });
+        return;
+      }
+      if (toGrid) {
+        const hash = toGrid.getAttribute("data-hash");
+        const item = sorted.find((h) => h.task_hash === hash);
+        if (item && item.steps && item.steps.length) applyHistoryToGrid(item);
+        return;
+      }
+      // 点击卡片主体（非按钮）→ 展开/收起详情
+      if (card && !e.target.closest("button")) {
+        const detail = card.querySelector(".hh-kb-card-detail");
+        const toggleBtn = card.querySelector(".hh-kb-toggle");
+        if (detail) {
+          const isOpen = !detail.hidden;
+          if (isOpen) {
+            detail.hidden = true;
+            if (toggleBtn) toggleBtn.textContent = "▼ 展开";
+            card.classList.remove("expanded");
+          } else {
+            if (!detail.dataset.loaded) {
+              fillHatchCardDetail(detail, sorted.find((h) => h.task_hash === card.getAttribute("data-hash")));
+              detail.dataset.loaded = "1";
+            }
+            detail.hidden = false;
+            if (toggleBtn) toggleBtn.textContent = "▲ 收起";
+            card.classList.add("expanded");
+          }
+        }
+      }
+    });
+  }
+
+  // 填充卡片展开详情（问答 + 步骤 + mermaid 过程图）
+  function fillHatchCardDetail(detailEl, rec) {
+    if (!rec) { detailEl.innerHTML = `<div class="hh-mm-empty">无记录</div>`; return; }
+    let html = "";
+    if (rec.qa_pairs && rec.qa_pairs.length) {
+      html += `<div class="hh-section-label">🧠 引导问答</div>`;
+      html += rec.qa_pairs.map((qa) => {
         const dimChip = qa.dim ? `<span class="hh-qa-dim">${qa.dim}${qa.sub ? `·${qa.sub}` : ""}</span>` : "";
         const ansText = qa.answer
           ? `<span class="hh-qa-ans">${escapeHtml(qa.answer)}</span>`
           : `<span class="hh-qa-ans hh-qa-empty">（未填写）</span>`;
         return `<div class="hh-qa"><div class="hh-qa-q">${dimChip}<span>${escapeHtml(qa.question || qa.label || "")}</span></div><div class="hh-qa-a">${ansText}</div></div>`;
       }).join("");
-      const sceneLabel = h.last_scene ? ` · ${escapeHtml(h.last_scene)}` : "";
-      const modeLabel = h.last_mode ? ` · ${escapeHtml(h.last_mode)}` : "";
-      const shortcutMark = h.shortcut ? `<span class="hh-shortcut">⚡ ${escapeHtml(h.shortcut)}</span>` : "";
-      const blockerMark = h.first_blocker ? `<div class="hh-blocker">🚧 首个障碍：${escapeHtml(h.first_blocker)}</div>` : "";
-      return `<div class="hh-card" data-idx="${idx}">
-        <div class="hh-card-head">
-          <div class="hh-task-text">${escapeHtml(h.task_text || "")}</div>
-          <span class="hh-time">${formatHatchTime(h.created_at)}</span>
-        </div>
-        <div class="hh-meta">
-          <span class="hh-meta-item">${h.accepted_count || 0}/${h.total_count || 0} 步</span>
-          ${h.est_total_min ? `<span class="hh-meta-item">⏱ ${h.est_total_min}min</span>` : ""}
-          <span class="hh-meta-item">${escapeHtml(sceneLabel + modeLabel)}</span>
-          ${dimTags ? `<span class="hh-dim-list">${dimTags}</span>` : ""}
-        </div>
-        ${shortcutMark}
-        ${qaRows ? `<div class="hh-qa-list"><div class="hh-section-label">🧠 引导问答</div>${qaRows}</div>` : ""}
-        ${stepRows ? `<div class="hh-step-list"><div class="hh-section-label">📋 拆解步骤</div>${stepRows}</div>` : ""}
-        ${blockerMark}
-        <div class="hh-card-actions">
-          <button class="hh-btn hh-rehatch" data-hash="${escapeHtml(h.task_hash || "")}" data-text="${escapeHtml(h.task_text || "")}">🔄 重新孵化</button>
-          <button class="hh-btn hh-to-grid" data-idx="${idx}" ${h.steps && h.steps.length ? "" : "disabled"}>📋 安排到格子</button>
-          <button class="hh-btn hh-del" data-idx="${idx}">🗑 删除</button>
-        </div>
-      </div>`;
-    }).join("");
+    }
+    if (rec.steps && rec.steps.length) {
+      html += `<div class="hh-section-label">📋 拆解步骤</div>`;
+      html += rec.steps.map((s, i) => {
+        const dimMark = s.target_dim ? `<span class="hh-step-dim">${s.target_dim}${s.dim_goal ? `→${s.dim_goal}` : ""}</span>` : "";
+        const estMark = s.est_min ? `<span class="hh-step-est">${s.est_min}min</span>` : "";
+        const riskMark = s.risk ? `<span class="hh-step-risk" title="风险">⚠</span>` : "";
+        return `<div class="hh-step"><span class="hh-step-idx">${i + 1}</span><span class="hh-step-text">${escapeHtml(s.text || "")}${dimMark}</span>${estMark}${riskMark}</div>`;
+      }).join("");
+    }
+    if (rec.first_blocker) html += `<div class="hh-blocker">🚧 首个障碍：${escapeHtml(rec.first_blocker)}</div>`;
+    html += `<div class="hh-section-label">🕸 孵化过程图</div><div class="hh-mermaid"></div>`;
+    detailEl.innerHTML = html;
+    const mmEl = detailEl.querySelector(".hh-mermaid");
+    if (mmEl) renderHatchMermaid(mmEl, rec);
+  }
 
-    // 绑定卡片内操作
-    body.querySelectorAll(".hh-rehatch").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const text = btn.getAttribute("data-text") || "";
-        if (!text) return;
-        closeHatchHistoryDialog();
-        openHatchDialog({ text: text });
-      });
+  // 生成孵化过程 mermaid 图（任务 → 引导问答 → 拆解步骤 → 产出）
+  function buildHatchGraph(rec) {
+    const esc = (s) => String(s || "")
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/[\[\](){}|#]/g, " ").replace(/"/g, "＂").replace(/\n/g, " ").slice(0, 70);
+    const lines = ["flowchart TD"];
+    lines.push(`T["🥚 ${esc(rec.task_text)}"]`);
+    const qas = rec.qa_pairs || [];
+    const steps = rec.steps || [];
+    // 引导问答节点（只显示已回答的，避免过长）
+    const qaShown = qas.filter((qa) => qa.answer && qa.answer.trim());
+    qaShown.forEach((qa, i) => {
+      lines.push(`QA${i}["${esc(qa.dim ? qa.dim + " " : "")}${esc(qa.question || qa.label)}<br/>→ ${esc(qa.answer)}"]`);
     });
-    body.querySelectorAll(".hh-to-grid").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const i = parseInt(btn.getAttribute("data-idx"), 10);
-        const item = sorted[i];
-        if (!item || !item.steps || !item.steps.length) return;
-        applyHistoryToGrid(item);
-      });
+    // 拆解步骤节点
+    steps.forEach((s, i) => {
+      lines.push(`S${i}["${esc(s.target_dim ? s.target_dim + " " : "")}${i + 1}. ${esc(s.text)}${s.est_min ? ` (${s.est_min}min)` : ""}"]`);
     });
-    body.querySelectorAll(".hh-del").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const i = parseInt(btn.getAttribute("data-idx"), 10);
-        const item = sorted[i];
-        if (!item) return;
-        const fullList = loadHatchHistory();
-        const filtered = fullList.filter((h) => h.task_hash !== item.task_hash);
-        saveHatchHistory(filtered);
-        renderHatchHistory();
-        toast("已删除该孵化记录", "info");
+    // 边
+    if (qaShown.length) {
+      lines.push(`T --> QA0`);
+      for (let i = 0; i < qaShown.length - 1; i++) lines.push(`QA${i} --> QA${i + 1}`);
+      if (steps.length) lines.push(`QA${qaShown.length - 1} --> S0`);
+      else lines.push(`QA${qaShown.length - 1} --> R["🎯 ${rec.accepted_count || 0}/${rec.total_count || 0} 步 · 预估 ${rec.est_total_min || 0}min"]`);
+    } else if (steps.length) {
+      lines.push(`T --> S0`);
+    } else {
+      lines.push(`T --> R["🎯 ${rec.accepted_count || 0}/${rec.total_count || 0} 步"]`);
+    }
+    if (steps.length) {
+      for (let i = 0; i < steps.length - 1; i++) lines.push(`S${i} --> S${i + 1}`);
+      lines.push(`S${steps.length - 1} --> R["🎯 ${rec.accepted_count || 0}/${rec.total_count || 0} 步 · 预估 ${rec.est_total_min || 0}min"]`);
+    }
+    if (rec.shortcut) lines.push(`R -.-> SH["⚡ 捷径：${esc(rec.shortcut)}"]`);
+    if (rec.first_blocker) lines.push(`R -.-> BL["🚧 ${esc(rec.first_blocker)}"]`);
+    return lines.join("\n");
+  }
+
+  // 渲染 mermaid 图（异步）
+  async function renderHatchMermaid(container, rec) {
+    if (typeof mermaid === "undefined") {
+      container.innerHTML = `<div class="hh-mm-empty">图表库未加载（lib/mermaid.min.js 缺失）</div>`;
+      return;
+    }
+    try {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: "dark",
+        securityLevel: "loose",
+        fontFamily: "inherit",
+        flowchart: { curve: "basis", nodeSpacing: 22, rankSpacing: 28, htmlLabels: true },
       });
-    });
+      const id = "hhg" + Math.random().toString(36).slice(2, 8);
+      const { svg } = await mermaid.render(id, buildHatchGraph(rec));
+      container.innerHTML = svg;
+      container.querySelector("svg").style.maxWidth = "100%";
+    } catch (e) {
+      container.innerHTML = `<div class="hh-mm-empty">过程图渲染失败：${escapeHtml(e.message || "未知错误")}</div>`;
+    }
   }
 
   // 把历史记录中的步骤直接安排到时间格子（无需重新打开孵化弹窗）
