@@ -1236,6 +1236,12 @@ body:has(.pomodoro-bar[style*="display: block"]) .realm-fab {
   margin: 0 auto;
   position: relative;
 }
+/* 看板视图：取消正方形限制，横向铺满利用空间（安卓窄屏关键） */
+.mandala-grid.kanban-mode {
+  aspect-ratio: auto;
+  max-width: 100%;
+  position: static;
+}
 /* 安卓旧 WebView 兼容：不支持 aspect-ratio 时用固定高度保布局 */
 @supports not (aspect-ratio: 1 / 1) {
   .mandala-grid { height: min(90vw, 480px); }
@@ -5244,6 +5250,7 @@ dialog::backdrop {
 .streak-text b { color: var(--warning); font-size: 16px; }
 .streak-best { font-size: 11px; color: var(--text-muted); border-left: 1px solid var(--border); padding-left: 10px; }
 .streak-tip { margin-left: auto; font-size: 10px; color: var(--text-muted); }
+.streak-badge { font-size: 12px; letter-spacing: 1px; }
 
 /* ---------- 过去时辰快览导航 ---------- */
 .review-period-nav {
@@ -6698,6 +6705,21 @@ dialog.inbox-dialog-fullscreen::backdrop {
   padding-left: 8px;
   border-left: 2px solid rgba(255, 200, 80, 0.35);
 }
+.hoq-progress {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  text-align: center;
+}
+.hoq-pos {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-right: 4px;
+}
 
 /* 截图附件：记录格子缩略图 + 徽章 */
 .cell-attachments {
@@ -6996,6 +7018,19 @@ dialog.inbox-dialog-fullscreen::backdrop {
   font-weight: 700;
   color: var(--text);
 }
+.hh-kb-search {
+  flex: 1;
+  min-width: 120px;
+  max-width: 220px;
+  padding: 5px 10px;
+  font-size: 12px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  outline: none;
+}
+.hh-kb-search:focus { border-color: var(--accent); }
 .hh-kb-toolbar-stat {
   font-size: 11px;
   color: var(--text-muted);
@@ -7099,6 +7134,173 @@ dialog.inbox-dialog-fullscreen::backdrop {
 .hh-kb-card .hh-btn {
   font-size: 11px;
   padding: 3px 8px;
+}
+
+/* ---------- 计划页视图切换（九宫格 / 看板） ---------- */
+.plan-view-switch {
+  display: flex;
+  gap: 2px;
+  background: var(--input-bg);
+  border-radius: 8px;
+  padding: 2px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.pv-tab {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.pv-tab.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ---------- 待办看板（按 tag 横向分列） ---------- */
+.kanban-board {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  padding-bottom: 8px;
+  align-items: flex-start;
+  min-height: 180px;
+}
+.kanban-col {
+  flex: 0 0 240px;
+  width: 240px;
+  max-height: 58vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.kanban-col-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  flex-shrink: 0;
+}
+.kanban-col-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.kanban-col-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kanban-col-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--input-bg);
+  border-radius: 999px;
+  padding: 1px 8px;
+  flex-shrink: 0;
+}
+.kanban-col-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.kanban-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--bg);
+  cursor: pointer;
+  transition: border-color 0.15s, opacity 0.15s;
+}
+.kanban-card:hover { border-color: rgba(124, 92, 255, 0.45); }
+.kanban-card.done { opacity: 0.55; }
+.kanban-card.done .kanban-card-text { text-decoration: line-through; }
+.kanban-card-main {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+.kanban-card-cb {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--border-strong, var(--border));
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--accent);
+  margin-top: 1px;
+}
+.kanban-card.done .kanban-card-cb {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.kanban-card-text {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+  word-break: break-all;
+}
+.kanban-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.kanban-loc {
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--input-bg);
+  border-radius: 6px;
+  padding: 1px 6px;
+}
+.kanban-prio.high { color: #ff6b6b; font-size: 11px; }
+.kanban-prio.low { color: var(--text-muted); font-size: 11px; }
+.kanban-est {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.kanban-edit {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 2px;
+  border-radius: 4px;
+}
+.kanban-edit:hover { color: var(--accent); background: var(--hover); }
+.kanban-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 48px 16px;
 }
 /* mermaid 图 */
 .hh-mermaid {
@@ -7650,7 +7852,7 @@ dialog.inbox-dialog-fullscreen::backdrop {
 .inbox-stats-inline .is-overdue { background:#ff6b6b20; color:#ff6b6b; }
 
 .inbox-input-area { display:flex; gap:6px; flex-wrap:wrap; align-items:center; padding:8px; background:var(--card-bg); border-radius:8px; }
-.inbox-input-area input[type="text"], .inbox-input-area select { padding:6px 8px; background:var(--input-bg); border:1px solid var(--input-border); border-radius:6px; color:var(--text-primary); font-size:13px; }
+.inbox-input-area input[type="text"], .inbox-input-area select, .inbox-input-area input[type="datetime-local"] { padding:6px 8px; background:var(--input-bg); border:1px solid var(--input-border); border-radius:6px; color:var(--text-primary); font-size:13px; }
 .inbox-input-area #inboxInput { flex:1; min-width:200px; }
 
 .inbox-batch-bar { display:flex; gap:6px; align-items:center; padding:8px; background:var(--accent)10; border:1px solid var(--accent)30; border-radius:8px; margin:8px 0; flex-wrap:wrap; }
@@ -7706,6 +7908,9 @@ dialog.inbox-dialog-fullscreen::backdrop {
 .inbox-due { font-size:10px; padding:1px 6px; border-radius:8px; background:var(--input-bg); color:var(--text-secondary); flex-shrink:0; }
 .inbox-due.is-due { background:#ffd93d20; color:#ffd93d; }
 .inbox-due.is-overdue { background:#ff6b6b20; color:#ff6b6b; font-weight:600; }
+.inbox-start { font-size:10px; padding:1px 6px; border-radius:8px; background:var(--input-bg); color:var(--text-secondary); flex-shrink:0; }
+.inbox-start.is-start-now { background:#3ecf8e20; color:#3ecf8e; }
+.inbox-start.is-start-future { background:#7c5cff20; color:#7c5cff; }
 .inbox-item-act { background:none; border:none; color:var(--text-secondary); cursor:pointer; padding:4px; font-size:13px; border-radius:4px; flex-shrink:0; }
 .inbox-item-act:hover { background:var(--hover); color:var(--accent); }
 .inbox-item-del { background:none; border:none; color:var(--text-secondary); cursor:pointer; padding:4px; font-size:13px; border-radius:4px; flex-shrink:0; }
