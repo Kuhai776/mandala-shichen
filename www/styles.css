@@ -1389,7 +1389,7 @@ body:has(.pomodoro-bar[style*="display: block"]) .realm-fab {
 
 /* ---------- AI 对话区 ---------- */
 .chat-section {
-  background: var(--bg-card);
+  background: linear-gradient(180deg, var(--bg-card), var(--bg-elevated, var(--bg-card)));
   border-radius: var(--radius);
   padding: 16px;
   border: 1px solid var(--border);
@@ -1397,6 +1397,10 @@ body:has(.pomodoro-bar[style*="display: block"]) .realm-fab {
   flex-direction: column;
   min-height: 360px;
   animation: fadeUp 0.3s ease;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.05);
+}
+[data-theme="dark"] .chat-section {
+  box-shadow: 0 2px 18px rgba(0, 0, 0, 0.25);
 }
 
 .chat-header {
@@ -1875,12 +1879,18 @@ body:has(.pomodoro-bar[style*="display: block"]) .realm-fab {
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 0;
+  padding: 8px 6px;
   margin-bottom: 12px;
   min-height: 200px;
   max-height: 50vh;
   scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  background: rgba(124, 92, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 14px;
 }
+.chat-messages::-webkit-scrollbar { width: 5px; }
+.chat-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
 .message {
   margin-bottom: 12px;
@@ -1925,17 +1935,20 @@ body:has(.pomodoro-bar[style*="display: block"]) .realm-fab {
   font-size: 14px;
   line-height: 1.5;
   word-break: break-word;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 
 .message.bot .message-content {
-  background: var(--bg-tertiary);
+  background: linear-gradient(135deg, var(--bg-tertiary), var(--bg-elevated, var(--bg-tertiary)));
+  border: 1px solid var(--border);
   border-bottom-left-radius: 4px;
 }
 
 .message.user .message-content {
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent), var(--accent-light));
   color: white;
   border-bottom-right-radius: 4px;
+  box-shadow: 0 2px 8px rgba(124, 92, 255, 0.28);
 }
 
 .message-content .task-list {
@@ -1969,14 +1982,17 @@ body:has(.pomodoro-bar[style*="display: block"]) .realm-fab {
   min-height: 40px;
   line-height: 1.4;
   outline: none;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.chat-input:focus { border-color: var(--border-active); }
+.chat-input:focus {
+  border-color: var(--border-active);
+  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.14);
+}
 
 .send-btn {
   position: relative;
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent), var(--accent-light));
   color: white;
   padding: 0 18px;
   height: 40px;
@@ -1984,8 +2000,13 @@ body:has(.pomodoro-bar[style*="display: block"]) .realm-fab {
   font-size: 14px;
   font-weight: 500;
   flex-shrink: 0;
-  transition: transform 0.15s, background 0.2s, color 0.2s;
+  box-shadow: 0 2px 8px rgba(124, 92, 255, 0.25);
+  transition: transform 0.15s, background 0.2s, color 0.2s, box-shadow 0.2s;
   overflow: visible;
+}
+
+.send-btn:hover:not(:disabled) {
+  box-shadow: 0 3px 12px rgba(124, 92, 255, 0.4);
 }
 
 .send-btn:active {
@@ -6419,13 +6440,12 @@ dialog.inbox-dialog-fullscreen::backdrop {
   width: 100vw;
   height: 100vh;
   height: 100dvh;
-  background: var(--bg, #1a1a2e);
+  background: var(--bg-primary);
   border: none;
   border-radius: 0;
 }
 .hatch-dialog.hatch-dialog-fullscreen::backdrop {
-  background: rgba(10, 10, 20, 0.85);
-  backdrop-filter: blur(6px);
+  background: var(--overlay);
 }
 .hatch-dialog.hatch-dialog-fullscreen .hatch-fs-content {
   max-width: 100% !important;
@@ -6436,7 +6456,7 @@ dialog.inbox-dialog-fullscreen::backdrop {
   border-radius: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg, #1a1a2e);
+  background: var(--bg-primary);
 }
 .hatch-dialog .hatch-fs-header {
   flex-shrink: 0;
@@ -7132,6 +7152,7 @@ dialog.inbox-dialog-fullscreen::backdrop {
 
 /* mermaid 图 */
 .hh-mermaid {
+  position: relative;
   background: rgba(255, 255, 255, 0.02);
   border-radius: 8px;
   padding: 6px;
@@ -7142,11 +7163,128 @@ dialog.inbox-dialog-fullscreen::backdrop {
   max-width: 100%;
   height: auto;
 }
+.hh-mm-svg {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.hh-mm-zoom {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 5;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-active, rgba(124,92,255,0.35));
+  background: rgba(124, 92, 255, 0.14);
+  color: var(--accent-light, #b3a6ff);
+  cursor: zoom-in;
+  backdrop-filter: blur(4px);
+  transition: background 0.2s, transform 0.15s;
+}
+.hh-mm-zoom:hover {
+  background: rgba(124, 92, 255, 0.28);
+}
+.hh-mm-zoom:active {
+  transform: scale(0.94);
+}
 .hh-mm-empty {
   font-size: 12px;
   color: var(--text-muted);
   padding: 10px;
   text-align: center;
+}
+
+/* ---------- 孵化历史内嵌面板 ---------- */
+.hatch-history-panel {
+  flex-shrink: 0;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elevated, var(--bg-card));
+  overflow: hidden;
+  animation: panelIn 0.28s ease;
+}
+@keyframes panelIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.hatch-history-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(124,92,255,0.07), transparent);
+}
+.hatch-history-panel-title {
+  font-size: 13px;
+  font-weight: 700;
+  flex: 1;
+}
+.hatch-history-panel-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: rgba(124,92,255,0.12);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.hatch-history-panel-body {
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 10px;
+  -webkit-overflow-scrolling: touch;
+}
+@media (max-width: 720px) {
+  .hatch-history-panel-body { max-height: 40vh; }
+}
+
+/* ---------- mermaid 放大 lightbox ---------- */
+.mermaid-lightbox-dialog {
+  padding: 0;
+  border: none;
+  border-radius: 12px;
+  width: min(92vw, 860px);
+  max-width: 94vw;
+  max-height: 90vh;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+.mermaid-lightbox-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(4px);
+}
+.mlb-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(124,92,255,0.08), transparent);
+}
+.mlb-title {
+  font-size: 14px;
+  font-weight: 700;
+  flex: 1;
+}
+.mlb-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.mlb-body {
+  padding: 14px;
+  max-height: calc(90vh - 52px);
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  -webkit-overflow-scrolling: touch;
+  background: rgba(255, 255, 255, 0.02);
+}
+.mlb-body svg {
+  max-width: 100%;
+  height: auto;
+  background: transparent;
 }
 
 /* 进度区（孵化实验室界面） */
@@ -7594,6 +7732,92 @@ dialog.inbox-dialog-fullscreen::backdrop {
 .hatch-actions .danger-btn {
   padding: 6px 12px;
   font-size: 12px;
+}
+
+/* 结果页连续对话 */
+.hatch-chat {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elevated, var(--bg-card));
+  overflow: hidden;
+}
+.hatch-chat-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(124,92,255,0.07), transparent);
+}
+.hatch-chat-title { font-size: 13px; font-weight: 700; }
+.hatch-chat-hint { font-size: 11px; color: var(--text-muted); flex: 1; text-align: right; }
+.hatch-chat-log {
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+.hatch-chat-msg {
+  display: flex;
+  animation: msgIn 0.2s ease;
+}
+.hatch-chat-msg.user { justify-content: flex-end; }
+.hatch-chat-msg.bot { justify-content: flex-start; }
+.hatch-chat-bubble {
+  max-width: 88%;
+  padding: 7px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.hatch-chat-msg.user .hatch-chat-bubble {
+  background: linear-gradient(135deg, var(--accent), var(--accent-light));
+  color: #fff;
+  border-bottom-right-radius: 3px;
+}
+.hatch-chat-msg.bot .hatch-chat-bubble {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 3px;
+}
+.hatch-chat-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  padding: 10px;
+  border-top: 1px solid var(--border);
+}
+.hatch-chat-input {
+  flex: 1;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 8px 14px;
+  color: var(--text-primary);
+  resize: none;
+  max-height: 90px;
+  min-height: 36px;
+  line-height: 1.4;
+  outline: none;
+  font-size: 13px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.hatch-chat-input:focus {
+  border-color: var(--border-active);
+  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.12);
+}
+.hatch-chat-send { height: 36px; padding: 0 16px; border-radius: 18px; font-size: 13px; flex-shrink: 0; }
+.hatch-chat-send:disabled { opacity: 0.5; }
+@media (max-width: 720px) {
+  .hatch-chat-hint { display: none; }
+  .hatch-chat-log { max-height: 180px; }
 }
 
 .hatch-error {
