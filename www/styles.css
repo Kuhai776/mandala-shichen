@@ -7916,6 +7916,33 @@ dialog.inbox-dialog-fullscreen::backdrop {
 .inbox-item-del { background:none; border:none; color:var(--text-secondary); cursor:pointer; padding:4px; font-size:13px; border-radius:4px; flex-shrink:0; }
 .inbox-item-del:hover { background:#ff6b6b20; color:#ff6b6b; }
 
+/* 收集箱看板视图：tag 横向分列可滑动，任务名固定宽度自动换行 */
+.inbox-view-switch { display:inline-flex; gap:2px; background:var(--input-bg); border:1px solid var(--input-border); border-radius:8px; padding:2px; }
+.inbox-view-switch .iv-tab { border:none; background:transparent; color:var(--text-secondary); padding:3px 10px; border-radius:6px; cursor:pointer; font-size:11px; }
+.inbox-view-switch .iv-tab.active { background:var(--accent); color:#fff; }
+.inbox-list.inbox-kanban-view { display:flex; flex-direction:row; gap:10px; overflow-x:auto; overflow-y:hidden; align-items:flex-start; max-height:none; padding:4px 2px 12px; -webkit-overflow-scrolling:touch; }
+.inbox-kanban-board { display:flex; gap:10px; align-items:flex-start; min-width:max-content; }
+.inbox-kanban-col { flex:0 0 190px; background:var(--card-bg); border:1px solid var(--border); border-radius:10px; padding:8px; display:flex; flex-direction:column; max-height:50vh; }
+.inbox-kanban-col-head { display:flex; align-items:center; gap:6px; padding:2px 2px 8px; }
+.inbox-kanban-col-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.inbox-kanban-col-name { font-size:12px; font-weight:600; color:var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:110px; }
+.inbox-kanban-col-count { margin-left:auto; font-size:10px; color:var(--text-secondary); background:var(--input-bg); padding:1px 6px; border-radius:8px; flex-shrink:0; }
+.inbox-kanban-col-body { display:flex; flex-direction:column; gap:6px; overflow-y:auto; }
+.inbox-kanban-card { background:var(--input-bg); border:1px solid var(--input-border); border-radius:8px; padding:7px 8px; cursor:pointer; transition:border-color .15s; }
+.inbox-kanban-card:hover { border-color:var(--accent); }
+.inbox-kanban-card.done { opacity:.5; }
+.inbox-kanban-card.done .ikb-card-text { text-decoration:line-through; }
+.ikb-card-main { display:flex; gap:6px; align-items:flex-start; }
+.ikb-card-cb { flex:0 0 13px; font-size:12px; color:var(--accent); line-height:1.4; }
+/* 任务名：横向宽度固定（列宽内），过长自动换行撑高卡片 */
+.ikb-card-text { flex:1; min-width:0; font-size:13px; line-height:1.45; color:var(--text-primary); word-break:break-word; overflow-wrap:anywhere; white-space:normal; }
+.ikb-card-meta { margin-top:5px; display:flex; flex-wrap:wrap; gap:3px; align-items:center; }
+.ikb-tag-mini { font-size:9px; padding:0 4px; border-radius:6px; }
+.ikb-prio { font-size:11px; }
+.ikb-due { font-size:9px; padding:0 4px; border-radius:6px; background:var(--input-bg); color:var(--text-secondary); }
+.ikb-due.is-due { background:#ffd93d20; color:#ffd93d; }
+.ikb-due.is-overdue { background:#ff6b6b20; color:#ff6b6b; font-weight:600; }
+
 .inbox-inline-edit { font-size:14px; padding:4px 6px; border:1px solid var(--accent); border-radius:4px; background:var(--input-bg); color:var(--text-primary); }
 
 /* 主线管理面板 */
