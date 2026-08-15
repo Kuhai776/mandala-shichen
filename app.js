@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260814a";
+const SW_VER = "20260814b";
 
 (function () {
   "use strict";
@@ -119,9 +119,13 @@ const SW_VER = "20260814a";
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.7.0";
+  const APP_VERSION = "2.7.1";
   const APP_VERSION_DATE = "2026-08-14";
   const APP_CHANGELOG = [
+    { v: "2.7.1", date: "2026-08-14", items: [
+      "新增：收集箱内嵌 Kanban 看板（打开收集箱默认看板视图，按 tag 横向分列可滑动，任务名固定列宽、超长自动换行；可切回列表视图）",
+      "优化：看板卡片显示优先级/截止状态，点击卡片一键勾选完成",
+    ]},
     { v: "2.7.0", date: "2026-08-14", items: [
       "新增：主界面待办 Kanban 看板（计划页「九宫格/看板」切换，按标签横向分列，点击卡片勾选完成）",
       "新增：收集箱开始日期（速记新增可选开始/截止日期，日历选择；条目展示「今天开始/已开始X天/N天后开始」与逾期状态）",
@@ -1792,6 +1796,7 @@ const SW_VER = "20260814a";
     inboxTimeFilter: document.getElementById("inboxTimeFilter"),
     inboxTagList: document.getElementById("inboxTagList"),
     inboxTagChips: document.getElementById("inboxTagChips"),
+    inboxViewSwitch: document.getElementById("inboxViewSwitch"),
     // 收集箱-九宫格预览
     igpGrid: document.getElementById("igpGrid"),
     igpPeriodLabel: document.getElementById("igpPeriodLabel"),
@@ -11029,6 +11034,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   let inboxFilterTag = "";
   let inboxTimeFilter = "all";
   let inboxFilterMainline = ""; // "" = 全部, "none" = 未分组, "ml_xxx" = 指定主线
+  let inboxView = "kanban"; // 收集箱列表视图：list 列表 / kanban 看板
   let inboxMultiSelect = new Set(); // 多选 idx 集合
   let inboxMultiSelectMode = false;
   let inboxMode = "quick"; // 当前收集箱模式：quick / mainline / long
@@ -11641,7 +11647,14 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     renderInboxStats();
     const filtered = filterInboxItems();
     if (!filtered.length) {
+      el.inboxList.classList.remove("inbox-kanban-view");
       el.inboxList.innerHTML = '<div class="inbox-empty">暂无内容，想到什么先记下来吧</div>';
+      return;
+    }
+    el.inboxList.classList.toggle("inbox-kanban-view", inboxView === "kanban");
+    // 看板视图：按 tag 横向分列
+    if (inboxView === "kanban") {
+      renderInboxKanban(filtered);
       return;
     }
     // 按主线分组
@@ -11707,6 +11720,70 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     }
     el.inboxList.innerHTML = html;
     bindInboxItemEvents();
+  }
+
+  // 收集箱看板：按 tag 横向分列，卡片名字固定宽度自动换行
+  let inboxKanbanBound = false;
+  function renderInboxKanban(filtered) {
+    // 每个条目取第一个 tag 作为列归属，无 tag → 未分类
+    const NO_TAG = "未分类";
+    const colMap = new Map();
+    filtered.forEach((item) => {
+      const tag = (item.tags && item.tags.length ? item.tags[0] : NO_TAG);
+      if (!colMap.has(tag)) colMap.set(tag, { items: [], color: tagColor(tag) });
+      colMap.get(tag).items.push(item);
+    });
+    // 列排序：未分类最后，其余按标签名
+    const cols = [...colMap.entries()].sort((a, b) => {
+      if (a[0] === NO_TAG) return 1;
+      if (b[0] === NO_TAG) return -1;
+      return a[0].localeCompare(b[0], "zh");
+    });
+    const html = `<div class="inbox-kanban-board">${cols.map(([tag, col]) => {
+      const undone = col.items.filter((i) => !i.done).length;
+      return `<div class="inbox-kanban-col" data-tag="${escapeHtml(tag)}">
+        <div class="inbox-kanban-col-head">
+          <span class="inbox-kanban-col-dot" style="background:${col.color};"></span>
+          <span class="inbox-kanban-col-name">${escapeHtml(tag)}</span>
+          <span class="inbox-kanban-col-count">${undone}/${col.items.length}</span>
+        </div>
+        <div class="inbox-kanban-col-body">${col.items.map((item) => {
+          const idx = inboxItems.indexOf(item);
+          const extraTags = (item.tags || []).slice(1).map((t) => `<span class="ikb-tag-mini" style="background:${tagColor(t)}20;color:${tagColor(t)};">${escapeHtml(t)}</span>`).join("");
+          const prio = item.priority === 2 ? '<span class="ikb-prio" title="紧急">⚡</span>'
+            : item.priority === 1 ? '<span class="ikb-prio" title="重要">★</span>' : "";
+          const dueStr = item.due ? (() => {
+            const now = new Date(); now.setHours(0, 0, 0, 0);
+            const due = new Date(item.due); due.setHours(0, 0, 0, 0);
+            const diff = Math.round((due - now) / 86400000);
+            const cls = diff < 0 ? "is-overdue" : diff === 0 ? "is-due" : "";
+            return `<span class="ikb-due ${cls}">📅${diff < 0 ? "逾期" + -diff : diff === 0 ? "今日" : diff + "天"}</span>`;
+          })() : "";
+          return `<div class="inbox-kanban-card ${item.done ? "done" : ""}" data-idx="${idx}" title="点击切换完成">
+            <div class="ikb-card-main"><span class="ikb-card-cb">${item.done ? "✓" : "○"}</span><span class="ikb-card-text">${escapeHtml(item.text || "")}</span></div>
+            <div class="ikb-card-meta">${prio}${extraTags}${dueStr}</div>
+          </div>`;
+        }).join("")}</div>
+      </div>`;
+    }).join("")}</div>`;
+    el.inboxList.innerHTML = html;
+    bindInboxKanbanEvents();
+  }
+
+  // 看板事件委托（只绑定一次，避免监听器累积）
+  function bindInboxKanbanEvents() {
+    if (inboxKanbanBound) return;
+    inboxKanbanBound = true;
+    el.inboxList.addEventListener("click", (e) => {
+      const card = e.target.closest(".inbox-kanban-card");
+      if (!card) return;
+      const idx = parseInt(card.dataset.idx);
+      if (!inboxItems[idx]) return;
+      inboxItems[idx].done = !inboxItems[idx].done;
+      saveInbox();
+      renderInboxStats();
+      renderInboxList();
+    });
   }
 
   // 渲染单个条目 HTML（速记型）
@@ -12119,6 +12196,16 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     inboxTimeFilter = el.inboxTimeFilter.value;
     renderInboxList();
   });
+  // 收集箱列表/看板切换
+  if (el.inboxViewSwitch) {
+    el.inboxViewSwitch.addEventListener("click", (e) => {
+      const tab = e.target.closest(".iv-tab");
+      if (!tab || !tab.dataset.view) return;
+      inboxView = tab.dataset.view;
+      el.inboxViewSwitch.querySelectorAll(".iv-tab").forEach((t) => t.classList.toggle("active", t === tab));
+      renderInboxList();
+    });
+  }
   // 主线选择器联动支线
   if (el.inboxNewMainline) el.inboxNewMainline.addEventListener("change", refreshSidelineSelector);
   // 主线筛选
