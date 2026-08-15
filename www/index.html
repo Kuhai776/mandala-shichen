@@ -23,7 +23,7 @@
           await Promise.all(keys.map(function (k) { return caches.delete(k); }));
         }
         // 检测当前 app.js 版本，若仍是旧的则强制带时间戳 reload
-        var APP_VERSION = "20260815a";
+        var APP_VERSION = "20260815b";
         if (sessionStorage.getItem("mandala-app-ver") !== APP_VERSION) {
           sessionStorage.setItem("mandala-app-ver", APP_VERSION);
           if (!location.search || location.search.indexOf("t=") === -1) {
@@ -86,7 +86,7 @@
       } catch (e) { console.warn("[polyfill] dialog 降级失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260815a" />
+  <link rel="stylesheet" href="styles.css?v=20260815b" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
   <script src="lib/mermaid.min.js"></script>
@@ -1383,8 +1383,8 @@
               <input type="checkbox" id="inboxMultiSelectToggle" />
               <span>☑ 多选</span>
             </label>
-            <div class="inbox-view-switch" id="inboxViewSwitch" title="列表 / 看板">
-              <button class="iv-tab" data-view="list">📋 列表</button>
+            <div class="inbox-view-switch" id="inboxViewSwitch" title="表格 / 看板">
+              <button class="iv-tab" data-view="table">📋 表格</button>
               <button class="iv-tab active" data-view="kanban">🗂 看板</button>
             </div>
           </div>
@@ -1517,6 +1517,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=20260815a" defer></script>
+  <script src="app.js?v=20260815b" defer></script>
 </body>
 </html>

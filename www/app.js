@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260815a";
+const SW_VER = "20260815b";
 
 (function () {
   "use strict";
@@ -119,9 +119,12 @@ const SW_VER = "20260815a";
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.7.2";
+  const APP_VERSION = "2.7.3";
   const APP_VERSION_DATE = "2026-08-15";
   const APP_CHANGELOG = [
+    { v: "2.7.3", date: "2026-08-15", items: [
+      "调整：收集箱「列表」视图升级为「表格」视图（列：完成/任务/标签/优先/日期/归属/操作；列宽固定、任务名超长自动换行、横向可滑动，与看板尺寸一致）",
+    ]},
     { v: "2.7.2", date: "2026-08-15", items: [
       "调整：移除主界面「九宫格/看板」切换，看板统一收敛到「待办收集箱」内（打开收集箱默认看板视图：tag 横向分列可滑动、列宽固定、任务名超长自动换行，可切回列表视图）",
     ]},
@@ -10918,7 +10921,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   let inboxFilterTag = "";
   let inboxTimeFilter = "all";
   let inboxFilterMainline = ""; // "" = 全部, "none" = 未分组, "ml_xxx" = 指定主线
-  let inboxView = "kanban"; // 收集箱列表视图：list 列表 / kanban 看板
+  let inboxView = "kanban"; // 收集箱视图：table 表格 / kanban 看板
   let inboxMultiSelect = new Set(); // 多选 idx 集合
   let inboxMultiSelectMode = false;
   let inboxMode = "quick"; // 当前收集箱模式：quick / mainline / long
@@ -11541,69 +11544,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       renderInboxKanban(filtered);
       return;
     }
-    // 按主线分组
-    const grouped = {};
-    const ungrouped = [];
-    // 顶层任务：无父任务的（子任务跟随父任务渲染）
-    filtered.forEach((item) => {
-      if (item.parentId) return; // 子任务由父任务递归渲染
-      if (item.mainline) {
-        if (!grouped[item.mainline]) grouped[item.mainline] = {};
-        const slKey = item.sideline || "_none";
-        if (!grouped[item.mainline][slKey]) grouped[item.mainline][slKey] = [];
-        grouped[item.mainline][slKey].push(item);
-      } else {
-        ungrouped.push(item);
-      }
-    });
-
-    let html = "";
-    // 渲染各主线分组
-    inboxMainlines.forEach((ml) => {
-      if (!grouped[ml.id]) return;
-      const allTasks = inboxItems.filter((i) => i.mainline === ml.id);
-      const allUndone = allTasks.filter((i) => !i.done).length;
-      const progress = allTasks.length ? Math.round((allTasks.length - allUndone) / allTasks.length * 100) : 0;
-      html += `<div class="inbox-ml-group" data-ml="${ml.id}">
-        <div class="inbox-ml-head" data-ml="${ml.id}">
-          <span class="inbox-ml-collapse">▼</span>
-          <span class="inbox-ml-dot" style="background:${ml.color};"></span>
-          <span class="inbox-ml-name">${escapeHtml(ml.name)}</span>
-          ${ml.dim ? `<span class="inbox-ml-dim" style="background:${ml.color}20;color:${ml.color};">${ml.dim}</span>` : ""}
-          <span class="inbox-ml-count">${allUndone}/${allTasks.length}</span>
-          <div class="inbox-ml-progress"><div style="width:${progress}%;background:${ml.color};"></div></div>
-          <span class="inbox-ml-pct">${progress}%</span>
-        </div>
-        <div class="inbox-ml-body">`;
-      // 支线分组
-      (ml.sidelines || []).forEach((sl) => {
-        if (!grouped[ml.id][sl.id]) return;
-        html += `<div class="inbox-sl-group">
-          <div class="inbox-sl-head"><span class="inbox-sl-bullet" style="background:${ml.color};"></span><span>${escapeHtml(sl.name)}</span>${sidelineDimBadge(sl, ml.color)}<span class="inbox-sl-count">${grouped[ml.id][sl.id].filter((i) => !i.done).length}</span></div>
-          <div class="inbox-sl-body">`;
-        html += grouped[ml.id][sl.id].map((item) => renderInboxItemWithChildren(item)).join("");
-        html += `</div></div>`;
-      });
-      // 无支线
-      if (grouped[ml.id]["_none"] && grouped[ml.id]["_none"].length) {
-        if (ml.sidelines && ml.sidelines.length) {
-          html += `<div class="inbox-sl-group"><div class="inbox-sl-head"><span class="inbox-sl-bullet" style="background:${ml.color};opacity:0.4;"></span><span>未分支线</span><span class="inbox-sl-count">${grouped[ml.id]["_none"].filter((i) => !i.done).length}</span></div><div class="inbox-sl-body">`;
-        } else {
-          html += `<div class="inbox-sl-body">`;
-        }
-        html += grouped[ml.id]["_none"].map((item) => renderInboxItemWithChildren(item)).join("");
-        if (ml.sidelines && ml.sidelines.length) html += `</div></div>`; else html += `</div>`;
-      }
-      html += `</div></div>`;
-    });
-    // 未分组
-    if (ungrouped.length) {
-      html += `<div class="inbox-ungrouped"><div class="inbox-ungrouped-head"><span>📂 未分组</span><span class="inbox-sl-count">${ungrouped.filter((i) => !i.done).length}</span></div><div class="inbox-sl-body">`;
-      html += ungrouped.map((item) => renderInboxItemWithChildren(item)).join("");
-      html += `</div></div>`;
-    }
-    el.inboxList.innerHTML = html;
-    bindInboxItemEvents();
+    // 表格视图：扁平行列，列宽固定、任务名超长自动换行（横向可滑动）
+    renderInboxTable(filtered);
   }
 
   // 收集箱看板：按 tag 横向分列，卡片名字固定宽度自动换行
@@ -11670,160 +11612,134 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     });
   }
 
-  // 渲染单个条目 HTML（速记型）
-  function renderInboxItemHtml(item) {
-    const realIdx = inboxItems.indexOf(item);
-    const d = item.createdAt ? new Date(item.createdAt) : null;
-    const dateStr = d
-      ? d.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" }) + " " + d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
-      : "";
-    // 卡片型
-    if (item.kind === "card") {
-      const cardType = item.type || "reading";
-      const meta = { reading: "📖 待读", wiki: "📚 知识", summary: "📝 总结" }[cardType] || "📭 卡片";
-      return `<div class="inbox-card ${item.done ? "done" : ""}" data-idx="${realIdx}" data-id="${escapeHtml(item.id)}">
-        <div class="inbox-card-head">
-          <span class="inbox-card-type">${meta}</span>
-          <span class="inbox-item-date">${dateStr}</span>
-          <button class="inbox-item-del" data-idx="${realIdx}" title="删除">✕</button>
-        </div>
-        <div class="inbox-card-title">${escapeHtml(item.title || item.text || "")}</div>
-        ${item.summary ? `<div class="inbox-card-summary">${escapeHtml(item.summary)}</div>` : ""}
-        ${item.link ? `<a class="inbox-card-link" href="${escapeHtml(item.link)}" target="_blank" rel="noopener">${escapeHtml(item.source || item.link)}</a>` : ""}
-        <div class="inbox-card-actions">
-          <button class="inbox-card-act" data-act="tochat" data-idx="${realIdx}">💬 发给AI</button>
-          <button class="inbox-card-act" data-act="done" data-idx="${realIdx}">${item.done ? "↩ 取消完成" : "✓ 标记完成"}</button>
-        </div>
-      </div>`;
-    }
-    // 速记/孵化型
-    const dragAttr = item.done ? "" : 'draggable="true"';
-    const fromHatch = item.kind === "hatch" ? '<span class="inbox-item-src" title="来自孵化">🥚</span>' : "";
-    // 父任务归属（任务级主线/支线：如「嵌入式」收纳「STM32」）
-    let parentMark = "";
-    if (item.parentId) {
-      const parent = inboxItems.find((p) => p.id === item.parentId);
-      parentMark = `<span class="inbox-parent-mark" title="收纳于父任务">📎 ${parent ? escapeHtml(parent.text) : "已删除的父任务"}</span>`;
-    }
-    const childCount = inboxItems.filter((c) => c.parentId === item.id).length;
-    const childMark = childCount ? `<span class="inbox-child-count" title="${childCount} 个子任务">↳${childCount}</span>` : "";
-    const priorityBadge = item.priority === 2 ? '<span class="inbox-priority-badge p-urgent" title="紧急">⚡</span>'
-      : item.priority === 1 ? '<span class="inbox-priority-badge p-important" title="重要">★</span>' : "";
-    const tagsHtml = (item.tags || []).map((t) => `<span class="inbox-item-tag" style="background:${tagColor(t)}20;color:${tagColor(t)};">${escapeHtml(t)}</span>`).join("");
-    const dueStr = item.due ? (() => {
-      const now = new Date(); now.setHours(0, 0, 0, 0);
-      const due = new Date(item.due);
-      due.setHours(0, 0, 0, 0);
-      const diff = Math.round((due - now) / 86400000);
-      const cls = diff < 0 ? "is-overdue" : diff === 0 ? "is-due" : "";
-      const label = diff < 0 ? `逾期${-diff}天` : diff === 0 ? "今日到期" : `${diff}天后`;
-      return `<span class="inbox-due ${cls}">📅 ${label}</span>`;
-    })() : "";
-    const startStr = item.start ? (() => {
-      const now = new Date(); now.setHours(0, 0, 0, 0);
-      const st = new Date(item.start);
-      st.setHours(0, 0, 0, 0);
-      const diff = Math.round((st - now) / 86400000);
-      const cls = diff <= 0 ? "is-start-now" : "is-start-future";
-      const label = diff <= 0 ? (diff === 0 ? "今天开始" : `已开始${-diff}天`) : `${diff}天后开始`;
-      return `<span class="inbox-start ${cls}">🚀 ${label}</span>`;
-    })() : "";
-    const checked = inboxMultiSelect.has(realIdx) ? "checked" : "";
-    const msCb = inboxMultiSelectMode ? `<input type="checkbox" class="inbox-ms-cb" data-idx="${realIdx}" ${checked} />` : "";
-    // 父任务折叠开关（有子任务时显示）
-    const collapsed = inboxCollapsedParents.has(item.id);
-    const foldBtn = childCount
-      ? `<button class="inbox-item-fold" data-idx="${realIdx}" title="${collapsed ? "展开子任务" : "收起子任务"}">${collapsed ? "▶" : "▼"}</button>`
-      : "";
-    return `<div class="inbox-item ${item.done ? "done" : ""} ${item.parentId ? "is-child" : (childCount ? "has-children" : "")}" data-idx="${realIdx}" data-id="${escapeHtml(item.id)}" ${dragAttr}>
-      ${msCb}
-      ${foldBtn}
-      <span class="inbox-item-cb ${item.done ? "checked" : ""}" data-idx="${realIdx}">${item.done ? "✓" : ""}</span>
-      <span class="inbox-item-grip" title="拖到九宫格规划，或拖到主线头归组">⠿</span>
-      ${priorityBadge}
-      <span class="inbox-item-text" data-idx="${realIdx}" title="单击发给AI，双击编辑">${escapeHtml(item.text)}</span>
-      ${childMark}
-      ${parentMark}
-      ${fromHatch}
-      ${tagsHtml}
-      ${startStr}
-      ${dueStr}
-      <span class="inbox-item-date">${dateStr}</span>
-      <button class="inbox-item-act" data-act="assign" data-idx="${realIdx}" title="归属主线/支线">📂</button>
-      <button class="inbox-item-act" data-act="link" data-idx="${realIdx}" title="${item.parentId ? "改/取消收纳于父任务" : "收纳到父任务（任务级主线/支线）"}">🔗</button>
-      <button class="inbox-item-act" data-act="prio" data-idx="${realIdx}" title="设置优先级">⭐</button>
-      <button class="inbox-item-act" data-act="due" data-idx="${realIdx}" title="设置截止时间">📅</button>
-      <button class="inbox-item-act" data-act="hatch" data-idx="${realIdx}" title="🥚 AI 孵化拆解为子步骤">🥚</button>
-      <button class="inbox-item-act" data-act="tolong" data-idx="${realIdx}" title="转为长期任务">🗺️</button>
-      <button class="inbox-item-del" data-idx="${realIdx}" title="删除">✕</button>
-    </div>`;
+  // ---------- 收集箱表格视图：扁平行列，列宽固定、任务名超长自动换行（横向可滑动） ----------
+  function renderInboxTable(filtered) {
+    // 行序：顶层任务在前，子任务紧随其父任务（折叠时隐藏）；孤儿子任务补在末尾
+    const rows = [];
+    filtered.forEach((item) => {
+      if (item.parentId) return;
+      rows.push(item);
+      if (inboxCollapsedParents.has(item.id)) return;
+      filtered.forEach((c) => { if (c.parentId === item.id) rows.push(c); });
+    });
+    filtered.forEach((item) => {
+      if (item.parentId && !filtered.some((x) => x.id === item.parentId)) rows.push(item);
+    });
+
+    const msCol = inboxMultiSelectMode;
+    const html = `<div class="inbox-table-wrap"><table class="inbox-table">
+      <thead><tr>
+        <th class="it-col-done">${msCol ? "☑" : "✓"}</th>
+        <th class="it-col-text">任务</th>
+        <th class="it-col-tags">标签</th>
+        <th class="it-col-prio">优先</th>
+        <th class="it-col-date">日期</th>
+        <th class="it-col-group">归属</th>
+        <th class="it-col-ops">操作</th>
+      </tr></thead>
+      <tbody>${rows.map((item) => inboxTableRow(item, msCol)).join("")}</tbody>
+    </table></div>`;
+    el.inboxList.innerHTML = html;
+    bindInboxTableEvents();
   }
 
-  // 渲染任务及其子任务（任务级主线/支线层级）
-  function renderInboxItemWithChildren(item) {
-    let html = renderInboxItemHtml(item);
-    // 折叠时不渲染子任务
-    if (inboxCollapsedParents.has(item.id)) return html;
-    const children = inboxItems.filter((c) => c.parentId === item.id);
-    if (children.length) {
-      html += `<div class="inbox-children">`;
-      children.forEach((child) => { html += renderInboxItemWithChildren(child); });
-      html += `</div>`;
+  // 单个表格行
+  function inboxTableRow(item, msCol) {
+    const idx = inboxItems.indexOf(item);
+    const isChild = !!item.parentId;
+    const parent = item.parentId ? inboxItems.find((p) => p.id === item.parentId) : null;
+    const cb = msCol
+      ? `<input type="checkbox" class="inbox-ms-cb" data-idx="${idx}" ${inboxMultiSelect.has(idx) ? "checked" : ""} />`
+      : `<span class="it-cb ${item.done ? "done" : ""}" data-idx="${idx}" title="点击切换完成">${item.done ? "✓" : "○"}</span>`;
+    const text = escapeHtml(item.text || item.title || "");
+    const sub = (item.kind === "card" && item.summary) ? `<div class="it-sub">${escapeHtml(item.summary)}</div>` : "";
+    const link = (item.kind === "card" && item.link)
+      ? `<a class="it-link" href="${escapeHtml(item.link)}" target="_blank" rel="noopener">🔗 ${escapeHtml(item.source || "原文")}</a>` : "";
+    const childCount = isChild ? 0 : inboxItems.filter((c) => c.parentId === item.id).length;
+    const childBadge = childCount ? `<span class="it-child-count" title="${childCount} 个子任务">↳${childCount}</span>` : "";
+    const parentMark = parent ? `<span class="it-parent-mark" title="收纳于父任务">📎 ${escapeHtml(parent.text)}</span>` : "";
+    const tags = (item.tags || []).map((t) => `<span class="it-tag" style="background:${tagColor(t)}20;color:${tagColor(t)};">${escapeHtml(t)}</span>`).join("");
+    const prio = item.priority === 2 ? '<span class="it-prio urgent" title="紧急">⚡</span>'
+      : item.priority === 1 ? '<span class="it-prio imp" title="重要">★</span>' : "";
+    const dateHtml = (() => {
+      const parts = [];
+      const now = new Date(); now.setHours(0, 0, 0, 0);
+      if (item.start) {
+        const st = new Date(item.start); st.setHours(0, 0, 0, 0);
+        const diff = Math.round((st - now) / 86400000);
+        parts.push(`<span class="it-date ${diff <= 0 ? "ok" : "future"}" title="开始">🚀${diff <= 0 ? (diff === 0 ? "今天" : `已开始${-diff}天`) : `${diff}天后`}</span>`);
+      }
+      if (item.due) {
+        const due = new Date(item.due); due.setHours(0, 0, 0, 0);
+        const diff = Math.round((due - now) / 86400000);
+        const cls = diff < 0 ? "overdue" : diff === 0 ? "due" : "";
+        parts.push(`<span class="it-date ${cls}" title="截止">📅${diff < 0 ? `逾期${-diff}` : diff === 0 ? "今日" : `${diff}天`}</span>`);
+      }
+      return parts.join("") || '<span class="it-date none">—</span>';
+    })();
+    let group = "";
+    if (item.mainline) {
+      const ml = inboxMainlines.find((m) => m.id === item.mainline);
+      if (ml) {
+        const sl = item.sideline ? (ml.sidelines || []).find((s) => s.id === item.sideline) : null;
+        group = `<span class="it-group"><span class="it-group-dot" style="background:${ml.color};"></span>${escapeHtml(ml.name)}${sl ? `·${escapeHtml(sl.name)}` : ""}</span>`;
+      } else group = '<span class="it-group none">未知主线</span>';
+    } else {
+      group = '<span class="it-group none">未分组</span>';
     }
-    return html;
+    const ops = `<span class="it-ops">
+      <button class="it-op" data-act="hatch" data-idx="${idx}" title="🥚 AI 孵化拆解">🥚</button>
+      <button class="it-op" data-act="assign" data-idx="${idx}" title="归属主线/支线">📂</button>
+      <button class="it-op" data-act="due" data-idx="${idx}" title="设置开始/截止">📅</button>
+      <button class="it-op danger" data-act="del" data-idx="${idx}" title="删除">✕</button>
+    </span>`;
+    const dragAttr = (!item.done && !isChild) ? ' draggable="true"' : "";
+    return `<tr class="it-row ${item.done ? "done" : ""} ${isChild ? "is-child" : ""}" data-idx="${idx}"${dragAttr}>
+      <td class="it-col-done">${cb}</td>
+      <td class="it-col-text">${isChild ? '<span class="it-child-mark">↳</span>' : ""}<span class="it-text" data-idx="${idx}" title="单击发给AI，双击编辑">${text}</span>${sub}${link}${parentMark}${childBadge}</td>
+      <td class="it-col-tags">${tags}</td>
+      <td class="it-col-prio">${prio}</td>
+      <td class="it-col-date">${dateHtml}</td>
+      <td class="it-col-group">${group}</td>
+      <td class="it-col-ops">${ops}</td>
+    </tr>`;
   }
 
-  // 绑定条目事件
-  function bindInboxItemEvents() {
-    el.inboxList.querySelectorAll(".inbox-item-cb").forEach((cb) => {
-      cb.addEventListener("click", () => {
+  // 表格事件委托（只绑定一次，避免监听器累积）
+  let inboxTableBound = false;
+  function bindInboxTableEvents() {
+    if (inboxTableBound) return;
+    inboxTableBound = true;
+    el.inboxList.addEventListener("click", (e) => {
+      const cb = e.target.closest(".it-cb");
+      if (cb) {
         const idx = parseInt(cb.dataset.idx);
+        if (!inboxItems[idx]) return;
         inboxItems[idx].done = !inboxItems[idx].done;
         saveInbox();
+        renderInboxStats();
         renderInboxList();
-      });
-    });
-    el.inboxList.querySelectorAll(".inbox-ms-cb").forEach((cb) => {
-      cb.addEventListener("change", () => {
-        const idx = parseInt(cb.dataset.idx);
-        if (cb.checked) inboxMultiSelect.add(idx); else inboxMultiSelect.delete(idx);
-        updateBatchBar();
-      });
-    });
-    el.inboxList.querySelectorAll(".inbox-item-del").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const idx = parseInt(btn.dataset.idx);
-        const removedId = inboxItems[idx] ? inboxItems[idx].id : null;
-        inboxItems.splice(idx, 1);
-        // 删除父任务时，解除其子任务的父引用（不删除子任务，回收到独立任务）
-        if (removedId) {
-          inboxItems.forEach((c) => { if (c.parentId === removedId) c.parentId = null; });
-          inboxCollapsedParents.delete(removedId);
+        return;
+      }
+      const op = e.target.closest(".it-op");
+      if (op) {
+        const idx = parseInt(op.dataset.idx);
+        const it = inboxItems[idx];
+        if (!it) return;
+        const act = op.dataset.act;
+        if (act === "del") {
+          const removedId = it.id;
+          inboxItems.splice(idx, 1);
+          if (removedId) {
+            inboxItems.forEach((c) => { if (c.parentId === removedId) c.parentId = null; });
+            inboxCollapsedParents.delete(removedId);
+          }
+          saveInbox();
+          updateInboxTagDatalist();
+          renderInboxFilter();
+          renderInboxList();
+          return;
         }
-        saveInbox();
-        updateInboxTagDatalist();
-        renderInboxFilter();
-        renderInboxList();
-      });
-    });
-    // 父任务折叠/展开
-    el.inboxList.querySelectorAll(".inbox-item-fold").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const idx = parseInt(btn.dataset.idx);
-        const it = inboxItems[idx];
-        if (!it) return;
-        if (inboxCollapsedParents.has(it.id)) inboxCollapsedParents.delete(it.id);
-        else inboxCollapsedParents.add(it.id);
-        renderInboxList();
-      });
-    });
-    el.inboxList.querySelectorAll(".inbox-item-act").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const idx = parseInt(btn.dataset.idx);
-        const it = inboxItems[idx];
-        if (!it) return;
-        const act = btn.dataset.act;
         if (act === "hatch") {
           if (el.inboxDialog && el.inboxDialog.open) el.inboxDialog.close();
           openHatchDialog({ text: it.text, sourceLabel: "收集箱待办" });
@@ -11831,17 +11747,6 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         }
         if (act === "assign") {
           openAssignDialog(it.id);
-          return;
-        }
-        if (act === "link") {
-          openLinkParentDialog(it.id);
-          return;
-        }
-        if (act === "prio") {
-          it.priority = ((it.priority || 0) + 1) % 3;
-          saveInbox();
-          renderInboxList();
-          toast(["普通", "★ 重要", "⚡ 紧急"][it.priority], "info");
           return;
         }
         if (act === "due") {
@@ -11852,98 +11757,44 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
           else { el.inboxDateDialog.setAttribute("open", ""); }
           return;
         }
-        // tolong
-        switchInboxMode("long");
-        if (el.longTitle) { el.longTitle.value = it.text.slice(0, 60); el.longTitle.focus(); }
-        if (!el.longStart.value) el.longStart.value = state.currentDate;
-        if (it.tags && it.tags.length && el.longNote) el.longNote.value = "来源：速记 #" + it.tags.join(",");
-        toast("已填入长期任务表单，补充日期后保存", "info");
-      });
-    });
-    el.inboxList.querySelectorAll(".inbox-item-text").forEach((txt) => {
-      let lastClick = 0;
-      txt.addEventListener("click", () => {
+        return;
+      }
+      // 任务名：单击发 AI，双击 inline 编辑
+      const txt = e.target.closest(".it-text");
+      if (txt) {
+        const idx = parseInt(txt.dataset.idx);
+        if (!inboxItems[idx]) return;
         const now = Date.now();
-        if (now - lastClick < 400) {
-          // 双击：inline 编辑
-          const idx = parseInt(txt.dataset.idx);
+        if (now - (txt._lastClick || 0) < 400) {
           startInlineEdit(idx, txt);
         } else {
-          // 单击：发给 AI
-          const idx = parseInt(txt.parentElement.dataset.idx);
           el.chatInput.value = inboxItems[idx].text;
           el.chatInput.dispatchEvent(new Event("input"));
           el.inboxDialog.close();
           toast("已填入对话区，可发送给 AI 安排", "info");
         }
-        lastClick = now;
-      });
+        txt._lastClick = now;
+      }
     });
-    // 拖拽
-    el.inboxList.querySelectorAll(".inbox-item[draggable='true']").forEach((node) => {
-      node.addEventListener("dragstart", (e) => {
-        const idx = parseInt(node.dataset.idx, 10);
-        e.dataTransfer.effectAllowed = "copy";
-        e.dataTransfer.setData("text/plain", JSON.stringify({ idx, kind: "inbox" }));
-        node.classList.add("dragging");
-      });
-      node.addEventListener("dragend", () => node.classList.remove("dragging"));
+    el.inboxList.addEventListener("change", (e) => {
+      const cb = e.target.closest(".inbox-ms-cb");
+      if (!cb) return;
+      const idx = parseInt(cb.dataset.idx);
+      if (cb.checked) inboxMultiSelect.add(idx); else inboxMultiSelect.delete(idx);
+      updateBatchBar();
     });
-    // 卡片型操作
-    el.inboxList.querySelectorAll(".inbox-card-act").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const idx = parseInt(btn.dataset.idx);
-        const act = btn.dataset.act;
-        if (act === "done") {
-          inboxItems[idx].done = !inboxItems[idx].done;
-          saveInbox();
-          renderInboxList();
-        } else if (act === "tochat") {
-          const it = inboxItems[idx];
-          el.chatInput.value = (it.title || "") + (it.summary ? "\n" + it.summary : "") + (it.link ? "\n" + it.link : "");
-          el.chatInput.dispatchEvent(new Event("input"));
-          el.inboxDialog.close();
-          toast("已填入对话区，可发送给 AI 安排", "info");
-        }
-      });
+    // 拖拽行 → 九宫格
+    el.inboxList.addEventListener("dragstart", (e) => {
+      const row = e.target.closest(".it-row[draggable='true']");
+      if (!row) return;
+      const idx = parseInt(row.dataset.idx, 10);
+      e.dataTransfer.effectAllowed = "copy";
+      e.dataTransfer.setData("text/plain", JSON.stringify({ idx, kind: "inbox" }));
+      row.classList.add("dragging");
     });
-    // 主线分组折叠
-    el.inboxList.querySelectorAll(".inbox-ml-head").forEach((head) => {
-      head.addEventListener("click", () => {
-        const body = head.nextElementSibling;
-        if (body) {
-          body.hidden = !body.hidden;
-          head.querySelector(".inbox-ml-collapse").textContent = body.hidden ? "▶" : "▼";
-        }
-      });
-    });
-    // 主线分组头作为拖拽落点（归组）
-    el.inboxList.querySelectorAll(".inbox-ml-head").forEach((head) => {
-      head.addEventListener("dragover", (e) => {
-        e.preventDefault();
-        head.classList.add("drag-over");
-      });
-      head.addEventListener("dragleave", () => head.classList.remove("drag-over"));
-      head.addEventListener("drop", (e) => {
-        e.preventDefault();
-        head.classList.remove("drag-over");
-        const raw = e.dataTransfer.getData("text/plain");
-        if (!raw) return;
-        try {
-          const payload = JSON.parse(raw);
-          if (payload.kind === "inbox" && typeof payload.idx === "number") {
-            const it = inboxItems[payload.idx];
-            if (it) {
-              it.mainline = head.dataset.ml;
-              it.sideline = null;
-              saveInbox();
-              renderInboxList();
-              renderInboxStats();
-              toast(`已归属到「${getMainline(head.dataset.ml).name}」`, "success");
-            }
-          }
-        } catch (err) {}
-      });
+    el.inboxList.addEventListener("dragend", (e) => {
+      const row = e.target.closest(".it-row");
+      if (row) row.classList.remove("dragging");
     });
   }
 

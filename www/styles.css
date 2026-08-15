@@ -7771,6 +7771,50 @@ dialog.inbox-dialog-fullscreen::backdrop {
 .ikb-due.is-due { background:#ffd93d20; color:#ffd93d; }
 .ikb-due.is-overdue { background:#ff6b6b20; color:#ff6b6b; font-weight:600; }
 
+/* 收集箱表格视图：扁平行列，横向可滑动，列宽固定、任务名超长自动换行 */
+.inbox-table-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; padding:2px 2px 12px; }
+.inbox-table { width:100%; min-width:780px; border-collapse:collapse; table-layout:fixed; font-size:12px; }
+.inbox-table thead th { position:sticky; top:0; z-index:1; background:var(--card-bg); color:var(--text-secondary); font-weight:600; font-size:11px; text-align:left; padding:7px 8px; border-bottom:1px solid var(--border); white-space:nowrap; }
+.inbox-table td { padding:7px 8px; border-bottom:1px solid var(--border); vertical-align:top; color:var(--text-primary); }
+.it-row { transition:background .15s; }
+.it-row:hover { background:var(--hover); }
+.it-row.done { opacity:.55; }
+.it-row.done .it-text { text-decoration:line-through; }
+.it-row.dragging { opacity:.5; border-color:var(--accent); }
+.it-row.is-child .it-col-text { padding-left:24px; }
+/* 各列固定宽度（任务名列固定 + 超长自动换行撑高行） */
+.it-col-done { width:36px; text-align:center; }
+.it-col-text { width:240px; }
+.it-col-tags { width:120px; }
+.it-col-prio { width:38px; text-align:center; }
+.it-col-date { width:132px; }
+.it-col-group { width:120px; }
+.it-col-ops { width:104px; }
+.it-cb { cursor:pointer; font-size:13px; color:var(--accent); }
+.it-text { display:block; font-size:13px; line-height:1.45; color:var(--text-primary); word-break:break-word; overflow-wrap:anywhere; white-space:normal; cursor:pointer; }
+.it-sub { font-size:11px; color:var(--text-secondary); margin-top:3px; word-break:break-word; }
+.it-link { display:inline-block; font-size:11px; color:var(--accent); margin-top:2px; }
+.it-child-mark { color:var(--text-secondary); margin-right:2px; }
+.it-parent-mark { display:block; font-size:10px; color:var(--text-secondary); margin-top:2px; word-break:break-word; }
+.it-child-count { font-size:10px; color:var(--text-secondary); margin-left:4px; }
+.it-tag { display:inline-block; font-size:9px; padding:1px 5px; border-radius:6px; margin:1px 2px 1px 0; }
+.it-prio { font-size:11px; }
+.it-prio.urgent { color:#ff6b6b; }
+.it-prio.imp { color:#ffd93d; }
+.it-date { display:inline-block; font-size:9px; padding:1px 5px; border-radius:6px; background:var(--input-bg); color:var(--text-secondary); margin:1px 2px 1px 0; }
+.it-date.ok { background:#3ecf8e20; color:#3ecf8e; }
+.it-date.future { background:#7c5cff20; color:#7c5cff; }
+.it-date.overdue { background:#ff6b6b20; color:#ff6b6b; font-weight:600; }
+.it-date.due { background:#ffd93d20; color:#ffd93d; }
+.it-date.none { background:transparent; }
+.it-group { display:inline-flex; align-items:center; gap:4px; font-size:11px; color:var(--text-secondary); }
+.it-group-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+.it-group.none { color:var(--text-muted); }
+.it-ops { display:flex; gap:2px; flex-wrap:wrap; }
+.it-op { border:none; background:transparent; color:var(--text-secondary); cursor:pointer; font-size:12px; padding:2px 3px; border-radius:4px; line-height:1.3; }
+.it-op:hover { background:var(--hover); color:var(--accent); }
+.it-op.danger:hover { background:#ff6b6b20; color:#ff6b6b; }
+
 .inbox-inline-edit { font-size:14px; padding:4px 6px; border:1px solid var(--accent); border-radius:4px; background:var(--input-bg); color:var(--text-primary); }
 
 /* 主线管理面板 */
