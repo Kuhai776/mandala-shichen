@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260814b";
+const SW_VER = "20260815a";
 
 (function () {
   "use strict";
@@ -119,9 +119,12 @@ const SW_VER = "20260814b";
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.7.1";
-  const APP_VERSION_DATE = "2026-08-14";
+  const APP_VERSION = "2.7.2";
+  const APP_VERSION_DATE = "2026-08-15";
   const APP_CHANGELOG = [
+    { v: "2.7.2", date: "2026-08-15", items: [
+      "调整：移除主界面「九宫格/看板」切换，看板统一收敛到「待办收集箱」内（打开收集箱默认看板视图：tag 横向分列可滑动、列宽固定、任务名超长自动换行，可切回列表视图）",
+    ]},
     { v: "2.7.1", date: "2026-08-14", items: [
       "新增：收集箱内嵌 Kanban 看板（打开收集箱默认看板视图，按 tag 横向分列可滑动，任务名固定列宽、超长自动换行；可切回列表视图）",
       "优化：看板卡片显示优先级/截止状态，点击卡片一键勾选完成",
@@ -742,7 +745,6 @@ const SW_VER = "20260814b";
     notifyEnabled: load(NOTIFY_KEY, false),
     activePeriod: 0,
     editingCell: null,
-    planView: "grid", // 计划页视图：grid 九宫格 / kanban 看板
     lastNotifiedCell: -1,
     lastAdvanceNotifiedCell: -1, // 提前提醒已通知的格子
     currentDate: dateToStr(new Date()),
@@ -2315,12 +2317,6 @@ const SW_VER = "20260814b";
 
   // ---------- 渲染：九宫格（支持多任务自适应） ----------
   function renderMandala() {
-    // 看板视图：按 tag 横向分列展示当天全部待办
-    if (state.planView === "kanban") {
-      renderKanbanTodo();
-      return;
-    }
-    el.mandalaGrid.classList.remove("kanban-mode");
     const period = state.activePeriod;
     const range = getPeriodRange(period);
     el.mandalaTitle.textContent =
@@ -2511,105 +2507,6 @@ const SW_VER = "20260814b";
 
       el.mandalaGrid.appendChild(cellEl);
     }
-  }
-
-  // ---------- 渲染：待办看板（按 tag 横向分列，当天全部任务） ----------
-  function renderKanbanTodo() {
-    el.mandalaGrid.classList.add("kanban-mode");
-    const period = state.activePeriod;
-    const range = getPeriodRange(period);
-    el.mandalaTitle.textContent = `看板 · ${PERIOD_NAMES[period]} · ${state.currentDate}`;
-    const hintEl = document.getElementById("mandalaHint");
-    if (hintEl) hintEl.textContent = "看板视图：按标签分列当天全部待办，点击卡片切换完成状态，✎ 打开编辑";
-    renderPeriodNav(el.planPeriodNav);
-
-    const day = state.tasks[state.currentDate] || {};
-    const items = [];
-    Object.keys(day).forEach((key) => {
-      const m = key.match(/^(\d+)-(\d+)$/);
-      if (!m) return;
-      const p = +m[1], c = +m[2];
-      (day[key] || []).forEach((t, idx) => {
-        if (!t || !taskText(t)) return;
-        items.push({ task: t, idx, period: p, cell: c });
-      });
-    });
-
-    if (!items.length) {
-      el.mandalaGrid.innerHTML = `<div class="kanban-empty">今日暂无待办任务，点击右下角 ➕ 添加</div>`;
-      bindKanbanEvents();
-      return;
-    }
-
-    // 按 tag 分组（无标签归入"未分类"）
-    const NONE = "__none__";
-    const groups = new Map();
-    items.forEach((it) => {
-      const tag = (it.task.tag || "").trim();
-      const key = tag || NONE;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(it);
-    });
-    // 列排序：未完成任务多的优先，其次标签名
-    const colKeys = [...groups.keys()].sort((a, b) => {
-      const ua = groups.get(a).filter((x) => !x.task.done).length;
-      const ub = groups.get(b).filter((x) => !x.task.done).length;
-      if (ub !== ua) return ub - ua;
-      if (a === NONE) return 1;
-      if (b === NONE) return -1;
-      return a.localeCompare(b, "zh");
-    });
-
-    const board = document.createElement("div");
-    board.className = "kanban-board";
-    colKeys.forEach((key) => {
-      const col = document.createElement("div");
-      col.className = "kanban-col";
-      const name = key === NONE ? "未分类" : key;
-      const color = key === NONE ? "#8b8b9e" : tagColor(key);
-      const colItems = groups.get(key).slice().sort((a, b) => (+a.task.done) - (+b.task.done) || a.period - b.period || a.cell - b.cell);
-      const doneCount = colItems.filter((x) => x.task.done).length;
-      col.innerHTML = `
-        <div class="kanban-col-head"><span class="kanban-col-dot" style="background:${color}"></span><span class="kanban-col-name">${escapeHtml(name)}</span><span class="kanban-col-count">${doneCount}/${colItems.length}</span></div>
-        <div class="kanban-col-body">
-          ${colItems.map((it) => {
-            const t = it.task;
-            const loc = `${PERIOD_GLYPHS[it.period] || it.period}·${it.cell + 1}格`;
-            const prio = t.priority === "high" ? '<span class="kanban-prio high" title="高优先级">⚡</span>'
-              : t.priority === "low" ? '<span class="kanban-prio low" title="低优先级">▽</span>' : "";
-            const est = t.estimate ? `<span class="kanban-est">${escapeHtml(t.estimate)}</span>` : "";
-            return `<div class="kanban-card ${t.done ? "done" : ""}" data-p="${it.period}" data-c="${it.cell}" data-i="${it.idx}" title="点击切换完成">
-              <div class="kanban-card-main"><span class="kanban-card-cb">${t.done ? "✓" : ""}</span><span class="kanban-card-text">${escapeHtml(taskText(t))}</span></div>
-              <div class="kanban-card-meta"><span class="kanban-loc">${loc}</span>${prio}${est}<button class="kanban-edit" data-p="${it.period}" data-c="${it.cell}" title="打开编辑">✎</button></div>
-            </div>`;
-          }).join("")}
-        </div>`;
-      board.appendChild(col);
-    });
-    el.mandalaGrid.innerHTML = "";
-    el.mandalaGrid.appendChild(board);
-    bindKanbanEvents();
-  }
-
-  // 看板事件委托（mandalaGrid 常驻，仅绑定一次）
-  let kanbanBound = false;
-  function bindKanbanEvents() {
-    if (kanbanBound) return;
-    kanbanBound = true;
-    el.mandalaGrid.addEventListener("click", (e) => {
-      const edit = e.target.closest(".kanban-edit");
-      const card = e.target.closest(".kanban-card");
-      if (edit) {
-        e.stopPropagation();
-        const p = +edit.dataset.p, c = +edit.dataset.c;
-        openTaskDialog(p, c);
-        return;
-      }
-      if (card) {
-        const p = +card.dataset.p, c = +card.dataset.c, i = +card.dataset.i;
-        toggleTaskDone(p, c, i);
-      }
-    });
   }
 
   // ---------- 曼陀罗区域手势：左右滑动切换时辰 ----------
@@ -6447,19 +6344,6 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
   el.nextPeriod.addEventListener("click", () => {
     state.activePeriod = (state.activePeriod + 1) % PERIOD_COUNT; renderAll();
   });
-  // 计划页视图切换：九宫格 / 看板
-  const planViewSwitch = document.getElementById("planViewSwitch");
-  if (planViewSwitch) {
-    planViewSwitch.addEventListener("click", (e) => {
-      const tab = e.target.closest(".pv-tab");
-      if (!tab) return;
-      const view = tab.dataset.pv;
-      if (!view || view === state.planView) return;
-      state.planView = view;
-      planViewSwitch.querySelectorAll(".pv-tab").forEach((t) => t.classList.toggle("active", t === tab));
-      renderAll();
-    });
-  }
   // 记录页时辰导航（与计划页同步）
   if (el.prevPeriodR) el.prevPeriodR.addEventListener("click", () => {
     state.activePeriod = (state.activePeriod - 1 + PERIOD_COUNT) % PERIOD_COUNT; renderAll();
