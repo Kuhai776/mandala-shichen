@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260815b";
+const SW_VER = "20260815d";
 
 (function () {
   "use strict";
@@ -1915,9 +1915,17 @@ const SW_VER = "20260815b";
     hatchToGrid: document.getElementById("hatchToGrid"),
     hatchToInbox: document.getElementById("hatchToInbox"),
     hatchHistoryBtn: document.getElementById("hatchHistoryBtn"),
-    hatchHistoryDialog: document.getElementById("hatchHistoryDialog"),
+    hatchHistoryPanel: document.getElementById("hatchHistoryPanel"),
     hatchHistoryBody: document.getElementById("hatchHistoryBody"),
+    hatchHistoryCount: document.getElementById("hatchHistoryCount"),
     closeHatchHistory: document.getElementById("closeHatchHistory"),
+    hatchChat: document.getElementById("hatchChat"),
+    hatchChatLog: document.getElementById("hatchChatLog"),
+    hatchChatInput: document.getElementById("hatchChatInput"),
+    hatchChatSend: document.getElementById("hatchChatSend"),
+    mermaidLightbox: document.getElementById("mermaidLightbox"),
+    mermaidLightboxBody: document.getElementById("mermaidLightboxBody"),
+    closeMermaidLightbox: document.getElementById("closeMermaidLightbox"),
     // 复盘汇总
     reviewSummary: document.getElementById("reviewSummary"),
     reviewPeriodNav: document.getElementById("reviewPeriodNav"),
@@ -4860,6 +4868,7 @@ ${recordItems.join("\n") || "（无）"}
     weakDims: null,    // 薄弱维度列表（drill 模式用）
     pendingScene: "auto", // 打开对话框时预设的场景（启动时用）
     onboardQuestions: [], // AI 动态生成的基石问题
+    chatLog: [],          // 孵化结果页的连续对话上下文
   };
 
   // 孵化计时器（实时显示已用时长）
@@ -4963,8 +4972,11 @@ ${recordItems.join("\n") || "（无）"}
     if (el.hatchStreamRate) el.hatchStreamRate.hidden = true;
   }
 
-  function renderHatchResult(result) {
+  function renderHatchResult(result, opts) {
     hatchState.result = result;
+    opts = opts || {};
+    // 新一轮孵化才清空对话；方案更新（续聊）保留上下文
+    if (!opts.keepChat) resetHatchChat();
     // 流式结束前保留终端输出，标记完成
     finishHatchStream(el.hatchStreamBody ? el.hatchStreamBody.textContent : "");
     // 记录总耗时
@@ -5063,6 +5075,100 @@ ${recordItems.join("\n") || "（无）"}
     hideHatchStream();
     stopHatchTimer();
     setHatchFsStatus("error", "出错");
+  }
+
+  // ---------- 结果页连续对话（带上下文，可追问调整方案） ----------
+  function resetHatchChat() {
+    hatchState.chatLog = [];
+    if (el.hatchChatLog) el.hatchChatLog.innerHTML = "";
+    if (el.hatchChatInput) el.hatchChatInput.value = "";
+    if (el.hatchChatSend) el.hatchChatSend.disabled = false;
+  }
+
+  function appendHatchChat(role, text) {
+    if (!el.hatchChatLog) return null;
+    const div = document.createElement("div");
+    div.className = "hatch-chat-msg " + (role === "user" ? "user" : "bot");
+    const inner = document.createElement("div");
+    inner.className = "hatch-chat-bubble";
+    inner.textContent = text;
+    div.appendChild(inner);
+    el.hatchChatLog.appendChild(div);
+    el.hatchChatLog.scrollTop = el.hatchChatLog.scrollHeight;
+    return inner;
+  }
+
+  // 构建续聊 prompt：携带当前任务 + 现有方案 + 最近对话，保持上下文
+  function buildFollowupPrompt(userText) {
+    const steps = (hatchState.result && hatchState.result.steps) || [];
+    const stepsStr = steps.map((s, i) => `${i + 1}. ${s.text}${s.est_min ? `（${s.est_min}min）` : ""}${s.target_dim ? ` [${s.target_dim}]` : ""}`).join("\n") || "（暂无）";
+    const recent = hatchState.chatLog.slice(-6)
+      .map((m) => `${m.role === "user" ? "用户" : "AI"}：${m.content}`)
+      .join("\n") || "（无）";
+    const system = [
+      "你是任务拆解专家，正在与用户就同一个任务的拆解方案进行连续对话。请保持上下文，基于当前方案与对话历史回答。",
+      "只输出 JSON，不要解释、不要 markdown 围栏。",
+      "",
+      `【任务】${hatchState.taskText}`,
+      "【当前方案】",
+      stepsStr,
+      "",
+      "【对话历史】",
+      recent,
+      "",
+      "【规则】",
+      '1. 用户要求调整方案（细化某步/增删/合并/精简步数/换场景或档位重拆等）时：输出完整的新版方案 JSON，schema：{"complexity":"simple|standard|complex","est_total_min":数字,"first_blocker":"最可能卡住的点","shortcut":"可选捷径","steps":[{"text":"具体动作","est_min":15,"depends_on":null,"risk":"low","risk_note":"","why":"为什么必要"}]}',
+      "2. 步数按用户要求控制；用户未指定时默认 3-8 步，单步 15-30 分钟，按执行顺序排列。",
+      "3. 用户只是提问/闲聊（如“为什么这么拆”“有没有更快的办法”）时：用简短中文直接回答，不要输出 JSON。",
+    ].join("\n");
+    return { systemPrompt: system, userPrompt: userText };
+  }
+
+  let hatchChatRAF = 0;
+  async function sendHatchFollowup() {
+    const input = el.hatchChatInput;
+    if (!input) return;
+    const text = input.value.trim();
+    if (!text || hatchState.running) return;
+    if (!hatchState.result) { toast("请先完成一次孵化", "info"); return; }
+    // 追加用户消息
+    appendHatchChat("user", text);
+    hatchState.chatLog.push({ role: "user", content: text });
+    input.value = "";
+    if (el.hatchChatSend) el.hatchChatSend.disabled = true;
+
+    const botEl = appendHatchChat("bot", "⏳ AI 思考中…");
+    try {
+      const { systemPrompt, userPrompt } = buildFollowupPrompt(text);
+      hatchState.abortController = new AbortController();
+      const timeoutId = setTimeout(() => hatchState.abortController.abort(), 60000);
+      const raw = await callHatchLLM(systemPrompt, userPrompt, hatchState.abortController.signal, (full) => {
+        if (hatchChatRAF) return;
+        hatchChatRAF = requestAnimationFrame(() => {
+          hatchChatRAF = 0;
+          if (botEl) botEl.textContent = full;
+          if (el.hatchChatLog) el.hatchChatLog.scrollTop = el.hatchChatLog.scrollHeight;
+        });
+      });
+      clearTimeout(timeoutId);
+      if (botEl) botEl.textContent = raw || "（无回复）";
+
+      // 若返回新版方案 JSON，则原地更新步骤列表（保持上下文继续追问）
+      const parsed = extractJSON(raw);
+      if (parsed && Array.isArray(parsed.steps) && parsed.steps.length) {
+        if (botEl) botEl.textContent = `📋 已按你的要求生成新方案（${parsed.steps.length} 步）`;
+        parsed.mode = hatchState.result.mode;
+        parsed.scene = hatchState.result.scene;
+        renderHatchResult(parsed, { keepChat: true });
+        appendHatchChat("bot", `✓ 方案已更新：${parsed.steps.length} 步，预估 ${parsed.est_total_min || "—"} 分钟。可继续提出调整。`);
+      }
+      hatchState.chatLog.push({ role: "assistant", content: raw });
+    } catch (err) {
+      if (botEl) botEl.textContent = "⚠ " + (err.message || "请求失败，请重试");
+    } finally {
+      hatchState.abortController = null;
+      if (el.hatchChatSend) el.hatchChatSend.disabled = false;
+    }
   }
 
   async function runHatch(taskText, mode, scene, context, longTaskId, forceLLM) {
@@ -5264,6 +5370,7 @@ ${recordItems.join("\n") || "（无）"}
     el.hatchResult.hidden = true;
     el.hatchError.hidden = true;
     el.hatchHistoryHint.hidden = true;
+    if (el.hatchHistoryPanel) el.hatchHistoryPanel.hidden = true;
     // 显示问询面板（重置为初始状态：显示生成按钮，隐藏问题区和启动按钮）
     if (el.hatchOnboard) el.hatchOnboard.hidden = false;
     if (el.hatchOnboard) el.hatchOnboard.classList.remove("collapsed");
@@ -5543,6 +5650,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     if (hatchState.abortController) {
       try { hatchState.abortController.abort(); } catch (e) {}
     }
+    if (el.hatchHistoryPanel) el.hatchHistoryPanel.hidden = true;
     el.hatchDialog.close();
   }
 
@@ -5802,6 +5910,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     const body = el.hatchHistoryBody;
     if (!body) return;
     const list = loadHatchHistory();
+    if (el.hatchHistoryCount) el.hatchHistoryCount.textContent = list.length ? `${list.length} 条` : "";
     if (!list.length) {
       body.innerHTML = `<div class="hatch-history-empty">尚无孵化记录</div>`;
       return;
@@ -6036,8 +6145,16 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       });
       const id = "hhg" + Math.random().toString(36).slice(2, 8);
       const { svg } = await mermaid.render(id, buildHatchGraph(rec));
-      container.innerHTML = svg;
-      container.querySelector("svg").style.maxWidth = "100%";
+      container.innerHTML = `<div class="hh-mm-svg">${svg}</div><button type="button" class="hh-mm-zoom" title="点击放大查看完整流程图">🔍 放大</button>`;
+      const svgEl = container.querySelector(".hh-mm-svg svg");
+      if (svgEl) svgEl.style.maxWidth = "100%";
+      // 绑定一次放大事件（容器复用，避免监听器累积）
+      if (!container.dataset.zoomBound) {
+        container.dataset.zoomBound = "1";
+        container.addEventListener("click", (e) => {
+          if (e.target.closest(".hh-mm-zoom")) openMermaidLightbox(container);
+        });
+      }
     } catch (e) {
       container.innerHTML = `<div class="hh-mm-empty">过程图渲染失败：${escapeHtml(e.message || "未知错误")}</div>`;
     }
@@ -6133,17 +6250,39 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     renderAll();
   }
 
+  // 孵化历史：内嵌在孵化页面的面板（不再是独立弹窗）
   function openHatchHistoryDialog() {
     renderHatchHistory();
-    if (el.hatchHistoryDialog && typeof el.hatchHistoryDialog.showModal === "function") {
-      el.hatchHistoryDialog.showModal();
-    } else if (el.hatchHistoryDialog) {
-      el.hatchHistoryDialog.open = true;
+    if (el.hatchHistoryPanel) {
+      el.hatchHistoryPanel.hidden = false;
+      setTimeout(() => {
+        if (el.hatchHistoryPanel.scrollIntoView) {
+          el.hatchHistoryPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }, 60);
     }
   }
   function closeHatchHistoryDialog() {
-    if (!el.hatchHistoryDialog) return;
-    try { el.hatchHistoryDialog.close(); } catch (e) { el.hatchHistoryDialog.open = false; }
+    if (el.hatchHistoryPanel) el.hatchHistoryPanel.hidden = true;
+  }
+
+  // mermaid 流程图放大查看（lightbox）
+  function openMermaidLightbox(srcContainer) {
+    if (!el.mermaidLightbox || !el.mermaidLightboxBody) return;
+    const svg = srcContainer && (srcContainer.querySelector(".hh-mm-svg svg") || srcContainer.querySelector("svg"));
+    if (!svg) return;
+    el.mermaidLightboxBody.innerHTML = "";
+    const clone = svg.cloneNode(true);
+    clone.removeAttribute("width");
+    clone.style.maxWidth = "100%";
+    clone.style.height = "auto";
+    el.mermaidLightboxBody.appendChild(clone);
+    if (typeof el.mermaidLightbox.showModal === "function") el.mermaidLightbox.showModal();
+    else el.mermaidLightbox.setAttribute("open", "");
+  }
+  function closeMermaidLightbox() {
+    if (!el.mermaidLightbox) return;
+    try { el.mermaidLightbox.close(); } catch (e) { el.mermaidLightbox.removeAttribute("open"); }
   }
 
   el.hatchBtn.addEventListener("click", openHatchDialog);
@@ -6246,10 +6385,28 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
   el.hatchApply.addEventListener("click", applyHatchToChecklist);
   if (el.hatchToGrid) el.hatchToGrid.addEventListener("click", applyHatchToGrid);
   if (el.hatchToInbox) el.hatchToInbox.addEventListener("click", applyHatchToInbox);
-  if (el.hatchHistoryBtn) el.hatchHistoryBtn.addEventListener("click", openHatchHistoryDialog);
+  if (el.hatchHistoryBtn) el.hatchHistoryBtn.addEventListener("click", () => {
+    // 已展开则收起，未展开则展开（toggle）
+    if (el.hatchHistoryPanel && !el.hatchHistoryPanel.hidden) closeHatchHistoryDialog();
+    else openHatchHistoryDialog();
+  });
   if (el.closeHatchHistory) el.closeHatchHistory.addEventListener("click", closeHatchHistoryDialog);
-  if (el.hatchHistoryDialog) el.hatchHistoryDialog.addEventListener("click", (e) => {
-    if (e.target === el.hatchHistoryDialog) closeHatchHistoryDialog();
+  // 结果页连续对话
+  if (el.hatchChatSend) el.hatchChatSend.addEventListener("click", sendHatchFollowup);
+  if (el.hatchChatInput) {
+    el.hatchChatInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendHatchFollowup();
+      }
+    });
+  }
+  if (el.closeMermaidLightbox) el.closeMermaidLightbox.addEventListener("click", closeMermaidLightbox);
+  if (el.mermaidLightbox) el.mermaidLightbox.addEventListener("click", (e) => {
+    if (e.target === el.mermaidLightbox) closeMermaidLightbox();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && el.mermaidLightbox && el.mermaidLightbox.open) closeMermaidLightbox();
   });
 
   // 模式/场景手动切换后自动重跑
@@ -9287,8 +9444,11 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   // 孵化历史 + 开始
   if (el.fbHatchHistory) {
     el.fbHatchHistory.addEventListener("click", () => {
-      if (typeof openHatchHistoryDialog === "function") openHatchHistoryDialog();
-      else openHatchDialog({});
+      // 历史面板内嵌在孵化弹窗中：先打开孵化弹窗，再展开历史面板
+      openHatchDialog({});
+      setTimeout(() => {
+        if (typeof openHatchHistoryDialog === "function") openHatchHistoryDialog();
+      }, 180);
     });
   }
   if (el.fbHatchStart) {

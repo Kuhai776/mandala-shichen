@@ -23,7 +23,7 @@
           await Promise.all(keys.map(function (k) { return caches.delete(k); }));
         }
         // 检测当前 app.js 版本，若仍是旧的则强制带时间戳 reload
-        var APP_VERSION = "20260815b";
+        var APP_VERSION = "20260815d";
         if (sessionStorage.getItem("mandala-app-ver") !== APP_VERSION) {
           sessionStorage.setItem("mandala-app-ver", APP_VERSION);
           if (!location.search || location.search.indexOf("t=") === -1) {
@@ -86,7 +86,7 @@
       } catch (e) { console.warn("[polyfill] dialog 降级失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260815b" />
+  <link rel="stylesheet" href="styles.css?v=20260815d" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
   <script src="lib/mermaid.min.js"></script>
@@ -1212,6 +1212,19 @@
             <button class="tool-btn" id="hatchToInbox" title="把选中步骤拆成收集箱条目（带维度/时长标记，可稍后拖到格子）">📥 加入收集箱</button>
             <button class="primary-btn" id="hatchApply">✓ 加入清单</button>
           </div>
+
+          <!-- 继续对话（带上下文，可连续追问调整方案） -->
+          <div class="hatch-chat" id="hatchChat">
+            <div class="hatch-chat-head">
+              <span class="hatch-chat-title">💬 继续与 AI 对话</span>
+              <span class="hatch-chat-hint">有上下文 · 可要求细化 / 增删步骤 / 换场景重拆</span>
+            </div>
+            <div class="hatch-chat-log" id="hatchChatLog"></div>
+            <div class="hatch-chat-input-row">
+              <textarea id="hatchChatInput" class="hatch-chat-input" rows="1" placeholder="例如：把第3步再细化 / 精简到3步 / 换成学习场景重拆…"></textarea>
+              <button class="primary-btn hatch-chat-send" id="hatchChatSend">发送</button>
+            </div>
+          </div>
         </div>
 
         <div class="hatch-error" id="hatchError" hidden>
@@ -1221,21 +1234,30 @@
             <button class="tool-btn" id="hatchDowngradeBtn" title="降一档重试（如 medium→lite）">⬇ 降档重试</button>
           </div>
         </div>
+
+        <!-- 孵化历史（内嵌面板，不再单独弹窗） -->
+        <div class="hatch-history-panel" id="hatchHistoryPanel" hidden>
+          <div class="hatch-history-panel-head">
+            <span class="hatch-history-panel-title">🕰️ 孵化历史</span>
+            <span class="hatch-history-panel-count" id="hatchHistoryCount"></span>
+            <button class="icon-btn" id="closeHatchHistory" aria-label="收起">✕</button>
+          </div>
+          <div class="hatch-history-panel-body" id="hatchHistoryBody">
+            <div class="hatch-history-empty">尚无孵化记录</div>
+          </div>
+        </div>
       </div>
     </div>
   </dialog>
 
-  <!-- 孵化历史弹窗 -->
-  <dialog class="stat-dialog" id="hatchHistoryDialog">
-    <div class="dialog-content dialog-lg">
-      <div class="dialog-header">
-        <h3>🕰️ 孵化历史</h3>
-        <button class="icon-btn" id="closeHatchHistory" aria-label="关闭">✕</button>
-      </div>
-      <div class="dialog-body" id="hatchHistoryBody">
-        <div class="hatch-history-empty">尚无孵化记录</div>
-      </div>
+  <!-- mermaid 流程图放大查看 -->
+  <dialog class="mermaid-lightbox-dialog" id="mermaidLightbox">
+    <div class="mlb-head">
+      <span class="mlb-title">🕸 孵化过程图 · 放大查看</span>
+      <span class="mlb-hint">可滚动查看完整流程图</span>
+      <button class="icon-btn" id="closeMermaidLightbox" aria-label="关闭">✕</button>
     </div>
+    <div class="mlb-body" id="mermaidLightboxBody"></div>
   </dialog>
 
   <!-- 统计弹窗 -->
@@ -1517,6 +1539,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=20260815b" defer></script>
+  <script src="app.js?v=20260815d" defer></script>
 </body>
 </html>
