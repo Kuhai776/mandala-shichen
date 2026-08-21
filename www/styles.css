@@ -703,6 +703,69 @@ textarea, input, select {
   border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
+/* 记录笔记本：按日期自由笔记 */
+.record-notebook {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: rgba(239, 68, 68, 0.05);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+  border-radius: var(--radius-sm);
+}
+.record-notebook-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.record-notebook-title { font-size: 12px; font-weight: 700; color: #f87171; }
+.record-notebook-date { font-size: 11px; color: var(--text-muted); }
+.record-notebook-clear {
+  margin-left: auto; font-size: 10px; padding: 2px 8px; border-radius: 6px;
+  background: var(--bg-tertiary); color: var(--danger);
+  border: 1px solid var(--border); cursor: pointer;
+}
+.record-notebook-clear:hover { border-color: var(--danger); }
+.record-notebook-textarea {
+  width: 100%; min-height: 64px; max-height: 200px; resize: vertical;
+  font-size: 12px; line-height: 1.6; padding: 8px 10px;
+  border-radius: 6px; border: 1px solid var(--input-border);
+  background: var(--input-bg); color: var(--text-primary);
+}
+.record-notebook-textarea:focus { outline: none; border-color: var(--accent); }
+
+/* 持续记录：重复任务到点自动写入记录页 */
+.record-autorecord {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: rgba(34, 197, 94, 0.05);
+  border: 1px solid rgba(34, 197, 94, 0.15);
+  border-radius: var(--radius-sm);
+}
+.record-autorecord-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.record-autorecord-title { font-size: 12px; font-weight: 700; color: #4ade80; }
+.record-autorecord-hint { font-size: 10px; color: var(--text-muted); }
+.record-autorecord-list { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; }
+.record-autorecord-empty { font-size: 11px; color: var(--text-muted); padding: 6px 0; }
+.record-autorecord-item {
+  display: flex; align-items: center; gap: 10px; padding: 7px 10px;
+  background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 8px;
+}
+.record-autorecord-item.on { border-color: rgba(34, 197, 94, 0.5); background: rgba(34, 197, 94, 0.06); }
+.record-autorecord-info { flex: 1; min-width: 0; }
+.record-autorecord-task {
+  font-size: 12px; color: var(--text-primary); font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.record-autorecord-meta { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+.record-autorecord-today { color: #4ade80; font-weight: 600; }
+.record-autorecord-switch { position: relative; display: inline-block; width: 34px; height: 18px; flex-shrink: 0; cursor: pointer; }
+.record-autorecord-switch input { opacity: 0; width: 0; height: 0; }
+.record-autorecord-slider {
+  position: absolute; inset: 0; background: var(--bg-tertiary);
+  border: 1px solid var(--border); border-radius: 18px; transition: .2s;
+}
+.record-autorecord-slider::before {
+  content: ""; position: absolute; width: 12px; height: 12px; left: 2px; top: 2px;
+  border-radius: 50%; background: var(--text-muted); transition: .2s;
+}
+.record-autorecord-switch input:checked + .record-autorecord-slider { background: rgba(34, 197, 94, 0.5); border-color: #4ade80; }
+.record-autorecord-switch input:checked + .record-autorecord-slider::before { transform: translateX(16px); background: #4ade80; }
+
 /* 记录页计划任务预览 */
 .record-plan-preview {
   font-size: 10px;
@@ -7994,6 +8057,10 @@ dialog.inbox-dialog-fullscreen::backdrop {
 .ikb-due { font-size:9px; padding:0 4px; border-radius:6px; background:var(--input-bg); color:var(--text-secondary); }
 .ikb-due.is-due { background:#ffd93d20; color:#ffd93d; }
 .ikb-due.is-overdue { background:#ff6b6b20; color:#ff6b6b; font-weight:600; }
+/* 看板卡片可拖拽：拖拽提示 + 拖拽中状态 */
+.inbox-kanban-card[draggable="true"] { cursor: grab; }
+.inbox-kanban-card[draggable="true"]:active { cursor: grabbing; }
+.inbox-kanban-card.dragging { opacity: .5; border-color: var(--accent); box-shadow: 0 4px 12px rgba(0, 0, 0, .25); }
 
 /* 收集箱表格视图：扁平行列，横向可滑动，列宽固定、任务名超长自动换行 */
 .inbox-table-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; padding:2px 2px 12px; }
