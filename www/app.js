@@ -5612,15 +5612,16 @@ ${noteSection}
     }
     el.hatchList.innerHTML = "";
     // 主线/支线结构：main 步骤按序纵向排列；side 步骤缩进挂在其 parent_step 之下
+    // 统一用「原 steps 数组索引」作为主线位置/支线依附 key，避免压缩索引错位
     const steps = result.steps || [];
-    const mainSteps = [];
-    const sideByParent = new Map(); // parent_index -> [side steps]
+    const mainSteps = []; // { s, idx }
+    const sideByParent = new Map(); // parent_idx -> [side steps]
     steps.forEach((s, idx) => {
       if (s.branch === "side" && typeof s.parent_step === "number" && s.parent_step !== idx && steps[s.parent_step]) {
         if (!sideByParent.has(s.parent_step)) sideByParent.set(s.parent_step, []);
         sideByParent.get(s.parent_step).push(s);
       } else {
-        mainSteps.push(s);
+        mainSteps.push({ s, idx });
       }
     });
     // 递归渲染：step 可带 children（细化子步骤），可多层
@@ -5630,7 +5631,7 @@ ${noteSection}
       item.className = "hatch-item" + (isSide ? " hatch-item-side" : " hatch-item-main") + (level > 0 ? " hatch-item-lv" + Math.min(level, 3) : "");
       const riskTag = step.risk ? `<span class="hatch-tag hatch-tag-risk-${step.risk}">${({low:"低风险",med:"中风险",high:"高风险"})[step.risk] || step.risk}</span>` : "";
       const depTag = (step.depends_on !== null && step.depends_on !== undefined) ? `<span class="hatch-tag hatch-tag-dep">← 依赖${step.depends_on + 1}</span>` : "";
-      const minTag = step.est_min ? `<span class="hatch-tag">${step.est_min}min</span>` : "";
+      const minTag = step.est_min ? `<span class="hatch-tag hatch-min-edit" title="点击修改预估分钟数">${step.est_min}min ⏱</span>` : "";
       const branchTag = isSide
         ? `<span class="hatch-tag hatch-tag-branch-side" title="支线步骤：辅助/并行">支线</span>`
         : `<span class="hatch-tag hatch-tag-branch-main" title="主线步骤：任务核心推进">主线</span>`;
@@ -5662,6 +5663,10 @@ ${noteSection}
             ${step.risk_note && (step.risk === "med" || step.risk === "high") ? `<div class="hatch-item-risk-note">⚠ ${escapeHtml(step.risk_note)}</div>` : ""}
             ${step.why ? `<div class="hatch-item-meta" style="margin-top:2px;color:var(--text-muted);">为什么：${escapeHtml(step.why)}</div>` : ""}
             <div class="hatch-item-ops">
+              ${(!isSide && level === 0) ? `<span class="hatch-item-move" title="调整主线顺序">
+                <button type="button" class="hatch-btn hatch-btn-up" data-idx="${idx}" title="上移主线块">↑</button>
+                <button type="button" class="hatch-btn hatch-btn-down" data-idx="${idx}" title="下移主线块">↓</button>
+              </span>` : ""}
               <button type="button" class="hatch-btn hatch-btn-expand" data-idx="${idx}" title="把这一步再细化成更小的子步骤（可多层、多轮）">🔬 细化</button>
               ${kidsBtn}
             </div>
@@ -5727,6 +5732,35 @@ ${noteSection}
           expandHatchStep(step, expBtn);
         });
       }
+      // 时长编辑：点击 min 标签直接改分钟数，实时重算总时长
+      const minEl = item.querySelector(".hatch-min-edit");
+      if (minEl) {
+        minEl.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          if (hatchState.running) return;
+          const v = prompt("设置该步骤预估分钟数", step.est_min || 15);
+          const n = parseInt(v, 10);
+          if (isNaN(n) || n < 1) return;
+          step.est_min = n;
+          minEl.textContent = n + "min ⏱";
+          // 重算并刷新摘要总时长（第二行：预估时长）
+          const totalMin = (result.steps || []).reduce((s2, x) => s2 + (x.est_min || 0), 0);
+          const sumRow = el.hatchSummary ? el.hatchSummary.querySelector(".hatch-summary-row:nth-child(2) .hatch-summary-value") : null;
+          if (sumRow) sumRow.textContent = `${totalMin} 分钟（约 ${(totalMin / 60).toFixed(1)}h）`;
+          toast("步骤时长已更新", "success");
+        });
+      }
+      // 主线块上下移动：连同其支线一起换位
+      const upBtn = item.querySelector(".hatch-btn-up");
+      const downBtn = item.querySelector(".hatch-btn-down");
+      if (upBtn || downBtn) {
+        const doMove = (dir) => {
+          if (hatchState.running) return;
+          moveHatchStep(idx, dir);
+        };
+        if (upBtn) upBtn.addEventListener("click", () => doMove(-1));
+        if (downBtn) downBtn.addEventListener("click", () => doMove(1));
+      }
       // 子步骤折叠/展开
       const kidsBtnEl = item.querySelector(".hatch-btn-kids");
       if (kidsBtnEl) {
@@ -5746,12 +5780,12 @@ ${noteSection}
       }
       return item;
     };
-    // 先渲染主线步骤（含其下挂的支线），再渲染游离支线
-    mainSteps.forEach((s, i) => {
-      el.hatchList.appendChild(renderStep(s, i, 0, false, i));
-      const sides = sideByParent.get(i) || [];
+    // 先渲染主线步骤（含其下挂的支线）
+    mainSteps.forEach(({ s, idx }) => {
+      el.hatchList.appendChild(renderStep(s, idx, 0, false, idx));
+      const sides = sideByParent.get(idx) || [];
       sides.forEach((sd, si) => {
-        el.hatchList.appendChild(renderStep(sd, `${i}_side${si}`, 1, true, i));
+        el.hatchList.appendChild(renderStep(sd, `${idx}_side${si}`, 1, true, idx));
       });
     });
     // 统计主线/支线
@@ -5762,6 +5796,47 @@ ${noteSection}
       stat.textContent = `🧩 主线 ${mainSteps.length} 步 · 支线 ${sideCount} 步（支线可点「细化」再拆）`;
       el.hatchList.insertAdjacentHTML("afterbegin", stat.outerHTML);
     }
+  }
+
+  // 主线块上下移动：把主线步骤连同其支线一起换位，并重写支线 parent_step 索引
+  function moveHatchStep(idx, dir) {
+    const result = hatchState.result;
+    if (!result || !Array.isArray(result.steps)) return;
+    const steps = result.steps;
+    const isSide = (s) => s.branch === "side" && typeof s.parent_step === "number" && steps[s.parent_step] && steps[s.parent_step].branch !== "side";
+    // 主线在 steps 中的索引序列（保持出现顺序）
+    const mainOrder = [];
+    steps.forEach((s, i) => { if (!isSide(s)) mainOrder.push(i); });
+    const pos = mainOrder.indexOf(idx);
+    const target = pos + dir;
+    if (pos === -1 || target < 0 || target >= mainOrder.length) return;
+    const fromIdx = mainOrder[pos];
+    const toIdx = mainOrder[target];
+    // 块 = 主线 + 其全部支线（children 内嵌在主线 step.children 中无需搬动）
+    const blockOf = (mi) => [steps[mi]].concat(steps.filter((s, i) => i !== mi && isSide(s) && s.parent_step === mi));
+    const a = blockOf(fromIdx);
+    const b = blockOf(toIdx);
+    // 重建数组：互换两块位置
+    const newSteps = [];
+    steps.forEach((s, i) => {
+      if (isSide(s)) return; // 支线由块包含
+      if (i === fromIdx) return;
+      if (i === toIdx) { newSteps.push(...b); newSteps.push(...a); return; }
+      newSteps.push(s);
+    });
+    // 支线 parent_step 指向旧主线索引 → 映射为新索引
+    const oldMainSeq = mainOrder.slice();
+    [oldMainSeq[pos], oldMainSeq[target]] = [oldMainSeq[target], oldMainSeq[pos]];
+    const idxMap = new Map();
+    oldMainSeq.forEach((oldIdx, k) => idxMap.set(oldIdx, k));
+    newSteps.forEach((s) => {
+      if (s.branch === "side" && typeof s.parent_step === "number" && idxMap.has(s.parent_step)) {
+        s.parent_step = idxMap.get(s.parent_step);
+      }
+    });
+    result.steps = newSteps;
+    renderHatchResult(result, { keepChat: true });
+    toast("主线顺序已调整", "success");
   }
 
   // 细化一步：调 AI 把该步拆成 2-4 个更小的子步骤（递归、多轮）；无 API 时本地启发式兜底
@@ -13024,6 +13099,10 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   // 表格排序（顶层行排序；子任务跟随其父任务）
   function sortInboxRows(items) {
     const { sortKey, sortDir } = inboxOptions;
+    if (sortKey === "default") {
+      // 默认顺序 = 手动 order（↑↓ 调整过则生效，未调整保持插入序）
+      return [...items].sort((a, b) => (a.order || 0) - (b.order || 0));
+    }
     const keyOf = (it) => {
       if (sortKey === "prio") return it.priority || 0;
       if (sortKey === "start") return it.start || 0;
@@ -13033,7 +13112,6 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       if (sortKey === "name") return (it.text || "").toLowerCase();
       return 0;
     };
-    if (sortKey === "default") return items;
     const list = [...items].sort((a, b) => {
       const va = keyOf(a), vb = keyOf(b);
       if (typeof va === "string" && typeof vb === "string") return va.localeCompare(vb, "zh") * sortDir;
@@ -13047,6 +13125,23 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     const d = new Date(ts);
     const p = (n) => String(n).padStart(2, "0");
     return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  // 收集箱顶层行手动排序（↑↓）：按当前显示顺序定位，交换后统一重编号 order，并回到「默认」排序
+  function moveInboxRow(idx, dir) {
+    const it = inboxItems[idx];
+    if (!it || it.parentId) return;
+    // 与渲染一致的显示顺序（含当前筛选与排序）
+    const filtered = filterInboxItems();
+    const tops = sortInboxRows(filtered.filter((x) => !x.parentId));
+    const pos = tops.indexOf(it);
+    const target = pos + dir;
+    if (pos === -1 || target < 0 || target >= tops.length) return;
+    [tops[pos], tops[target]] = [tops[target], tops[pos]];
+    tops.forEach((x, i) => { x.order = i; });
+    saveInbox();
+    if (inboxOptions.sortKey !== "default") { inboxOptions.sortKey = "default"; inboxOptions.sortDir = -1; }
+    saveInboxOptions();
+    renderInboxList();
   }
   // 表格选项工具栏（排序 / 列显隐 / 日期显示），仅在表格视图显示
   function renderInboxTableBar() {
@@ -13152,6 +13247,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       group = '<span class="it-group none">未分组</span>';
     }
     const ops = `<span class="it-ops">
+      ${!isChild ? `<button class="it-op" data-act="up" data-idx="${idx}" title="上移（手动调整顺序）">↑</button>
+      <button class="it-op" data-act="down" data-idx="${idx}" title="下移（手动调整顺序）">↓</button>` : ""}
       <button class="it-op" data-act="hatch" data-idx="${idx}" title="🥚 AI 孵化拆解">🥚</button>
       <button class="it-op" data-act="assign" data-idx="${idx}" title="归属主线/支线">📂</button>
       <button class="it-op" data-act="link" data-idx="${idx}" title="🔗 任务级主线/支线：收纳到另一个任务下">🔗</button>
@@ -13204,6 +13301,10 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         const it = inboxItems[idx];
         if (!it) return;
         const act = op.dataset.act;
+        if (act === "up" || act === "down") {
+          moveInboxRow(idx, act === "up" ? -1 : 1);
+          return;
+        }
         if (act === "del") {
           const removedId = it.id;
           inboxItems.splice(idx, 1);
@@ -13785,6 +13886,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       convTemplates: load(CONV_TPL_KEY, []),
       pomo: load(POMO_STATE_KEY, null),
       activeDims: load(ACTIVE_DIMS_KEY, null),
+      inboxOptions: load("mandala-inbox-options", null),
     };
   }
   function buildSnapshotData() {
@@ -13941,6 +14043,16 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     }
     if (data.pomo) save(POMO_STATE_KEY, data.pomo);
     if (data.activeDims) save(ACTIVE_DIMS_KEY, data.activeDims);
+    if (data.inboxOptions) {
+      // 合并表格选项（排序/列显隐/绝对日期），保留旧键但采纳备份值
+      const merged = Object.assign({}, inboxOptions, data.inboxOptions);
+      if (merged.cols && typeof merged.cols === "object") {
+        merged.cols = Object.assign({ tags: true, prio: true, date: true, group: true, created: false }, merged.cols);
+      }
+      Object.assign(inboxOptions, merged);
+      saveInboxOptions();
+      renderInboxTableBar();
+    }
   }
 
   el.importBtn.addEventListener("click", () => el.importFile.click());

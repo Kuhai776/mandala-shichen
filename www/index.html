@@ -23,7 +23,7 @@
           await Promise.all(keys.map(function (k) { return caches.delete(k); }));
         }
         // 检测当前 app.js 版本，若仍是旧的则强制带时间戳 reload
-        var APP_VERSION = "20260816b";
+        var APP_VERSION = "20260816c";
         if (sessionStorage.getItem("mandala-app-ver") !== APP_VERSION) {
           sessionStorage.setItem("mandala-app-ver", APP_VERSION);
           if (!location.search || location.search.indexOf("t=") === -1) {
@@ -86,7 +86,7 @@
       } catch (e) { console.warn("[polyfill] dialog 降级失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260816b" />
+  <link rel="stylesheet" href="styles.css?v=20260816c" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
   <script src="lib/mermaid.min.js"></script>
@@ -1253,6 +1253,10 @@
               <button type="button" class="hatch-chip" data-chip="改成主线优先：只保留主干 3 步主线，其余并入支线">🧭 主线优先</button>
               <button type="button" class="hatch-chip" data-chip="把每个主线步骤都补充 1-2 条支线步骤">🌿 补支线</button>
               <button type="button" class="hatch-chip" data-chip="调整顺序：把风险最高的一步提前到第 1 步先做">⚡ 风险前置</button>
+              <button type="button" class="hatch-chip" data-chip="把方案改写成一份带 ✅ 的检查清单，每步一个可以打勾的动作">🧾 转清单</button>
+              <button type="button" class="hatch-chip" data-chip="把每步时长压缩到 30 分钟以内的小块，并重新预估总时长">⏱ 30分钟内</button>
+              <button type="button" class="hatch-chip" data-chip="换一个更省时的做法，给出 shortcut 捷径">🪄 省时捷径</button>
+              <button type="button" class="hatch-chip" data-chip="按精力曲线给步骤排执行顺序：难事放高效时段，并说明理由">📈 精力排序</button>
             </div>
             <div class="hatch-chat-input-row">
               <textarea id="hatchChatInput" class="hatch-chat-input" rows="1" placeholder="例如：把第3步再细化 / 精简到3步 / 换成学习场景重拆…"></textarea>
@@ -1648,6 +1652,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=20260816b" defer></script>
+  <script src="app.js?v=20260816c" defer></script>
 </body>
 </html>
