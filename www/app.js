@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260815e";
+const SW_VER = "20260815f";
 
 (function () {
   "use strict";
@@ -119,7 +119,7 @@ const SW_VER = "20260815e";
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.7.4";
+  const APP_VERSION = "2.7.5";
   const APP_VERSION_DATE = "2026-08-21";
   const APP_CHANGELOG = [
     { v: "2.7.4", date: "2026-08-21", items: [
@@ -330,9 +330,10 @@ const SW_VER = "20260815e";
   // 天地人三才：记录页数据 & 复盘页数据
   const RECORD_KEY = "mandala-records-v1";
   const REVIEW_KEY = "mandala-reviews-v1";
-  // 记录笔记本（按日期自由笔记）& 持续记录开关
+  // 记录笔记本（按日期自由笔记）& 持续记录开关 & 持续事项
   const NOTE_KEY = "mandala-record-notes-v1";
   const AUTO_RECORD_KEY = "mandala-autorecord-v1";
+  const ONGOING_KEY = "mandala-ongoing-v1";
   // 截图/图片附件（用 IndexedDB，localStorage 装不下大图）
   const ATTACH_DB_NAME = "mandala-attachments";
   const ATTACH_DB_VERSION = 1;
@@ -784,6 +785,8 @@ const SW_VER = "20260815e";
     notes: load(NOTE_KEY, {}),
     // 持续记录开关：{ [repeatId]: true } → 重复任务自动延续到记录页
     autoRecord: load(AUTO_RECORD_KEY, {}),
+    // 持续事项（记录侧自定义）：[{id, icon, name, createdAt}]
+    ongoing: load(ONGOING_KEY, []),
     // 复盘页数据：{ "2026-07-29": { summary, insights, stats, userNotes, aiGeneratedAt } }
     reviews: load(REVIEW_KEY, {}),
     // 时辰切换检测：记录上次检测到的时辰（用于触发"该记录了"提示+闪烁）
@@ -1612,9 +1615,35 @@ const SW_VER = "20260815e";
     goReviewFromRecord: document.getElementById("goReviewFromRecord"),
     goRecordFromPlan: document.getElementById("goRecordFromPlan"),
     goReviewFromPlan: document.getElementById("goReviewFromPlan"),
-    recordNotebookDate: document.getElementById("recordNotebookDate"),
-    recordNotebookClear: document.getElementById("recordNotebookClear"),
-    recordNotebookText: document.getElementById("recordNotebookText"),
+    recordNotebookBtn: document.getElementById("notebookBtn"),
+    nbDot: document.getElementById("nbDot"),
+    notebookDialog: document.getElementById("notebookDialog"),
+    closeNotebook: document.getElementById("closeNotebook"),
+    nbDateLabel: document.getElementById("nbDateLabel"),
+    nbDatePick: document.getElementById("nbDatePick"),
+    nbPrevDay: document.getElementById("nbPrevDay"),
+    nbNextDay: document.getElementById("nbNextDay"),
+    nbTextarea: document.getElementById("nbTextarea"),
+    nbCount: document.getElementById("nbCount"),
+    nbSavedStatus: document.getElementById("nbSavedStatus"),
+    nbClearBtn: document.getElementById("nbClearBtn"),
+    nbRecentList: document.getElementById("nbRecentList"),
+    ogIconPick: document.getElementById("ogIconPick"),
+    ogAddInput: document.getElementById("ogAddInput"),
+    ogAddBtn: document.getElementById("ogAddBtn"),
+    recordOngoingList: document.getElementById("recordOngoingList"),
+    quickRecordDialog: document.getElementById("quickRecordDialog"),
+    closeQuickRecord: document.getElementById("closeQuickRecord"),
+    qrTitle: document.getElementById("qrTitle"),
+    qrItemName: document.getElementById("qrItemName"),
+    qrSpentChips: document.getElementById("qrSpentChips"),
+    qrSpentCustom: document.getElementById("qrSpentCustom"),
+    qrNowBtn: document.getElementById("qrNowBtn"),
+    qrPeriodSel: document.getElementById("qrPeriodSel"),
+    qrCellSel: document.getElementById("qrCellSel"),
+    qrNote: document.getElementById("qrNote"),
+    qrCancel: document.getElementById("qrCancel"),
+    qrSaveBtn: document.getElementById("qrSaveBtn"),
     recordAutoRecordList: document.getElementById("recordAutoRecordList"),
     realmFab: document.getElementById("realmFab"),
     overviewGrid: document.getElementById("overviewGrid"),
@@ -2908,6 +2937,262 @@ const SW_VER = "20260815e";
     });
   }
 
+  // ---------- 持续事项（记录侧自定义，一键快速记录） ----------
+  function saveOngoing() { save(ONGOING_KEY, state.ongoing); }
+
+  // 统计某持续事项今日被记录的次数（同一格多次记录用「；」分隔，分段计数）
+  function countOngoingToday(item) {
+    const day = state.records[state.currentDate] || {};
+    let n = 0;
+    Object.values(day).forEach((rec) => {
+      if (rec && rec.actual && rec.actual.includes(item.name)) {
+        rec.actual.split(/[;；]/).forEach((seg) => {
+          if (seg.includes(item.name)) n += 1;
+        });
+      }
+    });
+    return n;
+  }
+
+  // 渲染持续事项面板：卡片点击 → 快速记录弹窗；✕ 删除
+  function renderOngoingPanel() {
+    if (!el.recordOngoingList) return;
+    const items = state.ongoing;
+    if (!items.length) {
+      el.recordOngoingList.innerHTML = '<div class="og-empty">还没有持续事项。添加一个常用行为（如「看电路图」），以后点一下就能记录，不用每个格子反复写。</div>';
+      return;
+    }
+    el.recordOngoingList.innerHTML = items.map((it) => {
+      const n = countOngoingToday(it);
+      return `<div class="og-card" data-og="${escapeHtml(it.id)}" title="点击快速记录「${escapeHtml(it.name)}」">
+        <span class="og-icon">${escapeHtml(it.icon || "⚡")}</span>
+        <span class="og-info">
+          <span class="og-name">${escapeHtml(it.name)}</span>
+          <span class="og-stats">今日 ${n} 次</span>
+        </span>
+        <button class="og-record-btn" data-og="${escapeHtml(it.id)}" title="快速记录">⚡ 记录</button>
+        <button class="og-del-btn" data-og="${escapeHtml(it.id)}" title="删除该持续事项">✕</button>
+      </div>`;
+    }).join("");
+    el.recordOngoingList.querySelectorAll(".og-card").forEach((card) => {
+      card.addEventListener("click", (e) => {
+        if (e.target.closest(".og-del-btn")) return;
+        const it = state.ongoing.find((x) => x.id === card.dataset.og);
+        if (it) openQuickRecord(it);
+      });
+    });
+    el.recordOngoingList.querySelectorAll(".og-del-btn").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const id = btn.dataset.og;
+        const it = state.ongoing.find((x) => x.id === id);
+        if (!it) return;
+        if (!confirm(`删除持续事项「${it.name}」？已记录的历史记录不受影响。`)) return;
+        state.ongoing = state.ongoing.filter((x) => x.id !== id);
+        saveOngoing();
+        renderOngoingPanel();
+        toast("已删除持续事项", "info");
+      });
+    });
+  }
+
+  function addOngoingItem(name, icon) {
+    const trim = (name || "").trim();
+    if (!trim) { toast("请输入持续事项名称", "warn"); return false; }
+    if (state.ongoing.some((x) => x.name === trim)) { toast("该持续事项已存在", "warn"); return false; }
+    state.ongoing.push({ id: "og_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7), icon: icon || "⚡", name: trim, createdAt: new Date().toISOString() });
+    saveOngoing();
+    renderOngoingPanel();
+    toast(`已添加持续事项「${trim}」，点击卡片即可快速记录`, "success");
+    return true;
+  }
+
+  // ---------- 持续事项快速记录弹窗 ----------
+  let qrCurrentItem = null; // 当前要记录的持续事项
+  let qrSpent = "13分钟";   // 默认时长
+  function openQuickRecord(item) {
+    qrCurrentItem = item;
+    if (!el.quickRecordDialog) return;
+    el.qrTitle.textContent = "⚡ 快速记录";
+    el.qrItemName.textContent = `${item.icon || "⚡"} ${item.name}`;
+    // 时长 chips 默认选第一个
+    qrSpent = "13分钟";
+    el.qrSpentCustom.value = "";
+    el.qrSpentChips.querySelectorAll(".qr-chip").forEach((c) => c.classList.toggle("active", c.dataset.v === qrSpent));
+    // 默认格子：当前时间所在格
+    const gc = getCurrentGlobalCell();
+    let p = state.activePeriod, c2 = 0;
+    if (gc >= 0) { p = Math.floor(gc / CELLS_PER_PERIOD); c2 = gc % CELLS_PER_PERIOD; }
+    fillQrCellSelects(p, c2);
+    el.qrNote.value = "";
+    el.quickRecordDialog.showModal();
+  }
+
+  function fillQrCellSelects(period, cell) {
+    // 时辰下拉
+    el.qrPeriodSel.innerHTML = PERIOD_NAMES.map((n, i) => {
+      const r = getPeriodRange(i);
+      return `<option value="${i}" ${i === period ? "selected" : ""}>${n} ${secondsToHHMM(r.start)}-${secondsToHHMM(r.end)}</option>`;
+    }).join("");
+    // 格子下拉
+    renderQrCellOptions(cell);
+    el.qrPeriodSel.onchange = () => renderQrCellOptions(0);
+  }
+
+  function renderQrCellOptions(sel) {
+    const cells = Array.from({ length: CELLS_PER_PERIOD }, (_, i) => i);
+    el.qrCellSel.innerHTML = cells.map((i) => {
+      const r = getCellRange(Number(el.qrPeriodSel.value) || 0, i);
+      return `<option value="${i}" ${i === sel ? "selected" : ""}>第 ${i + 1} 格 ${secondsToHHMM(r.start)}-${secondsToHHMM(r.end)}</option>`;
+    }).join("");
+  }
+
+  function saveQuickRecord() {
+    if (!qrCurrentItem) return;
+    const period = Number(el.qrPeriodSel.value) || 0;
+    const cell = Number(el.qrCellSel.value) || 0;
+    const spent = (el.qrSpentCustom.value || "").trim() || qrSpent;
+    const note = (el.qrNote.value || "").trim();
+    const actual = `${qrCurrentItem.icon || "⚡"} ${qrCurrentItem.name}${note ? " · " + note : ""}`;
+    const rec = getCellRecord(period, cell);
+    const merged = rec && rec.actual
+      ? { ...rec, actual: rec.actual + "；" + actual, spent: spent, note: rec.note || "" }
+      : { spent, actual, note: "" };
+    setCellRecord(period, cell, merged);
+    renderRecord();
+    const r = getCellRange(period, cell);
+    toast(`已记录「${qrCurrentItem.name}」→ ${PERIOD_NAMES[period]} ${secondsToHHMM(r.start)} 第 ${cell + 1} 格`, "success");
+    if (navigator.vibrate) navigator.vibrate(20);
+    el.quickRecordDialog.close();
+  }
+
+  function setupOngoingEvents() {
+    if (el.ogAddBtn) el.ogAddBtn.addEventListener("click", () => {
+      if (addOngoingItem(el.ogAddInput.value, el.ogIconPick.value)) el.ogAddInput.value = "";
+    });
+    if (el.ogAddInput) el.ogAddInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); if (addOngoingItem(el.ogAddInput.value, el.ogIconPick.value)) el.ogAddInput.value = ""; }
+    });
+    // 快速记录弹窗事件
+    if (el.qrSpentChips) el.qrSpentChips.querySelectorAll(".qr-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        qrSpent = chip.dataset.v;
+        el.qrSpentCustom.value = "";
+        el.qrSpentChips.querySelectorAll(".qr-chip").forEach((c) => c.classList.toggle("active", c === chip));
+      });
+    });
+    if (el.qrSpentCustom) el.qrSpentCustom.addEventListener("input", () => {
+      if (el.qrSpentCustom.value.trim()) el.qrSpentChips.querySelectorAll(".qr-chip").forEach((c) => c.classList.remove("active"));
+    });
+    if (el.qrNowBtn) el.qrNowBtn.addEventListener("click", () => {
+      const gc = getCurrentGlobalCell();
+      if (gc < 0) { toast("当前时间不在今日时辰范围内，请手动选择格子", "warn"); return; }
+      fillQrCellSelects(Math.floor(gc / CELLS_PER_PERIOD), gc % CELLS_PER_PERIOD);
+      toast("已定位到当前时间所在格子", "info");
+    });
+    if (el.qrSaveBtn) el.qrSaveBtn.addEventListener("click", saveQuickRecord);
+    if (el.qrCancel) el.qrCancel.addEventListener("click", () => el.quickRecordDialog.close());
+    if (el.closeQuickRecord) el.closeQuickRecord.addEventListener("click", () => el.quickRecordDialog.close());
+    if (el.quickRecordDialog) el.quickRecordDialog.addEventListener("close", () => { qrCurrentItem = null; });
+  }
+
+  // ---------- 记录笔记本（纸张 UI 弹窗，按日期翻阅） ----------
+  let nbDate = null;        // 笔记本当前浏览的日期
+  let nbSaveTimer = null;   // 自动保存防抖
+  function openNotebook() {
+    if (!el.notebookDialog) return;
+    nbDate = state.currentDate;
+    renderNotebookPage();
+    el.notebookDialog.showModal();
+  }
+
+  function renderNotebookPage() {
+    const txt = state.notes[nbDate] || "";
+    el.nbDateLabel.textContent = formatDateLabel(nbDate) + (isToday(nbDate) ? " · 今天" : "");
+    el.nbDatePick.value = nbDate;
+    el.nbTextarea.value = txt;
+    el.nbTextarea.dataset.saved = txt;
+    updateNbCount();
+    el.nbSavedStatus.textContent = "自动保存已开启";
+    renderNbRecent();
+  }
+
+  function updateNbCount() {
+    const len = (el.nbTextarea.value || "").length;
+    el.nbCount.textContent = len + " 字";
+  }
+
+  function nbSaveNow() {
+    if (!nbDate) return;
+    const v = el.nbTextarea.value;
+    state.notes[nbDate] = v;
+    save(NOTE_KEY, state.notes);
+    el.nbTextarea.dataset.saved = v;
+    el.nbSavedStatus.textContent = "✓ 已保存 " + secondsToHHMM(nowSeconds() % 86400);
+    // 同步记录页按钮红点
+    if (nbDate === state.currentDate && el.nbDot) el.nbDot.hidden = !v.trim();
+  }
+
+  // 最近笔记列表：取最近 10 条有内容的笔记，点击跳转
+  function renderNbRecent() {
+    const dates = Object.keys(state.notes)
+      .filter((d) => (state.notes[d] || "").trim())
+      .sort()
+      .reverse()
+      .slice(0, 10);
+    if (!dates.length) {
+      el.nbRecentList.innerHTML = '<div class="nb-recent-empty">还没有笔记。写下第一页吧～</div>';
+      return;
+    }
+    el.nbRecentList.innerHTML = dates.map((d) => {
+      const preview = (state.notes[d] || "").replace(/\s+/g, " ").slice(0, 28);
+      const active = d === nbDate ? " active" : "";
+      return `<div class="nb-recent-item${active}" data-date="${d}">
+        <span class="nb-recent-date">${formatDateLabel(d)}${isToday(d) ? " · 今天" : ""}</span>
+        <span class="nb-recent-preview">${escapeHtml(preview)}…</span>
+      </div>`;
+    }).join("");
+    el.nbRecentList.querySelectorAll(".nb-recent-item").forEach((it) => {
+      it.addEventListener("click", () => { nbDate = it.dataset.date; renderNotebookPage(); });
+    });
+  }
+
+  function nbShiftDay(days) {
+    const d = new Date(nbDate + "T12:00:00");
+    d.setDate(d.getDate() + days);
+    const pad = (n) => String(n).padStart(2, "0");
+    nbDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    renderNotebookPage();
+  }
+
+  function setupNotebookEvents() {
+    if (el.recordNotebookBtn) el.recordNotebookBtn.addEventListener("click", openNotebook);
+    if (el.closeNotebook) el.closeNotebook.addEventListener("click", () => el.notebookDialog.close());
+    if (el.nbPrevDay) el.nbPrevDay.addEventListener("click", () => nbShiftDay(-1));
+    if (el.nbNextDay) el.nbNextDay.addEventListener("click", () => nbShiftDay(1));
+    if (el.nbDatePick) el.nbDatePick.addEventListener("change", () => {
+      if (el.nbDatePick.value) { nbDate = el.nbDatePick.value; renderNotebookPage(); }
+    });
+    if (el.nbTextarea) {
+      el.nbTextarea.addEventListener("input", () => {
+        updateNbCount();
+        el.nbSavedStatus.textContent = "输入中…";
+        if (nbSaveTimer) clearTimeout(nbSaveTimer);
+        nbSaveTimer = setTimeout(nbSaveNow, 600);
+      });
+      el.nbTextarea.addEventListener("blur", nbSaveNow);
+    }
+    if (el.nbClearBtn) el.nbClearBtn.addEventListener("click", () => {
+      if (!el.nbTextarea.value.trim()) { toast("本页已是空的", "info"); return; }
+      if (!confirm(`清空 ${formatDateLabel(nbDate)} 的笔记？不可恢复。`)) return;
+      el.nbTextarea.value = "";
+      updateNbCount();
+      nbSaveNow();
+      renderNbRecent();
+      toast("已清空本页", "info");
+    });
+  }
+
   // ---------- 截图粘贴自动弹窗：选择要记录到的时间格子 ----------
   // 全局监听 paste 事件（用户截图后 Ctrl+V），自动弹出"记录到哪个格子"对话框
   let _pasteAttachGuard = false;
@@ -3197,14 +3482,9 @@ const SW_VER = "20260815e";
     // 渲染过去时辰快览导航
     renderPeriodNav(el.recordPeriodNav);
 
-    // 记录笔记本：日期 + 当日笔记（输入中不覆盖）
-    if (el.recordNotebookDate) {
-      el.recordNotebookDate.textContent = formatDateLabel(state.currentDate) + (isToday(state.currentDate) ? "（今天）" : "");
-    }
-    if (el.recordNotebookText && document.activeElement !== el.recordNotebookText) {
-      el.recordNotebookText.value = state.notes[state.currentDate] || "";
-      el.recordNotebookText.dataset.saved = el.recordNotebookText.value;
-    }
+    // 记录笔记本按钮：今日有笔记时显示小红点
+    if (el.nbDot) el.nbDot.hidden = !((state.notes[state.currentDate] || "").trim());
+    renderOngoingPanel();
     renderRepeatAutoRecordPanel();
 
     const currentGlobalCell = getCurrentGlobalCell();
@@ -6833,31 +7113,9 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   if (el.goReviewFromRecord) el.goReviewFromRecord.addEventListener("click", () => {
     setRealm("review");
   });
-  // 记录笔记本：输入自动保存（按当前日期）、清空按钮
-  let noteSaveTimer = null;
-  if (el.recordNotebookText) {
-    el.recordNotebookText.addEventListener("input", () => {
-      if (!state.currentDate) return;
-      clearTimeout(noteSaveTimer);
-      noteSaveTimer = setTimeout(() => {
-        const v = el.recordNotebookText.value;
-        if (v.trim()) state.notes[state.currentDate] = v;
-        else delete state.notes[state.currentDate];
-        save(NOTE_KEY, state.notes);
-        if (el.recordNotebookText.dataset.saved !== v) {
-          el.recordNotebookText.dataset.saved = v;
-          toast("笔记已保存", "info");
-        }
-      }, 600);
-    });
-  }
-  if (el.recordNotebookClear) el.recordNotebookClear.addEventListener("click", () => {
-    if (!confirm("清空当前日期的笔记？")) return;
-    delete state.notes[state.currentDate];
-    save(NOTE_KEY, state.notes);
-    if (el.recordNotebookText) el.recordNotebookText.value = "";
-    toast("当日笔记已清空", "info");
-  });
+  // 记录笔记本（弹窗 UI）+ 持续事项（快速记录）
+  setupNotebookEvents();
+  setupOngoingEvents();
   if (el.goRecordFromPlan) el.goRecordFromPlan.addEventListener("click", () => setRealm("record"));
   if (el.goReviewFromPlan) el.goReviewFromPlan.addEventListener("click", () => setRealm("review"));
   // 底部浮动三才切换条
