@@ -23,7 +23,7 @@
           await Promise.all(keys.map(function (k) { return caches.delete(k); }));
         }
         // 检测当前 app.js 版本，若仍是旧的则强制带时间戳 reload
-        var APP_VERSION = "20260815f";
+        var APP_VERSION = "20260815g";
         if (sessionStorage.getItem("mandala-app-ver") !== APP_VERSION) {
           sessionStorage.setItem("mandala-app-ver", APP_VERSION);
           if (!location.search || location.search.indexOf("t=") === -1) {
@@ -86,7 +86,7 @@
       } catch (e) { console.warn("[polyfill] dialog 降级失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260815f" />
+  <link rel="stylesheet" href="styles.css?v=20260815g" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
   <script src="lib/mermaid.min.js"></script>
@@ -1295,14 +1295,18 @@
         <button class="nb-nav-btn" id="nbPrevDay" title="前一天">‹</button>
         <div class="nb-date" id="nbDateLabel">—</div>
         <button class="nb-nav-btn" id="nbNextDay" title="后一天">›</button>
+        <button class="nb-today-btn" id="nbTodayBtn" hidden title="回到今天">回到今天</button>
         <input type="date" class="nb-date-pick" id="nbDatePick" title="选择日期" />
       </div>
+      <!-- 当日已有记录摘要：方便对照写笔记 -->
+      <div class="nb-day-summary" id="nbDaySummary" hidden></div>
       <div class="nb-paper">
         <div class="nb-paper-margin"></div>
         <textarea class="nb-textarea" id="nbTextarea" placeholder="在这一页写下今天的想法、灵感、心得、复盘……"></textarea>
       </div>
       <div class="nb-foot">
         <span class="nb-count" id="nbCount">0 字</span>
+        <button class="nb-copy" id="nbCopyBtn" title="复制本页笔记内容">📋 复制</button>
         <button class="nb-clear" id="nbClearBtn" title="清空当前页笔记">清空本页</button>
       </div>
       <div class="nb-recent">
@@ -1628,6 +1632,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=20260815f" defer></script>
+  <script src="app.js?v=20260815g" defer></script>
 </body>
 </html>

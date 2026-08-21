@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260815f";
+const SW_VER = "20260815g";
 
 (function () {
   "use strict";
@@ -119,7 +119,7 @@ const SW_VER = "20260815f";
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.7.5";
+  const APP_VERSION = "2.7.6";
   const APP_VERSION_DATE = "2026-08-21";
   const APP_CHANGELOG = [
     { v: "2.7.4", date: "2026-08-21", items: [
@@ -1628,6 +1628,9 @@ const SW_VER = "20260815f";
     nbSavedStatus: document.getElementById("nbSavedStatus"),
     nbClearBtn: document.getElementById("nbClearBtn"),
     nbRecentList: document.getElementById("nbRecentList"),
+    nbTodayBtn: document.getElementById("nbTodayBtn"),
+    nbDaySummary: document.getElementById("nbDaySummary"),
+    nbCopyBtn: document.getElementById("nbCopyBtn"),
     ogIconPick: document.getElementById("ogIconPick"),
     ogAddInput: document.getElementById("ogAddInput"),
     ogAddBtn: document.getElementById("ogAddBtn"),
@@ -2954,7 +2957,27 @@ const SW_VER = "20260815f";
     return n;
   }
 
-  // 渲染持续事项面板：卡片点击 → 快速记录弹窗；✕ 删除
+  // 统计某持续事项最近 7 天（含今天）被记录的次数
+  function countOngoingWeek(item) {
+    let n = 0;
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(state.currentDate + "T12:00:00");
+      d.setDate(d.getDate() - i);
+      const pad = (v) => String(v).padStart(2, "0");
+      const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      const day = state.records[key] || {};
+      Object.values(day).forEach((rec) => {
+        if (rec && rec.actual && rec.actual.includes(item.name)) {
+          rec.actual.split(/[;；]/).forEach((seg) => {
+            if (seg.includes(item.name)) n += 1;
+          });
+        }
+      });
+    }
+    return n;
+  }
+
+  // 渲染持续事项面板：卡片点击 → 快速记录弹窗；长按 → 秒记（上次时长+当前格）；✕ 删除
   function renderOngoingPanel() {
     if (!el.recordOngoingList) return;
     const items = state.ongoing;
@@ -2964,19 +2987,39 @@ const SW_VER = "20260815f";
     }
     el.recordOngoingList.innerHTML = items.map((it) => {
       const n = countOngoingToday(it);
-      return `<div class="og-card" data-og="${escapeHtml(it.id)}" title="点击快速记录「${escapeHtml(it.name)}」">
+      const w = countOngoingWeek(it);
+      return `<div class="og-card" data-og="${escapeHtml(it.id)}" title="点击快速记录「${escapeHtml(it.name)}」 · 长按直接用上次时长记录到当前格">
         <span class="og-icon">${escapeHtml(it.icon || "⚡")}</span>
         <span class="og-info">
           <span class="og-name">${escapeHtml(it.name)}</span>
-          <span class="og-stats">今日 ${n} 次</span>
+          <span class="og-stats">今日 ${n} 次 · 本周 ${w} 次${it.lastSpent ? " · 上次 " + escapeHtml(it.lastSpent) : ""}</span>
         </span>
         <button class="og-record-btn" data-og="${escapeHtml(it.id)}" title="快速记录">⚡ 记录</button>
         <button class="og-del-btn" data-og="${escapeHtml(it.id)}" title="删除该持续事项">✕</button>
       </div>`;
     }).join("");
     el.recordOngoingList.querySelectorAll(".og-card").forEach((card) => {
-      card.addEventListener("click", (e) => {
+      // 长按 500ms → 秒记（用上次时长记录到当前时间格，无弹窗）
+      let lpTimer = null, lpFired = false;
+      const startLp = (e) => {
         if (e.target.closest(".og-del-btn")) return;
+        lpFired = false;
+        lpTimer = setTimeout(() => {
+          lpFired = true;
+          card.classList.add("og-pressing");
+          const it = state.ongoing.find((x) => x.id === card.dataset.og);
+          if (it) quickRecordInstant(it, card);
+        }, 500);
+      };
+      const cancelLp = () => {
+        if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+        card.classList.remove("og-pressing");
+      };
+      card.addEventListener("mousedown", startLp);
+      card.addEventListener("touchstart", startLp, { passive: true });
+      ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach((ev) => card.addEventListener(ev, cancelLp));
+      card.addEventListener("click", (e) => {
+        if (lpFired || e.target.closest(".og-del-btn")) return; // 长按已处理
         const it = state.ongoing.find((x) => x.id === card.dataset.og);
         if (it) openQuickRecord(it);
       });
@@ -2994,6 +3037,30 @@ const SW_VER = "20260815f";
         toast("已删除持续事项", "info");
       });
     });
+  }
+
+  // 秒记：不弹窗，直接用上次时长记录到当前时间所在格
+  function quickRecordInstant(item, cardEl) {
+    const gc = getCurrentGlobalCell();
+    if (gc < 0) {
+      toast("当前时间不在今日时辰范围内，请点卡片手动选择格子", "warn");
+      return;
+    }
+    const period = Math.floor(gc / CELLS_PER_PERIOD);
+    const cell = gc % CELLS_PER_PERIOD;
+    const spent = item.lastSpent || "13分钟";
+    const actual = `${item.icon || "⚡"} ${item.name}`;
+    const rec = getCellRecord(period, cell);
+    const merged = rec && rec.actual
+      ? { ...rec, actual: rec.actual + "；" + actual, spent, note: rec.note || "" }
+      : { spent, actual, note: "" };
+    setCellRecord(period, cell, merged);
+    renderRecord();
+    const r = getCellRange(period, cell);
+    toast(`⚡ 秒记「${item.name}」${spent} → ${secondsToHHMM(r.start)} 第 ${cell + 1} 格`, "success");
+    if (navigator.vibrate) navigator.vibrate(30);
+    if (cardEl) cardEl.classList.add("og-flash");
+    setTimeout(() => { if (cardEl) cardEl.classList.remove("og-flash"); }, 600);
   }
 
   function addOngoingItem(name, icon) {
@@ -3015,10 +3082,13 @@ const SW_VER = "20260815f";
     if (!el.quickRecordDialog) return;
     el.qrTitle.textContent = "⚡ 快速记录";
     el.qrItemName.textContent = `${item.icon || "⚡"} ${item.name}`;
-    // 时长 chips 默认选第一个
-    qrSpent = "13分钟";
+    // 时长：优先上次的时长（记住习惯），否则默认第一格
+    const last = item.lastSpent || "13分钟";
+    qrSpent = last;
     el.qrSpentCustom.value = "";
-    el.qrSpentChips.querySelectorAll(".qr-chip").forEach((c) => c.classList.toggle("active", c.dataset.v === qrSpent));
+    const chipMatch = Array.from(el.qrSpentChips.querySelectorAll(".qr-chip")).find((c) => c.dataset.v === last);
+    el.qrSpentChips.querySelectorAll(".qr-chip").forEach((c) => c.classList.toggle("active", c === chipMatch));
+    if (!chipMatch) el.qrSpentCustom.value = last; // 上次是自定义时长，填入输入框
     // 默认格子：当前时间所在格
     const gc = getCurrentGlobalCell();
     let p = state.activePeriod, c2 = 0;
@@ -3053,6 +3123,11 @@ const SW_VER = "20260815f";
     const cell = Number(el.qrCellSel.value) || 0;
     const spent = (el.qrSpentCustom.value || "").trim() || qrSpent;
     const note = (el.qrNote.value || "").trim();
+    // 记住本次时长（下次打开自动选中 / 长按秒记用它）
+    if (qrCurrentItem.lastSpent !== spent) {
+      qrCurrentItem.lastSpent = spent;
+      saveOngoing();
+    }
     const actual = `${qrCurrentItem.icon || "⚡"} ${qrCurrentItem.name}${note ? " · " + note : ""}`;
     const rec = getCellRecord(period, cell);
     const merged = rec && rec.actual
@@ -3110,11 +3185,35 @@ const SW_VER = "20260815f";
     const txt = state.notes[nbDate] || "";
     el.nbDateLabel.textContent = formatDateLabel(nbDate) + (isToday(nbDate) ? " · 今天" : "");
     el.nbDatePick.value = nbDate;
+    // 非今日浏览时显示「回到今天」按钮
+    if (el.nbTodayBtn) el.nbTodayBtn.hidden = isToday(nbDate);
     el.nbTextarea.value = txt;
     el.nbTextarea.dataset.saved = txt;
     updateNbCount();
     el.nbSavedStatus.textContent = "自动保存已开启";
     renderNbRecent();
+    renderNbDaySummary();
+  }
+
+  // 当日已记录内容摘要（写笔记时对照）
+  function renderNbDaySummary() {
+    if (!el.nbDaySummary) return;
+    const day = state.records[nbDate] || {};
+    const items = [];
+    for (let p = 0; p < PERIOD_COUNT; p++) {
+      for (let c = 0; c < CELLS_PER_PERIOD; c++) {
+        const rec = day[p + "-" + c];
+        if (rec && rec.actual) {
+          const r = getCellRange(p, c);
+          items.push(`${secondsToHHMM(r.start)} ${rec.actual}`);
+        }
+      }
+    }
+    if (!items.length) { el.nbDaySummary.hidden = true; return; }
+    el.nbDaySummary.hidden = false;
+    el.nbDaySummary.innerHTML =
+      `<span class="nb-ds-label">📋 当日已记录 ${items.length} 格：</span>` +
+      items.map((s) => `<span class="nb-ds-item">${escapeHtml(s)}</span>`).join("");
   }
 
   function updateNbCount() {
@@ -3170,6 +3269,20 @@ const SW_VER = "20260815f";
     if (el.closeNotebook) el.closeNotebook.addEventListener("click", () => el.notebookDialog.close());
     if (el.nbPrevDay) el.nbPrevDay.addEventListener("click", () => nbShiftDay(-1));
     if (el.nbNextDay) el.nbNextDay.addEventListener("click", () => nbShiftDay(1));
+    if (el.nbTodayBtn) el.nbTodayBtn.addEventListener("click", () => { nbDate = state.currentDate; renderNotebookPage(); });
+    if (el.nbCopyBtn) el.nbCopyBtn.addEventListener("click", async () => {
+      const txt = (el.nbTextarea.value || "").trim();
+      if (!txt) { toast("本页还没有内容", "info"); return; }
+      const head = `📓 曼陀罗时辰笔记 · ${formatDateLabel(nbDate)}\n\n`;
+      try {
+        await navigator.clipboard.writeText(head + txt);
+        toast("本页笔记已复制到剪贴板", "success");
+      } catch (e) {
+        // 剪贴板不可用（如非安全上下文）：退化为选中提示
+        el.nbTextarea.select();
+        toast("请长按/Ctrl+C 复制选中的内容", "info");
+      }
+    });
     if (el.nbDatePick) el.nbDatePick.addEventListener("change", () => {
       if (el.nbDatePick.value) { nbDate = el.nbDatePick.value; renderNotebookPage(); }
     });
@@ -4343,6 +4456,11 @@ const SW_VER = "20260815f";
     }
 
     const stats = computeReviewStats();
+    // 笔记本内容：让 AI 结合笔记里的心得做更贴合的复盘
+    const dayNote = (state.notes[date] || "").trim();
+    const noteSection = dayNote
+      ? `\n\n【笔记本】（用户当日手记，复盘时请参考其中的想法与反思）：\n${dayNote.slice(0, 2000)}`
+      : "";
     const prompt = `请基于以下今日曼陀罗时辰数据生成复盘总结。
 
 【计划】（共${planItems.length}格，完成${stats.doneCount}格）：
@@ -4350,7 +4468,7 @@ ${planItems.join("\n") || "（无）"}
 
 【记录】（共${recordItems.length}格）：
 ${recordItems.join("\n") || "（无）"}
-
+${noteSection}
 【统计】计划格数:${stats.plannedCells} 已记录:${stats.recordedCells} 完成数:${stats.doneCount} 吻合率:${stats.matchRate}%
 
 请用 JSON 格式返回（仅返回 JSON，不要 markdown 代码块）：
