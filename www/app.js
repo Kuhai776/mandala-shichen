@@ -1859,6 +1859,8 @@ const SW_VER = "20260815g";
     inboxTagList: document.getElementById("inboxTagList"),
     inboxTagChips: document.getElementById("inboxTagChips"),
     inboxViewSwitch: document.getElementById("inboxViewSwitch"),
+    inboxRelGraphBtn: document.getElementById("inboxRelGraphBtn"),
+    inboxTableBar: document.getElementById("inboxTableBar"),
     // 收集箱-九宫格预览
     igpGrid: document.getElementById("igpGrid"),
     igpPeriodLabel: document.getElementById("igpPeriodLabel"),
@@ -1959,6 +1961,7 @@ const SW_VER = "20260815g";
     hatchErrorMsg: document.getElementById("hatchErrorMsg"),
     hatchRetryBtn: document.getElementById("hatchRetryBtn"),
     hatchDowngradeBtn: document.getElementById("hatchDowngradeBtn"),
+    hatchLocalBtn: document.getElementById("hatchLocalBtn"),
     hatchResult: document.getElementById("hatchResult"),
     hatchSummary: document.getElementById("hatchSummary"),
     hatchShortcut: document.getElementById("hatchShortcut"),
@@ -1978,11 +1981,15 @@ const SW_VER = "20260815g";
     closeHatchHistory: document.getElementById("closeHatchHistory"),
     hatchChat: document.getElementById("hatchChat"),
     hatchChatLog: document.getElementById("hatchChatLog"),
+    hatchChatChips: document.getElementById("hatchChatChips"),
     hatchChatInput: document.getElementById("hatchChatInput"),
     hatchChatSend: document.getElementById("hatchChatSend"),
+    hatchChatCopy: document.getElementById("hatchChatCopy"),
+    hatchChatClear: document.getElementById("hatchChatClear"),
     mermaidLightbox: document.getElementById("mermaidLightbox"),
     mermaidLightboxBody: document.getElementById("mermaidLightboxBody"),
     closeMermaidLightbox: document.getElementById("closeMermaidLightbox"),
+    mlbDownloadBtn: document.getElementById("mlbDownloadBtn"),
     // 复盘汇总
     reviewSummary: document.getElementById("reviewSummary"),
     reviewPeriodNav: document.getElementById("reviewPeriodNav"),
@@ -5182,6 +5189,30 @@ ${noteSection}
     return "medium";
   }
 
+  // 孵化完成度闭环：统计某次孵化拆进收集箱/格子/日程的条目实际完成多少
+  // 匹配优先级：meta.hatchHash（精确）→ 兜底 meta.hatchTask 文本（旧数据）
+  function getHatchProgress(taskHash) {
+    const hist = findHatchHistory(taskHash);
+    if (!hist) return null;
+    // 收集箱条目（meta.hatchHash / meta.hatchTask）
+    const inb = inboxItems.filter((i) => i && i.meta && i.meta.source === "hatch" &&
+      (i.meta.hatchHash === taskHash || (!i.meta.hatchHash && i.meta.hatchTask === hist.task_text)));
+    // 格子任务（顶层 hatchHash，遍历所有日期）
+    const grid = [];
+    Object.keys(state.tasks || {}).forEach((d) => {
+      const day = state.tasks[d] || {};
+      Object.keys(day).forEach((k) => {
+        (day[k] || []).forEach((t) => {
+          if (t && t.hatchHash === taskHash) grid.push(t);
+        });
+      });
+    });
+    const items = inb.concat(grid);
+    if (!items.length) return null;
+    const done = items.filter((i) => i.done).length;
+    return { total: items.length, done };
+  }
+
   // 任务文本哈希（历史命中用，简易 djb2）
   function hashTaskText(text) {
     let h = 5381;
@@ -5219,10 +5250,15 @@ ${noteSection}
       total_count: (result.steps || []).length,
       est_total_min: result.est_total_min || 0,
       created_at: Date.now(),
-      // 完整孵化过程（用于回看）
+      // 完整孵化过程（用于回看，保留主线/支线/细化子步骤）
       steps: (result.steps || []).map((s) => ({
         text: s.text, est_min: s.est_min || 0, risk: s.risk || "",
         target_dim: s.target_dim || "", dim_goal: s.dim_goal || null,
+        branch: s.branch || "main",
+        parent_step: typeof s.parent_step === "number" ? s.parent_step : null,
+        children: Array.isArray(s.children) && s.children.length
+          ? s.children.map((c) => ({ text: c.text, est_min: c.est_min || 0, risk: c.risk || "", target_dim: c.target_dim || "", dim_goal: c.dim_goal || null, branch: c.branch || "main", why: c.why || "" }))
+          : undefined,
       })),
       shortcut: result.shortcut || "",
       first_blocker: result.first_blocker || "",
@@ -5324,6 +5360,8 @@ ${noteSection}
       '"risk":"low"',
       '"risk_note":""',
       '"why":"为什么必要"',
+      '"branch":"main"',
+      '"parent_step":null',
     ];
     if (isDrill || scene === "learn") {
       schemaFields.push('"target_dim":"维度.子维度（如 Cl.def，drill 必填，learn 选填）"');
@@ -5342,6 +5380,9 @@ ${noteSection}
       "4. 标注 est_min（预估分钟，15-30）、risk（low/med/high）",
       "5. risk=med/high 时 risk_note 必填（说明卡点和应急方案）",
       "6. why 一句话说明这步为什么必要",
+      "7. 主线/支线结构：主干步骤 branch=\"main\" 串联成主线（通常 1-4 步，纵向推进任务核心）；",
+      "   需要并行或辅助处理的步骤设为 branch=\"side\"，并给 parent_step 填它依附的主线步骤 index（从 0 开始）。",
+      "   侧支步骤不参与主线串联，但会显示为对应主线步骤的分支。至少保留 1 个 main 步骤。",
       "",
       `【场景：${sc.label}】`,
       `重点：${sc.focus}`,
@@ -5549,14 +5590,50 @@ ${noteSection}
     }
 
     // 步骤列表
-    hatchState.acceptedSet = new Set((result.steps || []).map((_, i) => i)); // 默认全选
+    // 默认全选（含主线/支线/子步骤）；checkbox 的 data-idx 即 key
+    hatchState.acceptedSet = new Set();
+    {
+      const allSteps = result.steps || [];
+      const sideIdx = new Map(); // step index -> 其在父下的第几条支线（side index）
+      allSteps.forEach((s, i) => {
+        if (s.branch === "side" && typeof s.parent_step === "number" && s.parent_step !== i && allSteps[s.parent_step]) {
+          const arr = sideIdx.get(s.parent_step) || 0;
+          sideIdx.set(s.parent_step, arr + 1);
+          hatchState.acceptedSet.add(`${s.parent_step}_side${arr}`);
+        } else {
+          hatchState.acceptedSet.add(String(i));
+        }
+      });
+      allSteps.forEach((s, i) => {
+        if (Array.isArray(s.children) && s.children.length) {
+          s.children.forEach((c, ci) => hatchState.acceptedSet.add(`${i}_${ci}`));
+        }
+      });
+    }
     el.hatchList.innerHTML = "";
-    (result.steps || []).forEach((step, idx) => {
-      const item = document.createElement("label");
-      item.className = "hatch-item";
+    // 主线/支线结构：main 步骤按序纵向排列；side 步骤缩进挂在其 parent_step 之下
+    const steps = result.steps || [];
+    const mainSteps = [];
+    const sideByParent = new Map(); // parent_index -> [side steps]
+    steps.forEach((s, idx) => {
+      if (s.branch === "side" && typeof s.parent_step === "number" && s.parent_step !== idx && steps[s.parent_step]) {
+        if (!sideByParent.has(s.parent_step)) sideByParent.set(s.parent_step, []);
+        sideByParent.get(s.parent_step).push(s);
+      } else {
+        mainSteps.push(s);
+      }
+    });
+    // 递归渲染：step 可带 children（细化子步骤），可多层
+    // 注意：必须返回真实 DOM 节点（appendChild 追加），否则事件监听会随 outerHTML 序列化丢失
+    const renderStep = (step, idx, level, isSide, parentIdx) => {
+      const item = document.createElement("div");
+      item.className = "hatch-item" + (isSide ? " hatch-item-side" : " hatch-item-main") + (level > 0 ? " hatch-item-lv" + Math.min(level, 3) : "");
       const riskTag = step.risk ? `<span class="hatch-tag hatch-tag-risk-${step.risk}">${({low:"低风险",med:"中风险",high:"高风险"})[step.risk] || step.risk}</span>` : "";
       const depTag = (step.depends_on !== null && step.depends_on !== undefined) ? `<span class="hatch-tag hatch-tag-dep">← 依赖${step.depends_on + 1}</span>` : "";
       const minTag = step.est_min ? `<span class="hatch-tag">${step.est_min}min</span>` : "";
+      const branchTag = isSide
+        ? `<span class="hatch-tag hatch-tag-branch-side" title="支线步骤：辅助/并行">支线</span>`
+        : `<span class="hatch-tag hatch-tag-branch-main" title="主线步骤：任务核心推进">主线</span>`;
       // 维度徽章（带颜色）
       let dimTag = "";
       if (step.target_dim) {
@@ -5567,26 +5644,178 @@ ${noteSection}
           dimTag = `<span class="hatch-tag hatch-tag-dim" style="background:${meta.dimColor}22;color:${meta.dimColor};" title="${meta.dimName}·${meta.subName}：${meta.question}">${step.target_dim}${goalTxt}</span>`;
         }
       }
+      const hasKids = Array.isArray(step.children) && step.children.length;
+      const collapsed = step._collapsed;
+      const kidsBtn = hasKids
+        ? `<button type="button" class="hatch-btn hatch-btn-kids" data-kids="${idx}" title="${collapsed ? "展开" : "收起"}子步骤">${collapsed ? "▶" : "▼"} ${step.children.length} 个子步</button>`
+        : "";
       item.innerHTML = `
-        <input type="checkbox" checked data-idx="${idx}" />
-        <div class="hatch-item-body">
-          <div class="hatch-item-head">
-            <span class="hatch-item-idx">${idx + 1}</span>
-            <span class="hatch-item-text">${escapeHtml(step.text)}</span>
+        <div class="hatch-item-row">
+          <input type="checkbox" checked data-idx="${idx}" data-level="${level}" ${isSide ? `data-parent="${parentIdx}"` : ""} />
+          <div class="hatch-item-body">
+            <div class="hatch-item-head">
+              <span class="hatch-item-idx">${isSide ? "└" : (idx + 1)}</span>
+              <span class="hatch-item-text hatch-item-text-edit" title="点击编辑措辞">✏️ ${escapeHtml(step.text)}</span>
+            </div>
+            <div class="hatch-item-meta">${branchTag}${minTag}${depTag}${riskTag}${dimTag}</div>
+            ${step.verify ? `<div class="hatch-item-verify">✓ ${escapeHtml(step.verify)}</div>` : ""}
+            ${step.risk_note && (step.risk === "med" || step.risk === "high") ? `<div class="hatch-item-risk-note">⚠ ${escapeHtml(step.risk_note)}</div>` : ""}
+            ${step.why ? `<div class="hatch-item-meta" style="margin-top:2px;color:var(--text-muted);">为什么：${escapeHtml(step.why)}</div>` : ""}
+            <div class="hatch-item-ops">
+              <button type="button" class="hatch-btn hatch-btn-expand" data-idx="${idx}" title="把这一步再细化成更小的子步骤（可多层、多轮）">🔬 细化</button>
+              ${kidsBtn}
+            </div>
           </div>
-          <div class="hatch-item-meta">${minTag}${depTag}${riskTag}${dimTag}</div>
-          ${step.verify ? `<div class="hatch-item-verify">✓ ${escapeHtml(step.verify)}</div>` : ""}
-          ${step.risk_note && (step.risk === "med" || step.risk === "high") ? `<div class="hatch-item-risk-note">⚠ ${escapeHtml(step.risk_note)}</div>` : ""}
-          ${step.why ? `<div class="hatch-item-meta" style="margin-top:2px;color:var(--text-muted);">为什么：${escapeHtml(step.why)}</div>` : ""}
         </div>
       `;
       const cb = item.querySelector("input");
       cb.addEventListener("change", () => {
-        if (cb.checked) hatchState.acceptedSet.add(idx);
-        else hatchState.acceptedSet.delete(idx);
+        const key = cb.dataset.idx;
+        if (cb.checked) hatchState.acceptedSet.add(key); else hatchState.acceptedSet.delete(key);
       });
-      el.hatchList.appendChild(item);
+      // 步骤措辞就地编辑：点击文本 → 变输入框 → 回车/失焦保存，Esc 取消；同步已自动入箱的条目
+      const textEl = item.querySelector(".hatch-item-text-edit");
+      if (textEl) {
+        textEl.addEventListener("click", () => {
+          if (textEl.querySelector("textarea")) return;
+          const orig = step.text || "";
+          const ta = document.createElement("textarea");
+          ta.className = "hatch-item-edit-ta";
+          ta.value = orig;
+          ta.rows = Math.max(1, Math.min(3, Math.ceil(orig.length / 24)));
+          textEl.textContent = "";
+          textEl.appendChild(ta);
+          ta.focus();
+          ta.setSelectionRange(ta.value.length, ta.value.length);
+          let cancelled = false;
+          ta.addEventListener("keydown", (ev) => {
+            if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); ta.blur(); }
+            else if (ev.key === "Escape") { cancelled = true; ta.blur(); }
+          });
+          ta.addEventListener("blur", () => {
+            const nv = ta.value.trim();
+            if (!cancelled && nv && nv !== orig) {
+              step.text = nv;
+              textEl.textContent = "✏️ " + nv;
+              // 同步收集箱中已自动入箱的对应条目（按旧全文精确匹配）
+              try {
+                const suffix = step.target_dim ? ` #${step.target_dim}${step.dim_goal ? `→${step.dim_goal}` : ""}#` : "";
+                const oldFull = orig + suffix;
+                const newFull = nv + suffix;
+                const target = inboxItems.find((i) => i && i.meta && i.meta.source === "hatch" &&
+                  i.meta.hatchHash === hatchState.taskHash && i.text === oldFull);
+                if (target) {
+                  target.text = newFull;
+                  saveInbox();
+                  if (typeof renderInboxList === "function") renderInboxList();
+                }
+              } catch (e) { /* 入箱同步失败不影响编辑本身 */ }
+              toast("步骤措辞已更新", "success");
+            } else {
+              textEl.textContent = "✏️ " + orig;
+            }
+          });
+        });
+      }
+      // 细化：把本步交给 AI 拆成更小的子步骤（递归、多轮）
+      const expBtn = item.querySelector(".hatch-btn-expand");
+      if (expBtn) {
+        expBtn.addEventListener("click", () => {
+          if (hatchState.running) return;
+          expBtn.disabled = true;
+          expBtn.textContent = "⏳ 细化中…";
+          expandHatchStep(step, expBtn);
+        });
+      }
+      // 子步骤折叠/展开
+      const kidsBtnEl = item.querySelector(".hatch-btn-kids");
+      if (kidsBtnEl) {
+        kidsBtnEl.addEventListener("click", () => {
+          step._collapsed = !step._collapsed;
+          renderHatchResult(result, { keepChat: true });
+        });
+      }
+      // 子步骤容器：追加为真实 DOM 节点（保证子级事件监听可用）
+      if (hasKids && !collapsed) {
+        const kidsWrap = document.createElement("div");
+        kidsWrap.className = "hatch-item-children";
+        step.children.forEach((c, ci) => {
+          kidsWrap.appendChild(renderStep(c, `${idx}_${ci}`, level + 1, false, idx));
+        });
+        item.appendChild(kidsWrap);
+      }
+      return item;
+    };
+    // 先渲染主线步骤（含其下挂的支线），再渲染游离支线
+    mainSteps.forEach((s, i) => {
+      el.hatchList.appendChild(renderStep(s, i, 0, false, i));
+      const sides = sideByParent.get(i) || [];
+      sides.forEach((sd, si) => {
+        el.hatchList.appendChild(renderStep(sd, `${i}_side${si}`, 1, true, i));
+      });
     });
+    // 统计主线/支线
+    const sideCount = steps.filter((s) => s.branch === "side").length;
+    if (sideCount) {
+      const stat = document.createElement("div");
+      stat.className = "hatch-branch-stat";
+      stat.textContent = `🧩 主线 ${mainSteps.length} 步 · 支线 ${sideCount} 步（支线可点「细化」再拆）`;
+      el.hatchList.insertAdjacentHTML("afterbegin", stat.outerHTML);
+    }
+  }
+
+  // 细化一步：调 AI 把该步拆成 2-4 个更小的子步骤（递归、多轮）；无 API 时本地启发式兜底
+  async function expandHatchStep(step, btn) {
+    const done = () => { if (btn) { btn.disabled = false; btn.textContent = "🔬 细化"; } };
+    try {
+      let sub;
+      if (!state.settings.apiUrl || !state.settings.apiKey) {
+        // 本地启发式细化：按顿号/逗号/「和/及/与」切分
+        const parts = (step.text || "").split(/[、，,。；;]+|(?:和|及|与|以及)\s*/).map((s) => s.trim()).filter((s) => s.length >= 4);
+        if (parts.length < 2) {
+          toast("该步骤较短，无法本地细化。配置 API 后可用 AI 细化", "info");
+          done();
+          return;
+        }
+        sub = parts.slice(0, 4).map((p, i) => ({
+          text: p,
+          est_min: Math.max(5, Math.round((step.est_min || 20) / parts.slice(0, 4).length)),
+          depends_on: i > 0 ? i - 1 : null,
+          risk: "low",
+          risk_note: "",
+          why: "本地启发式拆分（离线模式）",
+          branch: "main",
+        }));
+      } else {
+        const sys = [
+          "你是任务细化专家。把用户给的一个步骤拆成 2-4 个更具体、可 10-20 分钟完成的子步骤。",
+          "只输出 JSON，不要解释、不要 markdown 围栏。",
+          "【硬规则】每个子步骤必须是具体动作（动词开头）；总步数 2-4；按执行顺序排列，depends_on 填前一步 index（从 0 起，无依赖 null）；标注 est_min、risk（low/med/high）。",
+          '【输出 schema】{"steps":[{ "text":"具体动作","est_min":15,"depends_on":null,"risk":"low","risk_note":"","why":"为什么必要","branch":"main" }]}',
+        ].join("\n");
+        const usr = `父步骤：${step.text}\n请把它拆成 2-4 个更小的子步骤。`;
+        hatchState.abortController = new AbortController();
+        const timeoutId = setTimeout(() => hatchState.abortController.abort(), 45000);
+        const raw = await callHatchLLM(sys, usr, hatchState.abortController.signal, null);
+        clearTimeout(timeoutId);
+        const parsed = extractJSON(raw);
+        if (!parsed || !Array.isArray(parsed.steps) || !parsed.steps.length) {
+          toast("AI 输出格式异常，细化失败", "error");
+          done();
+          return;
+        }
+        sub = parsed.steps;
+      }
+      step.children = sub;
+      step._collapsed = false;
+      renderHatchResult(hatchState.result, { keepChat: true });
+      toast(`已将「${String(step.text).slice(0, 12)}…」细化为 ${sub.length} 个子步骤`, "success");
+    } catch (err) {
+      if (err.name !== "AbortError") toast("细化失败：" + (err.message || err), "error");
+    } finally {
+      hatchState.abortController = null;
+      done();
+    }
   }
 
   function showHatchError(msg) {
@@ -5608,17 +5837,47 @@ ${noteSection}
     if (el.hatchChatSend) el.hatchChatSend.disabled = false;
   }
 
+  // 轻量 markdown：先转义 HTML，再渲染 **加粗** / `行内代码` / 换行（安全，不渲染原始 HTML）
+  function mdLite(escaped) {
+    return escaped
+      .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\n/g, "<br>");
+  }
+
   function appendHatchChat(role, text) {
     if (!el.hatchChatLog) return null;
     const div = document.createElement("div");
     div.className = "hatch-chat-msg " + (role === "user" ? "user" : "bot");
     const inner = document.createElement("div");
     inner.className = "hatch-chat-bubble";
-    inner.textContent = text;
+    // 思考占位保持纯文本；其余消息轻量渲染 markdown
+    if (role === "bot" && (text === "⏳ AI 思考中…" || text.startsWith("⏳"))) {
+      inner.textContent = text;
+    } else {
+      inner.innerHTML = mdLite(escapeHtml(text));
+    }
     div.appendChild(inner);
     el.hatchChatLog.appendChild(div);
     el.hatchChatLog.scrollTop = el.hatchChatLog.scrollHeight;
     return inner;
+  }
+
+  // 复制 / 清空对话
+  function copyHatchChat() {
+    const lines = (hatchState.chatLog || [])
+      .map((m) => `${m.role === "user" ? "👤" : "🤖"} ${m.content}`)
+      .join("\n\n");
+    const full = `任务：${hatchState.taskText || ""}\n\n${lines}`;
+    if (!lines) { toast("暂无对话内容", "info"); return; }
+    (navigator.clipboard ? navigator.clipboard.writeText(full) : Promise.reject())
+      .then(() => toast("对话已复制到剪贴板", "success"))
+      .catch(() => { prompt("手动复制对话内容：", full); });
+  }
+  function clearHatchChat() {
+    if (el.hatchChatLog) el.hatchChatLog.innerHTML = "";
+    hatchState.chatLog = [];
+    toast("对话已清空", "info");
   }
 
   // 构建续聊 prompt：携带当前任务 + 现有方案 + 最近对话，保持上下文
@@ -5640,9 +5899,10 @@ ${noteSection}
       recent,
       "",
       "【规则】",
-      '1. 用户要求调整方案（细化某步/增删/合并/精简步数/换场景或档位重拆等）时：输出完整的新版方案 JSON，schema：{"complexity":"simple|standard|complex","est_total_min":数字,"first_blocker":"最可能卡住的点","shortcut":"可选捷径","steps":[{"text":"具体动作","est_min":15,"depends_on":null,"risk":"low","risk_note":"","why":"为什么必要"}]}',
+      '1. 用户要求调整方案（细化某步/增删/合并/精简步数/换场景或档位重拆等）时：输出完整的新版方案 JSON，schema：{"complexity":"simple|standard|complex","est_total_min":数字,"first_blocker":"最可能卡住的点","shortcut":"可选捷径","steps":[{"text":"具体动作","est_min":15,"depends_on":null,"risk":"low","risk_note":"","why":"为什么必要","branch":"main","parent_step":null}]}',
       "2. 步数按用户要求控制；用户未指定时默认 3-8 步，单步 15-30 分钟，按执行顺序排列。",
-      "3. 用户只是提问/闲聊（如“为什么这么拆”“有没有更快的办法”）时：用简短中文直接回答，不要输出 JSON。",
+      '3. 主线/支线：主干步骤 branch="main" 串联；辅助/并行步骤 branch="side" 并给 parent_step 填依附的主线步骤 index（从 0 起）；至少 1 个 main。',
+      '4. 用户只是提问/闲聊（如“为什么这么拆”“有没有更快的办法”）时：用简短中文直接回答，不要输出 JSON。',
     ].join("\n");
     return { systemPrompt: system, userPrompt: userText };
   }
@@ -5696,10 +5956,7 @@ ${noteSection}
 
   async function runHatch(taskText, mode, scene, context, longTaskId, forceLLM) {
     if (hatchState.running) return;
-    if (!state.settings.apiUrl || !state.settings.apiKey) {
-      showHatchError("请先在设置中配置 AI API（apiUrl + apiKey）");
-      return;
-    }
+    const noApi = !state.settings.apiUrl || !state.settings.apiKey;
     hatchState.running = true;
     hatchState.taskText = taskText;
     hatchState.taskHash = hashTaskText(taskText);
@@ -5764,11 +6021,83 @@ ${noteSection}
       const completionRate = hist.total_count ? Math.round(hist.accepted_count / hist.total_count * 100) : 0;
       const ageHours = Math.round((Date.now() - hist.created_at) / 3600000);
       let suggestion = "";
-      if (completionRate < 50) suggestion = " · 上次拆得太细，建议这次降档";
+      if (completionRate < 50) suggestion = " · 上次拆得太细，建议降档";
       else if (completionRate === 100) suggestion = " · 上次拆得很准，可复用";
-      el.hatchHistoryHint.textContent = `📊 上次孵化（${ageHours}h 前）：${hist.total_count} 步，接受 ${hist.accepted_count} 条，完成率 ${completionRate}%${suggestion}`;
+      el.hatchHistoryHint.innerHTML = `<span class="hhh-text">📊 上次孵化（${ageHours}h 前）：${hist.total_count} 步，接受 ${hist.accepted_count} 条，完成率 ${completionRate}%${suggestion}</span>`;
+      // 一键操作：完成率低 → 降档重孵；有历史步骤 → 复用上次
+      const actions = document.createElement("span");
+      actions.className = "hhh-actions";
+      // 主动重跑/复用前先中止在途请求，并抑制中断报错
+      const abortInflight = () => {
+        if (hatchState.abortController) {
+          hatchState.suppressErrorOnce = true;
+          try { hatchState.abortController.abort(); } catch (e) {}
+        }
+      };
+      const defer = (fn) => setTimeout(fn, 80);
+      if (completionRate < 50 && hist.steps && hist.steps.length) {
+        const downBtn = document.createElement("button");
+        downBtn.className = "tool-btn hhh-btn";
+        downBtn.textContent = "⬇ 降档重孵";
+        downBtn.title = "上次完成率低，降一档重新拆解";
+        downBtn.addEventListener("click", () => {
+          const ORDER = ["lite", "medium", "zen"];
+          const idx = ORDER.indexOf(mode);
+          const down = idx > 0 ? ORDER[idx - 1] : "lite";
+          el.hatchMode.value = down;
+          toast(`已降档至 ${down}，重新孵化…`, "info");
+          abortInflight();
+          defer(() => runHatch(taskText, down, scene, context, longTaskId, forceLLM));
+        });
+        actions.appendChild(downBtn);
+      }
+      if (hist.steps && hist.steps.length) {
+        const reuseBtn = document.createElement("button");
+        reuseBtn.className = "tool-btn hhh-btn";
+        reuseBtn.textContent = "📋 复用上次";
+        reuseBtn.title = "直接采用上次孵化的步骤，0 token";
+        reuseBtn.addEventListener("click", () => {
+          abortInflight();
+          defer(() => {
+            const reused = {
+              complexity: (hist.steps || []).length > 4 ? "standard" : "simple",
+              est_total_min: (hist.steps || []).reduce((n, s) => n + (s.est_min || 0), 0),
+              first_blocker: hist.first_blocker || "",
+              shortcut: (hist.shortcut ? hist.shortcut + " " : "") + "（复用上次孵化结果，0 token）",
+              steps: hist.steps,
+            };
+            reused.mode = hist.last_mode || mode;
+            reused.scene = hist.last_scene || scene;
+            renderHatchResult(reused);
+            toast("已复用上次孵化结果", "success");
+          });
+        });
+        actions.appendChild(reuseBtn);
+      }
+      el.hatchHistoryHint.appendChild(actions);
     } else {
       el.hatchHistoryHint.hidden = true;
+    }
+
+    // 无 API：本地启发式拆解降级（孵化永远可用）
+    if (noApi) {
+      showHatchProgress(1, "① 估时判级（离线）…");
+      await sleep(150);
+      showHatchProgress(2, "② 主干拆分（本地启发式）…");
+      await sleep(150);
+      showHatchProgress(4, "④ 未配置 AI API，本地启发式拆解…");
+      await sleep(200);
+      const local = localHatchFallback(taskText, mode, scene);
+      local.mode = mode;
+      local.scene = scene;
+      local.longTaskId = longTaskId || null;
+      renderHatchResult(local);
+      toast("未配置 AI API，已用本地启发式拆解（离线模式）", "info");
+      if (navigator.vibrate) navigator.vibrate(30);
+      hatchState.running = false;
+      el.hatchBtn.disabled = false;
+      el.hatchBtn.classList.remove("loading");
+      return;
     }
 
     try {
@@ -5816,10 +6145,12 @@ ${noteSection}
       // 轻震动反馈
       if (navigator.vibrate) navigator.vibrate(30);
     } catch (err) {
-      if (err.name === "AbortError") {
-        showHatchError("请求已取消或超时（60秒）。可降档重试。");
+      if (hatchState.suppressErrorOnce) {
+        hatchState.suppressErrorOnce = false; // 主动中止（复用/降档重孵），不打扰
+      } else if (err.name === "AbortError") {
+        showHatchError("请求已取消或超时（60秒）。可降档重试，或用本地拆解离线生成。");
       } else {
-        showHatchError(err.message || "孵化失败，请重试");
+        showHatchError((err.message || "孵化失败，请重试") + "（可点「本地拆解」离线生成）");
       }
     } finally {
       hatchState.running = false;
@@ -5860,6 +6191,74 @@ ${noteSection}
       first_blocker: weakDims[0] ? `${weakDims[0].dimName}·${weakDims[0].subName}（${weakDims[0].score}分）` : "",
       shortcut: "全部命中 7 维度标准模板，0 token 生成。可点「重新生成」走 LLM 个性化。",
       steps,
+    };
+  }
+
+  // ---------- 本地启发式拆解（离线降级，无 API / API 失败时兜底，保证孵化永远可用） ----------
+  function localHatchFallback(taskText, mode, scene) {
+    const text = (taskText || "").trim() || "这个任务";
+    const t = text.toLowerCase();
+    // 1) 场景识别（关键词启发）
+    const detected =
+      /学|复习|背诵|读|看|课|练习|考|记忆|研究|弄懂|掌握/.test(t) ? "learn" :
+      /写|做|开发|实现|搭建|制作|整理|回复|发|提交|购买|安装|修|部署/.test(t) ? "exec" :
+      /选|决定|比较|方案|要不要|是否|取舍|权衡/.test(t) ? "decide" :
+      /清单|检查|核对|验收|盘点|审查/.test(t) ? "checklist" :
+      (scene && scene !== "auto" ? scene : "exec");
+    // 2) 按场景取步骤模板（每步：文案 / 时长 / 风险）
+    const stepBanks = {
+      learn: [
+        { text: `用一句话写下「${text.slice(0, 18)}」学完的标准（能讲给谁听、讲到什么程度）`, est: 5, risk: "low" },
+        { text: "搜集 2-3 份资料，快速浏览目录/大纲，圈出核心章节", est: 15, risk: "low" },
+        { text: "第一遍通读核心章节，只划重点不求甚解", est: 25, risk: "low" },
+        { text: "第二遍精读划出的难点，逐个弄懂并记笔记", est: 30, risk: "med" },
+        { text: "合上资料自测：默写/复述核心要点，卡壳处回看", est: 15, risk: "low" },
+        { text: "用费曼技巧把内容讲一遍（对着空气/录音均可）", est: 10, risk: "low" },
+      ],
+      exec: [
+        { text: `明确「${text.slice(0, 18)}」的交付物：做完后拿什么给别人看？`, est: 5, risk: "low" },
+        { text: "列出所需材料/工具/信息，缺什么先补什么", est: 10, risk: "med" },
+        { text: "先做一个 10 分钟的最小可行版本（哪怕很粗糙）", est: 10, risk: "low" },
+        { text: "在最小版本上推进主体，完成 80%", est: 40, risk: "med" },
+        { text: "对照交付物标准自查，修正细节到 100%", est: 15, risk: "low" },
+        { text: "交付/发布，并记录本次卡点供下次参考", est: 10, risk: "low" },
+      ],
+      decide: [
+        { text: `写下「${text.slice(0, 18)}」的决策标准（最多 3 条，按重要性排序）`, est: 5, risk: "low" },
+        { text: "列出所有可选项（包括「暂时不做」）", est: 10, risk: "low" },
+        { text: "逐项收集信息：每个选项的成本/收益/风险各一句", est: 20, risk: "med" },
+        { text: "按标准逐项打分（1-5 分），总分对比", est: 10, risk: "low" },
+        { text: "做出决定，写下 3 行理由，设定复盘时间", est: 10, risk: "low" },
+      ],
+      checklist: [
+        { text: `列出「${text.slice(0, 18)}」的全部检查项（逐条写，宁多勿漏）`, est: 10, risk: "low" },
+        { text: "按检查项逐项核对，通过打 ✓，不通过记问题", est: 25, risk: "low" },
+        { text: "集中修复记录的问题", est: 20, risk: "med" },
+        { text: "复检修复项，全部通过后归档清单", est: 10, risk: "low" },
+      ],
+    };
+    let bank = stepBanks[detected] || stepBanks.exec;
+    // 3) 按档位裁剪：lite 取前 4 步 / medium 全量 / zen 只取 2 步
+    if (mode === "lite") bank = bank.slice(0, Math.min(4, bank.length));
+    else if (mode === "zen") bank = [bank[0], bank[bank.length - 1]].filter(Boolean);
+    const steps = bank.map((s, i) => ({
+      text: s.text,
+      est_min: s.est,
+      depends_on: i > 0 ? i - 1 : null,
+      risk: s.risk,
+      risk_note: s.risk === "med" ? "离线模板标注的常见卡点，留意" : "",
+      why: "本地启发式拆解（离线模式）",
+      verify: i === bank.length - 1 ? "完成后回看最初写下的完成标准，逐条核对" : "",
+    }));
+    const totalMin = steps.reduce((n, s) => n + s.est_min, 0);
+    return {
+      complexity: steps.length > 4 ? "standard" : "simple",
+      est_total_min: totalMin,
+      first_blocker: "材料/信息不齐（第 2 步）——离线模板最常见的卡点",
+      shortcut: "离线启发式拆解（未调用 AI）。配置 API 后可点「重新生成」获得个性化方案。",
+      steps,
+      isLocal: true,
+      detected_scene: detected,
     };
   }
 
@@ -6136,10 +6535,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       if (el.hatchTaskInput) el.hatchTaskInput.focus();
       return;
     }
-    if (!state.settings.apiUrl || !state.settings.apiKey) {
-      showHatchError("请先在设置中配置 AI API（apiUrl + apiKey）");
-      return;
-    }
+    // 无 API 也能孵化：runHatch 内部会走本地启发式拆解降级
     // 收集问询作为额外上下文
     const onboardCtx = collectOnboardContext();
     const baseCtx = buildHatchContext();
@@ -6328,9 +6724,8 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     if (!result || !Array.isArray(result.steps) || !result.steps.length) return 0;
     // 去重键：纯文本 + 维度
     const existingKeys = new Set(inboxItems.map((i) => `${(i.text || "").replace(/\s*#\w+(→\d+)?#\s*$/, "").trim()}|${(i.tags || []).join(",")}`));
-    let added = 0;
-    result.steps.forEach((s) => {
-      if (!s || !s.text) return;
+    const pushItem = (s, parentId) => {
+      if (!s || !s.text) return null;
       let taskText = s.text;
       const tags = [];
       if (s.target_dim) {
@@ -6339,15 +6734,16 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         tags.push(s.target_dim);
       }
       const key = `${taskText.replace(/\s*#\w+(→\d+)?#\s*$/, "").trim()}|${tags.join(",")}`;
-      if (existingKeys.has(key)) return;
+      if (existingKeys.has(key)) return null;
       existingKeys.add(key);
+      const id = genId("inb");
       inboxItems.unshift({
-        id: genId("inb"),
+        id,
         text: taskText,
         tags,
         mainline: null,
         sideline: null,
-        parentId: null,
+        parentId: parentId || null, // 支线/细化子步骤：挂在父任务下
         priority: 0,
         due: null,
         estimate: null,
@@ -6357,13 +6753,40 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         meta: {
           source: "hatch",
           hatchTask: hatchState.taskText || "",
+          hatchHash: hatchState.taskHash || "",
           dim: s.target_dim || "",
           dimGoal: s.dim_goal || null,
           estimate: s.est_min || 0,
           risk: s.risk || "",
+          branch: s.branch || "main",
+          parentStep: typeof s.parent_step === "number" ? s.parent_step : null,
         },
       });
       added++;
+      return id;
+    };
+    let added = 0;
+    // 第一遍：主线步骤入箱，记录 id（支线/子步骤据此挂父任务）
+    const mainIds = new Map(); // step index -> inbox item id
+    const sideSteps = [];
+    result.steps.forEach((s, idx) => {
+      if (s.branch === "side" && typeof s.parent_step === "number" && s.parent_step !== idx && result.steps[s.parent_step]) {
+        sideSteps.push({ s, idx });
+        return;
+      }
+      mainIds.set(idx, pushItem(s, null));
+    });
+    // 第二遍：支线步骤挂到对应主线步骤下（也记录支线 id，子步骤可挂支线）
+    sideSteps.forEach(({ s, idx }) => {
+      const pid = mainIds.get(s.parent_step) || null;
+      mainIds.set(idx, pushItem(s, pid));
+    });
+    // 第三遍：细化子步骤（children）挂到父步骤下（主线/支线均可）
+    result.steps.forEach((s) => {
+      if (Array.isArray(s.children) && s.children.length) {
+        const pid = mainIds.get(result.steps.indexOf(s)) || null;
+        s.children.forEach((c) => pushItem(c, pid));
+      }
     });
     if (added) saveInbox();
     return added;
@@ -6371,8 +6794,28 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
 
   function applyHatchToInbox() {
     if (!hatchState.result || !hatchState.acceptedSet) return;
-    const acceptedSteps = (hatchState.result.steps || [])
-      .filter((_, i) => hatchState.acceptedSet.has(i));
+    // acceptedSet 键：主线步骤为数字 index 字符串，支线为 "i_sideN"，子步骤为 "i_N"
+    const result = hatchState.result;
+    const steps = result.steps || [];
+    const buildAccepted = () => {
+      const accepted = [];
+      const sideMap = new Map(); // parent idx -> [side step]
+      steps.forEach((s, i) => {
+        if (s.branch === "side" && typeof s.parent_step === "number" && s.parent_step !== i && steps[s.parent_step]) {
+          if (!sideMap.has(s.parent_step)) sideMap.set(s.parent_step, []);
+          sideMap.get(s.parent_step).push(s);
+        } else if (hatchState.acceptedSet.has(String(i)) || hatchState.acceptedSet.has(i)) {
+          accepted.push({ step: s, idx: i });
+        }
+      });
+      sideMap.forEach((sides, pi) => {
+        if (!(hatchState.acceptedSet.has(String(pi)) || hatchState.acceptedSet.has(pi))) return; // 父未选，支线不单放
+        sides.forEach((sd) => { if (hatchState.acceptedSet.has(`${pi}_side${sides.indexOf(sd)}`)) accepted.push({ step: sd, idx: pi }); });
+      });
+      // 子步骤随父步骤一起入箱：保持嵌套结构（autoHatchStepsToInbox 第三遍会展开 children）
+      return accepted.map(({ step }) => step);
+    };
+    const acceptedSteps = buildAccepted();
     if (!acceptedSteps.length) {
       toast("未选择任何步骤", "info");
       return;
@@ -6385,7 +6828,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       return;
     }
     // 记录孵化历史
-    recordHatchHistory(hatchState.taskHash, hatchState.taskText, hatchState.result, added, { rawOutput });
+    recordHatchHistory(hatchState.taskHash, hatchState.taskText, result, added, { rawOutput });
     const dimCount = acceptedSteps.filter((s) => s.target_dim).length;
     toast(`已拆分 ${added} 条到收集箱${dimCount ? `（含 ${dimCount} 条维度练习）` : ""}，可拖拽到格子`, "success");
     if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
@@ -6408,6 +6851,17 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     let html = `<div class="hatch-history-card">`;
     html += `<div class="hh-task">📝 ${escapeHtml(rec.task_text || "")}</div>`;
     html += `<div class="hh-meta">${rec.last_mode || ""} · ${rec.last_scene || ""} · ${rec.accepted_count || 0}/${rec.total_count || 0} 步 · 预估 ${rec.est_total_min || 0}min</div>`;
+    // 完成度闭环：详情页也显示实际完成进度
+    const prog = getHatchProgress(rec.task_hash);
+    if (prog) {
+      const pct = Math.round((prog.done / Math.max(prog.total, 1)) * 100);
+      const doneCls = pct >= 100 ? "hh-prog-full" : (pct >= 50 ? "hh-prog-mid" : "hh-prog-low");
+      html += `<div class="hh-prog ${doneCls}">
+        <span class="hh-prog-label">实际完成 ${prog.done}/${prog.total}</span>
+        <span class="hh-prog-bar"><span class="hh-prog-fill" style="width:${pct}%"></span></span>
+        <span class="hh-prog-pct">${pct}%</span>
+      </div>`;
+    }
     if (rec.qa_pairs && rec.qa_pairs.length) {
       html += `<div class="hh-section"><div class="hh-section-title">🧠 引导问答（7维度）</div>`;
       rec.qa_pairs.forEach((qa) => {
@@ -6416,9 +6870,29 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       html += `</div>`;
     }
     if (rec.steps && rec.steps.length) {
-      html += `<div class="hh-section"><div class="hh-section-title">📋 拆解步骤</div>`;
-      rec.steps.forEach((s, i) => {
-        html += `<div class="hh-step"><span class="hh-step-idx">${i + 1}</span><span class="hh-step-text">${escapeHtml(s.text || "")}</span>${s.target_dim ? `<span class="hh-dim-badge" style="background:var(--accent)20;color:var(--accent);">${escapeHtml(s.target_dim)}${s.dim_goal ? `→${s.dim_goal}` : ""}</span>` : ""}${s.est_min ? `<span class="hh-step-est">${s.est_min}min</span>` : ""}</div>`;
+      html += `<div class="hh-section"><div class="hh-section-title">📋 拆解步骤（主线/支线）</div>`;
+      // 主线/支线分组渲染（历史回看同样保留层级）
+      const steps = rec.steps;
+      const sideMap = new Map();
+      steps.forEach((s, i) => {
+        if (s.branch === "side" && typeof s.parent_step === "number" && s.parent_step !== i && steps[s.parent_step]) {
+          if (!sideMap.has(s.parent_step)) sideMap.set(s.parent_step, []);
+          sideMap.get(s.parent_step).push(s);
+        }
+      });
+      const renderStepHtml = (s, label, isSide, depth) => {
+        const badge = isSide ? '<span class="hh-step-side-badge">支线</span>' : '<span class="hh-step-main-badge">主线</span>';
+        const childBadge = '<span class="hh-step-child-badge">子步</span>';
+        const kids = (s.children && s.children.length)
+          ? `<div class="hh-step-kids">${s.children.map((c, ci) => `<div class="hh-step hh-step-child" style="margin-left:${28 + depth * 20}px;">${childBadge}<span class="hh-step-idx">${ci + 1}</span><span class="hh-step-text">${escapeHtml(c.text || "")}</span>${c.est_min ? `<span class="hh-step-est">${c.est_min}min</span>` : ""}</div>`).join("")}</div>`
+          : "";
+        return `<div class="hh-step ${isSide ? "hh-step-side" : "hh-step-main"}" style="margin-left:${depth * 20}px;"><span class="hh-step-idx">${label}</span>${badge}<span class="hh-step-text">${escapeHtml(s.text || "")}</span>${s.target_dim ? `<span class="hh-dim-badge" style="background:var(--accent)20;color:var(--accent);">${escapeHtml(s.target_dim)}${s.dim_goal ? `→${s.dim_goal}` : ""}</span>` : ""}${s.est_min ? `<span class="hh-step-est">${s.est_min}min</span>` : ""}</div>${kids}`;
+      };
+      steps.forEach((s, i) => {
+        if (s.branch === "side") return; // 支线在父步骤后渲染
+        html += renderStepHtml(s, i + 1, false, 0);
+        const sides = sideMap.get(i) || [];
+        sides.forEach((sd, si) => { html += renderStepHtml(sd, `└${i + 1}-${si + 1}`, true, 1); });
       });
       html += `</div>`;
     }
@@ -6459,6 +6933,18 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       const tags = tagsOf(h);
       const dimTags = tags.map((t) => `<span class="hh-dim-tag">${t}</span>`).join("");
       const shortcutMark = h.shortcut ? `<div class="hh-shortcut">⚡ ${escapeHtml(h.shortcut)}</div>` : "";
+      // 完成度闭环：实际完成进度条（收集箱 done 状态）
+      let progressHtml = "";
+      const prog = getHatchProgress(h.task_hash);
+      if (prog) {
+        const pct = Math.round((prog.done / Math.max(prog.total, 1)) * 100);
+        const doneCls = pct >= 100 ? "hh-prog-full" : (pct >= 50 ? "hh-prog-mid" : "hh-prog-low");
+        progressHtml = `<div class="hh-prog ${doneCls}">
+          <span class="hh-prog-label">实际完成 ${prog.done}/${prog.total}</span>
+          <span class="hh-prog-bar"><span class="hh-prog-fill" style="width:${pct}%"></span></span>
+          <span class="hh-prog-pct">${pct}%</span>
+        </div>`;
+      }
       return `<div class="hh-kb-card" data-hash="${escapeHtml(h.task_hash || "")}">
         <div class="hh-kb-card-head">
           <span class="hh-task-text">${escapeHtml(h.task_text || "")}</span>
@@ -6470,6 +6956,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
           <span class="hh-meta-item">${escapeHtml((h.last_scene || "") + (h.last_mode || ""))}</span>
           ${dimTags ? `<span class="hh-dim-list">${dimTags}</span>` : ""}
         </div>
+        ${progressHtml}
         ${shortcutMark}
         <div class="hh-kb-card-detail" hidden></div>
         <div class="hh-card-actions">
@@ -6614,7 +7101,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     if (mmEl) renderHatchMermaid(mmEl, rec);
   }
 
-  // 生成孵化过程 mermaid 图（任务 → 引导问答 → 拆解步骤 → 产出）
+  // 生成孵化过程 mermaid 图（任务 → 引导问答 → 主线/支线步骤 → 细化子步骤 → 产出）
   function buildHatchGraph(rec) {
     const esc = (s) => String(s || "")
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -6623,29 +7110,65 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     lines.push(`T["🥚 ${esc(rec.task_text)}"]`);
     const qas = rec.qa_pairs || [];
     const steps = rec.steps || [];
+    // 主线/支线分组
+    const mainSteps = [];
+    const sideByParent = new Map();
+    steps.forEach((s, idx) => {
+      if (s.branch === "side" && typeof s.parent_step === "number" && s.parent_step !== idx && steps[s.parent_step]) {
+        if (!sideByParent.has(s.parent_step)) sideByParent.set(s.parent_step, []);
+        sideByParent.get(s.parent_step).push({ s, idx });
+      } else {
+        mainSteps.push({ s, idx });
+      }
+    });
     // 引导问答节点（只显示已回答的，避免过长）
     const qaShown = qas.filter((qa) => qa.answer && qa.answer.trim());
     qaShown.forEach((qa, i) => {
       lines.push(`QA${i}["${esc(qa.dim ? qa.dim + " " : "")}${esc(qa.question || qa.label)}<br/>→ ${esc(qa.answer)}"]`);
     });
-    // 拆解步骤节点
-    steps.forEach((s, i) => {
-      lines.push(`S${i}["${esc(s.target_dim ? s.target_dim + " " : "")}${i + 1}. ${esc(s.text)}${s.est_min ? ` (${s.est_min}min)` : ""}"]`);
+    // 主线节点（紫色系） + 支线节点（橙色系） + 细化子节点（蓝色系）
+    const nodeId = (k) => k;
+    mainSteps.forEach(({ s, idx }) => {
+      lines.push(`M${idx}["${esc(s.target_dim ? s.target_dim + " " : "")}${idx + 1}. ${esc(s.text)}${s.est_min ? ` (${s.est_min}min)` : ""}"]:::main`);
+      // 细化子步骤（children）挂在主线节点下
+      if (Array.isArray(s.children) && s.children.length) {
+        s.children.forEach((c, ci) => {
+          lines.push(`C${idx}_${ci}["${esc(c.target_dim ? c.target_dim + " " : "")}${ci + 1}. ${esc(c.text)}${c.est_min ? ` (${c.est_min}min)` : ""}"]:::child`);
+          lines.push(`M${idx} -.-> C${idx}_${ci}`);
+        });
+      }
     });
-    // 边
+    sideByParent.forEach((sides, pi) => {
+      sides.forEach(({ s }, si) => {
+        lines.push(`SD${pi}_${si}["↳ ${esc(s.text)}${s.est_min ? ` (${s.est_min}min)` : ""}"]:::side`);
+        lines.push(`M${pi} -.-> SD${pi}_${si}`);
+        if (Array.isArray(s.children) && s.children.length) {
+          s.children.forEach((c, ci) => {
+            lines.push(`SC${pi}_${si}_${ci}["${esc(c.text)}${c.est_min ? ` (${c.est_min}min)` : ""}"]:::child`);
+            lines.push(`SD${pi}_${si} -.-> SC${pi}_${si}_${ci}`);
+          });
+        }
+      });
+    });
+    // 类定义：主线/支线/子步骤着色
+    lines.push("classDef main fill:#241f4a,stroke:#7c5cff,color:#c9bfff;");
+    lines.push("classDef side fill:#3a2a12,stroke:#ffa94d,color:#ffd9a8;");
+    lines.push("classDef child fill:#102a3a,stroke:#4dc3ff,color:#b8e8ff;");
+    // 边：主线串联
+    const mainIdxArr = mainSteps.map(({ idx }) => idx);
     if (qaShown.length) {
       lines.push(`T --> QA0`);
       for (let i = 0; i < qaShown.length - 1; i++) lines.push(`QA${i} --> QA${i + 1}`);
-      if (steps.length) lines.push(`QA${qaShown.length - 1} --> S0`);
+      if (steps.length) lines.push(`QA${qaShown.length - 1} --> M${mainIdxArr[0]}`);
       else lines.push(`QA${qaShown.length - 1} --> R["🎯 ${rec.accepted_count || 0}/${rec.total_count || 0} 步 · 预估 ${rec.est_total_min || 0}min"]`);
     } else if (steps.length) {
-      lines.push(`T --> S0`);
+      lines.push(`T --> M${mainIdxArr[0]}`);
     } else {
       lines.push(`T --> R["🎯 ${rec.accepted_count || 0}/${rec.total_count || 0} 步"]`);
     }
     if (steps.length) {
-      for (let i = 0; i < steps.length - 1; i++) lines.push(`S${i} --> S${i + 1}`);
-      lines.push(`S${steps.length - 1} --> R["🎯 ${rec.accepted_count || 0}/${rec.total_count || 0} 步 · 预估 ${rec.est_total_min || 0}min"]`);
+      for (let i = 0; i < mainIdxArr.length - 1; i++) lines.push(`M${mainIdxArr[i]} --> M${mainIdxArr[i + 1]}`);
+      lines.push(`M${mainIdxArr[mainIdxArr.length - 1]} --> R["🎯 ${rec.accepted_count || 0}/${rec.total_count || 0} 步 · 预估 ${rec.est_total_min || 0}min"]`);
     }
     if (rec.shortcut) lines.push(`R -.-> SH["⚡ 捷径：${esc(rec.shortcut)}"]`);
     if (rec.first_blocker) lines.push(`R -.-> BL["🚧 ${esc(rec.first_blocker)}"]`);
@@ -6808,6 +7331,59 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     try { el.mermaidLightbox.close(); } catch (e) { el.mermaidLightbox.removeAttribute("open"); }
   }
 
+  // 导出 lightbox 中的 mermaid 图为 PNG（2x 高清，深色底）
+  function downloadMermaidPng() {
+    const svg = el.mermaidLightboxBody && el.mermaidLightboxBody.querySelector("svg");
+    if (!svg) { toast("没有可导出的图表", "info"); return; }
+    try {
+      const clone = svg.cloneNode(true);
+      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
+      // 尺寸：优先 viewBox，兜底 getBoundingClientRect
+      const vb = (svg.getAttribute("viewBox") || "").split(/[\s,]+/).map(Number);
+      let w = vb.length === 4 && vb[2] > 0 ? vb[2] : svg.getBoundingClientRect().width || 800;
+      let h = vb.length === 4 && vb[3] > 0 ? vb[3] : svg.getBoundingClientRect().height || 600;
+      w = Math.max(200, Math.round(w));
+      h = Math.max(150, Math.round(h));
+      clone.setAttribute("width", w);
+      clone.setAttribute("height", h);
+      const xml = new XMLSerializer().serializeToString(clone);
+      const svgUrl = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const scale = 2; // 高清导出
+          const canvas = document.createElement("canvas");
+          canvas.width = w * scale;
+          canvas.height = h * scale;
+          const ctx = canvas.getContext("2d");
+          ctx.fillStyle = "#14141f"; // 与应用深色底一致
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob((blob) => {
+            if (!blob) { toast("PNG 导出失败", "error"); return; }
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            const d = new Date();
+            const pad = (n) => String(n).padStart(2, "0");
+            a.download = `孵化流程图_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}.png`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+            toast("已导出 PNG（2x 高清）", "success");
+          }, "image/png");
+        } catch (e) {
+          toast("PNG 导出失败：" + (e.message || e), "error");
+        }
+      };
+      img.onerror = () => toast("PNG 导出失败（SVG 序列化异常）", "error");
+      img.src = svgUrl;
+    } catch (e) {
+      toast("PNG 导出失败：" + (e.message || e), "error");
+    }
+  }
+
   el.hatchBtn.addEventListener("click", openHatchDialog);
   if (el.hatchToolBtn) el.hatchToolBtn.addEventListener("click", () => openHatchDialog({}));
   if (el.realmFabHatch) el.realmFabHatch.addEventListener("click", () => openHatchDialog({}));
@@ -6880,6 +7456,18 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     toast(`已降档至 ${down}，重试中…`, "info");
     rerunHatch(down);
   });
+  // 失败后一键本地拆解（离线降级，不调用 AI）
+  if (el.hatchLocalBtn) el.hatchLocalBtn.addEventListener("click", () => {
+    if (!hatchState.taskText) return;
+    const scene = el.hatchScene.value === "auto" ? detectHatchScene(hatchState.taskText) : el.hatchScene.value;
+    const mode = el.hatchMode.value === "auto" ? autoHatchMode(hatchState.taskText) : el.hatchMode.value;
+    const local = localHatchFallback(hatchState.taskText, mode, scene);
+    local.mode = mode;
+    local.scene = scene;
+    local.longTaskId = hatchState.longTaskId || null;
+    renderHatchResult(local);
+    toast("已用本地启发式拆解（离线模式）", "info");
+  });
 
   el.hatchSelectAll.addEventListener("click", () => {
     if (!hatchState.result) return;
@@ -6924,7 +7512,23 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       }
     });
   }
+  // 快速调整 chips：点击即填入输入框并发送
+  if (el.hatchChatChips) {
+    el.hatchChatChips.addEventListener("click", (e) => {
+      const chip = e.target.closest(".hatch-chip");
+      if (!chip || !chip.dataset.chip) return;
+      if (hatchState.running) { toast("AI 处理中，稍候…", "info"); return; }
+      if (el.hatchChatInput) el.hatchChatInput.value = chip.dataset.chip;
+      sendHatchFollowup();
+    });
+  }
+  if (el.hatchChatCopy) el.hatchChatCopy.addEventListener("click", copyHatchChat);
+  if (el.hatchChatClear) el.hatchChatClear.addEventListener("click", clearHatchChat);
   if (el.closeMermaidLightbox) el.closeMermaidLightbox.addEventListener("click", closeMermaidLightbox);
+  if (el.mlbDownloadBtn) el.mlbDownloadBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    downloadMermaidPng();
+  });
   if (el.mermaidLightbox) el.mermaidLightbox.addEventListener("click", (e) => {
     if (e.target === el.mermaidLightbox) closeMermaidLightbox();
   });
@@ -11491,10 +12095,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
           toast("7 维度评分均 ≥3，无明显薄弱项", "info");
           return;
         }
-        if (!state.settings.apiUrl || !state.settings.apiKey) {
-          toast("请先在设置中配置 AI API", "error");
-          return;
-        }
+        // 无 API 也可孵化：模板库（0 token）或本地启发式兜底
         // 关闭详情弹窗，打开孵化弹窗（drill 场景）
         el.longtaskDetailDialog.close();
         const mode = weakCount > 4 ? "zen" : (weakCount > 2 ? "medium" : "lite");
@@ -11628,6 +12229,12 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   let inboxMode = "quick"; // 当前收集箱模式：quick / mainline / long
   const inboxCollapsedParents = new Set(); // 已折叠的父任务 id（任务级主线/支线）
   let inboxDateEditingIdx = -1; // 正在编辑日期的条目 idx（日期弹窗）
+  // 表格视图选项（排序/列显隐/日期显示），持久化到 localStorage
+  const inboxOptions = Object.assign(
+    { sortKey: "default", sortDir: -1, cols: { tags: true, prio: true, date: true, group: true, created: false }, absDate: false },
+    load("mandala-inbox-options", {})
+  );
+  function saveInboxOptions() { save("mandala-inbox-options", inboxOptions); }
 
   // 旧数据迁移（v1 → v2）
   function migrateInboxItem(it) {
@@ -11645,6 +12252,17 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     if (it.estimate === undefined) it.estimate = null;
     if (it.note === undefined) it.note = "";
     if (it.order === undefined) it.order = 0;
+    if (it.createdAt === undefined) {
+      // 兜底：旧条目尝试从 id 解析时间戳（inb_时间戳_随机），解析失败用当前时间
+      it.createdAt = (() => {
+        const m = /_([a-z0-9]{5,12})_/.exec(it.id || "");
+        if (m) {
+          const ts = parseInt(m[1], 36);
+          if (!isNaN(ts) && ts > 100000000000) return ts;
+        }
+        return Date.now();
+      })();
+    }
     return it;
   }
   inboxItems = inboxItems.map(migrateInboxItem);
@@ -12191,6 +12809,58 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     });
   }
 
+  // 任务级主线/支线关系图：把收集箱任务的 parentId 层级画成 mermaid 树（可多级）
+  async function showInboxRelGraph() {
+    if (typeof mermaid === "undefined") { toast("图表库未加载（lib/mermaid.min.js 缺失）", "error"); return; }
+    const items = inboxItems.filter((i) => i && i.text);
+    if (!items.length) { toast("收集箱为空", "info"); return; }
+    // 建树：parentId -> children；无 parentId 为根
+    const byParent = new Map();
+    items.forEach((it) => {
+      const pid = it.parentId || "__root__";
+      if (!byParent.has(pid)) byParent.set(pid, []);
+      byParent.get(pid).push(it);
+    });
+    // 有父子关系的才算图（纯根任务太多会很难看，先过滤出有关系的）
+    const hasRel = new Set();
+    items.forEach((it) => { if (it.parentId && items.some((x) => x.id === it.parentId)) hasRel.add(it.id); });
+    const roots = (byParent.get("__root__") || []).filter((r) => hasRel.size === 0 || hasRel.has(r.id) || (byParent.get(r.id) || []).length > 0);
+    const esc = (s) => String(s || "").replace(/[\[\](){}|#]/g, " ").replace(/"/g, "＂").replace(/\n/g, " ").slice(0, 50);
+    const lines = ["flowchart TD"];
+    const nid = (id) => "N" + id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8) + Math.abs(id.split("").reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7));
+    const emit = (it, depth) => {
+      const doneMark = it.done ? "✅ " : "";
+      const cls = it.done ? ":::done" : (it.parentId ? ":::child" : ":::root");
+      lines.push(`${nid(it.id)}["${doneMark}${esc(it.text)}"]${cls}`);
+      const kids = byParent.get(it.id) || [];
+      kids.forEach((k) => {
+        lines.push(`${nid(it.id)} --> ${nid(k.id)}`);
+        emit(k, depth + 1);
+      });
+    };
+    roots.forEach((r) => {
+      lines.push(`${nid(r.id)}["${r.done ? "✅ " : ""}${esc(r.text)}"]${r.parentId ? ":::child" : ":::root"}`);
+      (byParent.get(r.id) || []).forEach((k) => {
+        lines.push(`${nid(r.id)} --> ${nid(k.id)}`);
+        emit(k, 1);
+      });
+    });
+    lines.push("classDef root fill:#241f4a,stroke:#7c5cff,color:#c9bfff;");
+    lines.push("classDef child fill:#102a3a,stroke:#4dc3ff,color:#b8e8ff;");
+    lines.push("classDef done fill:#0e3a24,stroke:#3ddc84,color:#a8f0c8;");
+    mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "loose", fontFamily: "inherit", flowchart: { curve: "basis", nodeSpacing: 24, rankSpacing: 34, htmlLabels: true } });
+    const id = "relg" + Math.random().toString(36).slice(2, 8);
+    const { svg } = await mermaid.render(id, lines.join("\n"));
+    // 塞进 lightbox 并打开（PNG 导出按钮复用）
+    el.mermaidLightboxBody.innerHTML = `<div class="hh-mm-svg">${svg}</div>`;
+    const svgEl = el.mermaidLightboxBody.querySelector("svg");
+    if (svgEl) { svgEl.removeAttribute("width"); svgEl.style.maxWidth = "100%"; svgEl.style.height = "auto"; }
+    if (el.mermaidLightbox.showModal) el.mermaidLightbox.showModal();
+    else el.mermaidLightbox.setAttribute("open", "");
+    const relCount = items.filter((i) => i.parentId).length;
+    toast(`已生成关系图：${items.length} 个任务，${relCount} 条主线/支线关系`, "success");
+  }
+
   // 任务级主线/支线收纳弹窗（把任务收纳到另一个任务下，如「嵌入式」收纳「STM32」）
   function openLinkParentDialog(taskId) {
     const it = inboxItems.find((i) => i.id === taskId);
@@ -12255,6 +12925,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
 
   function renderInboxList() {
     renderInboxStats();
+    renderInboxTableBar();
+    bindInboxTableBarEvents();
     const filtered = filterInboxItems();
     if (!filtered.length) {
       el.inboxList.classList.remove("inbox-kanban-view");
@@ -12349,11 +13021,56 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   }
 
   // ---------- 收集箱表格视图：扁平行列，列宽固定、任务名超长自动换行（横向可滑动） ----------
+  // 表格排序（顶层行排序；子任务跟随其父任务）
+  function sortInboxRows(items) {
+    const { sortKey, sortDir } = inboxOptions;
+    const keyOf = (it) => {
+      if (sortKey === "prio") return it.priority || 0;
+      if (sortKey === "start") return it.start || 0;
+      if (sortKey === "due") return it.due || 0;
+      if (sortKey === "date") return it.due || it.start || 0;
+      if (sortKey === "created") return it.createdAt || 0;
+      if (sortKey === "name") return (it.text || "").toLowerCase();
+      return 0;
+    };
+    if (sortKey === "default") return items;
+    const list = [...items].sort((a, b) => {
+      const va = keyOf(a), vb = keyOf(b);
+      if (typeof va === "string" && typeof vb === "string") return va.localeCompare(vb, "zh") * sortDir;
+      return ((va - vb) || 0) * sortDir;
+    });
+    return list;
+  }
+  // 绝对时间格式化：MM-DD HH:mm
+  function fmtAbsTime(ts) {
+    if (!ts) return "—";
+    const d = new Date(ts);
+    const p = (n) => String(n).padStart(2, "0");
+    return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  // 表格选项工具栏（排序 / 列显隐 / 日期显示），仅在表格视图显示
+  function renderInboxTableBar() {
+    const bar = el.inboxTableBar;
+    if (!bar) return;
+    bar.hidden = inboxView !== "table";
+    const { sortKey, sortDir, cols, absDate } = inboxOptions;
+    const opt = (v, label) => `<option value="${v}" ${sortKey === v ? "selected" : ""}>${label}</option>`;
+    const colBtn = (k, label) => `<button type="button" class="itb-col ${cols[k] ? "on" : ""}" data-col="${k}">${label}</button>`;
+    bar.innerHTML = `<span class="itb-label">排序</span>
+      <select class="itb-sort" title="排序方式">${opt("default", "默认")}${opt("name", "任务名")}${opt("prio", "优先级")}${opt("start", "开始日期")}${opt("due", "截止日期")}${opt("created", "创建时间")}</select>
+      <button type="button" class="itb-dir ${sortDir === 1 ? "on" : ""}" title="升序/降序">${sortDir === -1 ? "↓ 降序" : "↑ 升序"}</button>
+      <span class="itb-sep"></span>
+      <span class="itb-label">列</span>
+      ${colBtn("tags", "标签")}${colBtn("prio", "优先")}${colBtn("date", "日期")}${colBtn("group", "归属")}${colBtn("created", "创建")}
+      <span class="itb-sep"></span>
+      <button type="button" class="itb-abs ${absDate ? "on" : ""}" title="日期列显示完整时间">📅 ${absDate ? "绝对时间" : "相对时间"}</button>`;
+  }
+
   function renderInboxTable(filtered) {
-    // 行序：顶层任务在前，子任务紧随其父任务（折叠时隐藏）；孤儿子任务补在末尾
+    // 行序：排序后的顶层任务在前，子任务紧随其父任务（折叠时隐藏）；孤儿子任务补在末尾
+    const tops = sortInboxRows(filtered.filter((item) => !item.parentId));
     const rows = [];
-    filtered.forEach((item) => {
-      if (item.parentId) return;
+    tops.forEach((item) => {
       rows.push(item);
       if (inboxCollapsedParents.has(item.id)) return;
       filtered.forEach((c) => { if (c.parentId === item.id) rows.push(c); });
@@ -12363,14 +13080,21 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     });
 
     const msCol = inboxMultiSelectMode;
+    const { cols, absDate } = inboxOptions;
+    const colSort = (key, label, cls) => {
+      const active = inboxOptions.sortKey === key;
+      const arrow = active ? (inboxOptions.sortDir === -1 ? " ↓" : " ↑") : "";
+      return `<th class="${cls || ""} it-col-sortable ${active ? "active" : ""}" data-sort="${key}" title="点击排序">${label}${arrow}</th>`;
+    };
     const html = `<div class="inbox-table-wrap"><table class="inbox-table">
       <thead><tr>
         <th class="it-col-done">${msCol ? "☑" : "✓"}</th>
-        <th class="it-col-text">任务</th>
-        <th class="it-col-tags">标签</th>
-        <th class="it-col-prio">优先</th>
-        <th class="it-col-date">日期</th>
-        <th class="it-col-group">归属</th>
+        ${colSort("name", "任务", "it-col-text")}
+        ${cols.tags ? '<th class="it-col-tags">标签</th>' : ""}
+        ${cols.prio ? '<th class="it-col-prio">优先</th>' : ""}
+        ${cols.date ? colSort("date", "日期", "it-col-date") : ""}
+        ${cols.created ? colSort("created", "创建", "it-col-created") : ""}
+        ${cols.group ? '<th class="it-col-group">归属</th>' : ""}
         <th class="it-col-ops">操作</th>
       </tr></thead>
       <tbody>${rows.map((item) => inboxTableRow(item, msCol)).join("")}</tbody>
@@ -12403,16 +13127,20 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       if (item.start) {
         const st = new Date(item.start); st.setHours(0, 0, 0, 0);
         const diff = Math.round((st - now) / 86400000);
-        parts.push(`<span class="it-date ${diff <= 0 ? "ok" : "future"}" title="开始">🚀${diff <= 0 ? (diff === 0 ? "今天" : `已开始${-diff}天`) : `${diff}天后`}</span>`);
+        const abs = inboxOptions.absDate ? ` <span class="it-date-abs">${fmtAbsTime(item.start)}</span>` : "";
+        parts.push(`<span class="it-date ${diff <= 0 ? "ok" : "future"}" title="开始 ${fmtAbsTime(item.start)}">🚀${diff <= 0 ? (diff === 0 ? "今天" : `已开始${-diff}天`) : `${diff}天后`}${abs}</span>`);
       }
       if (item.due) {
         const due = new Date(item.due); due.setHours(0, 0, 0, 0);
         const diff = Math.round((due - now) / 86400000);
         const cls = diff < 0 ? "overdue" : diff === 0 ? "due" : "";
-        parts.push(`<span class="it-date ${cls}" title="截止">📅${diff < 0 ? `逾期${-diff}` : diff === 0 ? "今日" : `${diff}天`}</span>`);
+        const abs = inboxOptions.absDate ? ` <span class="it-date-abs">${fmtAbsTime(item.due)}</span>` : "";
+        parts.push(`<span class="it-date ${cls}" title="截止 ${fmtAbsTime(item.due)}">📅${diff < 0 ? `逾期${-diff}` : diff === 0 ? "今日" : `${diff}天`}${abs}</span>`);
       }
       return parts.join("") || '<span class="it-date none">—</span>';
     })();
+    // 创建时间列（可选）
+    const createdHtml = `<span class="it-date-abs" title="创建时间 ${fmtAbsTime(item.createdAt)}">${fmtAbsTime(item.createdAt)}</span>`;
     let group = "";
     if (item.mainline) {
       const ml = inboxMainlines.find((m) => m.id === item.mainline);
@@ -12426,17 +13154,20 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     const ops = `<span class="it-ops">
       <button class="it-op" data-act="hatch" data-idx="${idx}" title="🥚 AI 孵化拆解">🥚</button>
       <button class="it-op" data-act="assign" data-idx="${idx}" title="归属主线/支线">📂</button>
+      <button class="it-op" data-act="link" data-idx="${idx}" title="🔗 任务级主线/支线：收纳到另一个任务下">🔗</button>
       <button class="it-op" data-act="due" data-idx="${idx}" title="设置开始/截止">📅</button>
       <button class="it-op danger" data-act="del" data-idx="${idx}" title="删除">✕</button>
     </span>`;
     const dragAttr = (!item.done && !isChild) ? ' draggable="true"' : "";
+    const { cols } = inboxOptions;
     return `<tr class="it-row ${item.done ? "done" : ""} ${isChild ? "is-child" : ""}" data-idx="${idx}"${dragAttr}>
       <td class="it-col-done">${cb}</td>
       <td class="it-col-text">${isChild ? '<span class="it-child-mark">↳</span>' : ""}<span class="it-text" data-idx="${idx}" title="单击发给AI，双击编辑">${text}</span>${sub}${link}${parentMark}${childBadge}</td>
-      <td class="it-col-tags">${tags}</td>
-      <td class="it-col-prio">${prio}</td>
-      <td class="it-col-date">${dateHtml}</td>
-      <td class="it-col-group">${group}</td>
+      ${cols.tags ? `<td class="it-col-tags">${tags}</td>` : ""}
+      ${cols.prio ? `<td class="it-col-prio">${prio}</td>` : ""}
+      ${cols.date ? `<td class="it-col-date">${dateHtml}</td>` : ""}
+      ${cols.created ? `<td class="it-col-created">${createdHtml}</td>` : ""}
+      ${cols.group ? `<td class="it-col-group">${group}</td>` : ""}
       <td class="it-col-ops">${ops}</td>
     </tr>`;
   }
@@ -12447,6 +13178,16 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     if (inboxTableBound) return;
     inboxTableBound = true;
     el.inboxList.addEventListener("click", (e) => {
+      // 表头点击排序
+      const th = e.target.closest("th[data-sort]");
+      if (th) {
+        const key = th.dataset.sort;
+        if (inboxOptions.sortKey === key) inboxOptions.sortDir = -inboxOptions.sortDir;
+        else { inboxOptions.sortKey = key; inboxOptions.sortDir = -1; }
+        saveInboxOptions();
+        renderInboxList();
+        return;
+      }
       const cb = e.target.closest(".it-cb");
       if (cb) {
         const idx = parseInt(cb.dataset.idx);
@@ -12483,6 +13224,10 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         }
         if (act === "assign") {
           openAssignDialog(it.id);
+          return;
+        }
+        if (act === "link") {
+          openLinkParentDialog(it.id);
           return;
         }
         if (act === "due") {
@@ -12531,6 +13276,45 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     el.inboxList.addEventListener("dragend", (e) => {
       const row = e.target.closest(".it-row");
       if (row) row.classList.remove("dragging");
+    });
+  }
+
+  // 表格选项工具栏事件（只绑定一次）
+  let inboxTableBarBound = false;
+  function bindInboxTableBarEvents() {
+    const bar = el.inboxTableBar;
+    if (!bar || inboxTableBarBound) return;
+    inboxTableBarBound = true;
+    bar.addEventListener("click", (e) => {
+      const dir = e.target.closest(".itb-dir");
+      const abs = e.target.closest(".itb-abs");
+      const col = e.target.closest(".itb-col");
+      if (dir) {
+        inboxOptions.sortDir = inboxOptions.sortDir === -1 ? 1 : -1;
+        saveInboxOptions(); renderInboxList(); return;
+      }
+      if (abs) {
+        inboxOptions.absDate = !inboxOptions.absDate;
+        saveInboxOptions(); renderInboxList(); return;
+      }
+      if (col) {
+        const k = col.dataset.col;
+        if (k === "date" || k === "group") {
+          // 至少保留一列主信息，避免表格只剩操作列
+          const anyOn = Object.keys(inboxOptions.cols).some((kk) => kk !== k && inboxOptions.cols[kk]);
+          if (!anyOn) { toast("至少保留一列", "info"); return; }
+        }
+        inboxOptions.cols[k] = !inboxOptions.cols[k];
+        saveInboxOptions(); renderInboxList(); return;
+      }
+    });
+    bar.addEventListener("change", (e) => {
+      const sort = e.target.closest(".itb-sort");
+      if (sort) {
+        inboxOptions.sortKey = sort.value;
+        inboxOptions.sortDir = -1;
+        saveInboxOptions(); renderInboxList();
+      }
     });
   }
 
@@ -12676,6 +13460,10 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       el.inboxViewSwitch.querySelectorAll(".iv-tab").forEach((t) => t.classList.toggle("active", t === tab));
       renderInboxList();
     });
+  }
+  // 任务级主线/支线关系图
+  if (el.inboxRelGraphBtn) {
+    el.inboxRelGraphBtn.addEventListener("click", () => showInboxRelGraph().catch((e) => toast("关系图生成失败：" + (e.message || e), "error")));
   }
   // 主线选择器联动支线
   if (el.inboxNewMainline) el.inboxNewMainline.addEventListener("change", refreshSidelineSelector);
