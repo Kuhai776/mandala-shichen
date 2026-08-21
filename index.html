@@ -23,7 +23,7 @@
           await Promise.all(keys.map(function (k) { return caches.delete(k); }));
         }
         // 检测当前 app.js 版本，若仍是旧的则强制带时间戳 reload
-        var APP_VERSION = "20260815d";
+        var APP_VERSION = "20260815e";
         if (sessionStorage.getItem("mandala-app-ver") !== APP_VERSION) {
           sessionStorage.setItem("mandala-app-ver", APP_VERSION);
           if (!location.search || location.search.indexOf("t=") === -1) {
@@ -86,7 +86,7 @@
       } catch (e) { console.warn("[polyfill] dialog 降级失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260815d" />
+  <link rel="stylesheet" href="styles.css?v=20260815e" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
   <script src="lib/mermaid.min.js"></script>
@@ -211,6 +211,23 @@
         </div>
         <!-- 过去时辰快览（点击跳转） -->
         <div class="review-period-nav" id="recordPeriodNav"></div>
+        <!-- 记录笔记本：按日期自由笔记，自动保存 -->
+        <div class="record-notebook" id="recordNotebook">
+          <div class="record-notebook-head">
+            <span class="record-notebook-title">📓 记录笔记本</span>
+            <span class="record-notebook-date" id="recordNotebookDate"></span>
+            <button class="record-notebook-clear" id="recordNotebookClear" title="清空当日笔记">清空</button>
+          </div>
+          <textarea class="record-notebook-textarea" id="recordNotebookText" placeholder="随手记下这一天的想法、灵感、心得……自动保存到当前日期，随时可查看和编辑"></textarea>
+        </div>
+        <!-- 持续记录：开启后重复任务到点自动记入记录页 -->
+        <div class="record-autorecord" id="recordAutoRecordPanel">
+          <div class="record-autorecord-head">
+            <span class="record-autorecord-title">🔁 持续记录</span>
+            <span class="record-autorecord-hint">开启后，重复行为到点自动写入本页记录</span>
+          </div>
+          <div class="record-autorecord-list" id="recordAutoRecordList"></div>
+        </div>
         <div class="mandala-grid record-grid" id="recordGrid"></div>
         <p class="mandala-hint">记录实际花费时间与做的事，可与计划对照。点击格子开始记录 · 双击快速同步计划</p>
       </section>
@@ -1539,6 +1556,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=20260815d" defer></script>
+  <script src="app.js?v=20260815e" defer></script>
 </body>
 </html>

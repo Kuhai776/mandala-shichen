@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260815d";
+const SW_VER = "20260815e";
 
 (function () {
   "use strict";
@@ -119,9 +119,15 @@ const SW_VER = "20260815d";
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.7.3";
-  const APP_VERSION_DATE = "2026-08-15";
+  const APP_VERSION = "2.7.4";
+  const APP_VERSION_DATE = "2026-08-21";
   const APP_CHANGELOG = [
+    { v: "2.7.4", date: "2026-08-21", items: [
+      "新增：记录页「记录笔记本」（按日期自由笔记，自动保存，可随时查看/编辑/清空）",
+      "新增：记录页「持续记录」（开启后重复任务到点自动写入记录页，可一键开关）",
+      "新增：待办看板卡片可直接拖拽到时间曼陀罗九宫格安排（与表格行一致）",
+      "新增：双击曼陀罗中「从收集箱安排」的任务条，自动移回收集箱（取消安排动作）",
+    ]},
     { v: "2.7.3", date: "2026-08-15", items: [
       "调整：收集箱「列表」视图升级为「表格」视图（列：完成/任务/标签/优先/日期/归属/操作；列宽固定、任务名超长自动换行、横向可滑动，与看板尺寸一致）",
     ]},
@@ -324,6 +330,9 @@ const SW_VER = "20260815d";
   // 天地人三才：记录页数据 & 复盘页数据
   const RECORD_KEY = "mandala-records-v1";
   const REVIEW_KEY = "mandala-reviews-v1";
+  // 记录笔记本（按日期自由笔记）& 持续记录开关
+  const NOTE_KEY = "mandala-record-notes-v1";
+  const AUTO_RECORD_KEY = "mandala-autorecord-v1";
   // 截图/图片附件（用 IndexedDB，localStorage 装不下大图）
   const ATTACH_DB_NAME = "mandala-attachments";
   const ATTACH_DB_VERSION = 1;
@@ -771,6 +780,10 @@ const SW_VER = "20260815d";
     realm: "plan",
     // 记录页数据：{ "2026-07-29": { "0-0": { spent: "30分钟", actual: "实际做的事", note: "" } } }
     records: load(RECORD_KEY, {}),
+    // 记录笔记本：{ "2026-07-29": "自由笔记文本" }
+    notes: load(NOTE_KEY, {}),
+    // 持续记录开关：{ [repeatId]: true } → 重复任务自动延续到记录页
+    autoRecord: load(AUTO_RECORD_KEY, {}),
     // 复盘页数据：{ "2026-07-29": { summary, insights, stats, userNotes, aiGeneratedAt } }
     reviews: load(REVIEW_KEY, {}),
     // 时辰切换检测：记录上次检测到的时辰（用于触发"该记录了"提示+闪烁）
@@ -1187,7 +1200,12 @@ const SW_VER = "20260815d";
       if (!state.tasks[targetDate]) state.tasks[targetDate] = {};
       const key = cellKey(r.period, r.cell);
       const existing = (state.tasks[targetDate][key] || []).map(normalizeTask);
-      const merged = existing.concat(r.tasks.map(normalizeTask));
+      // 标记重复任务来源，供「持续记录」自动延续
+      const merged = existing.concat(r.tasks.map((t) => {
+        const n = normalizeTask(t);
+        n.rptId = r.id;
+        return n;
+      }));
       state.tasks[targetDate][key] = merged;
       // 复制清单
       if (state.checklists[r.sourceDate] && state.checklists[r.sourceDate][key]) {
@@ -1234,6 +1252,9 @@ const SW_VER = "20260815d";
       attachments: Array.isArray(t.attachments) ? t.attachments : [],
       location: t.location || null,
       hatchHash: t.hatchHash || null,
+      // 来源标记：从收集箱拖入（双击可移回） / 重复任务 id（用于持续记录）
+      _fromInbox: t._fromInbox || null,
+      rptId: t.rptId || null,
     };
   }
 
@@ -1591,6 +1612,10 @@ const SW_VER = "20260815d";
     goReviewFromRecord: document.getElementById("goReviewFromRecord"),
     goRecordFromPlan: document.getElementById("goRecordFromPlan"),
     goReviewFromPlan: document.getElementById("goReviewFromPlan"),
+    recordNotebookDate: document.getElementById("recordNotebookDate"),
+    recordNotebookClear: document.getElementById("recordNotebookClear"),
+    recordNotebookText: document.getElementById("recordNotebookText"),
+    recordAutoRecordList: document.getElementById("recordAutoRecordList"),
     realmFab: document.getElementById("realmFab"),
     overviewGrid: document.getElementById("overviewGrid"),
     chatMessages: document.getElementById("chatMessages"),
@@ -2429,6 +2454,22 @@ const SW_VER = "20260815d";
             draggingTaskSource = null;
           });
 
+          // 双击任务条 → 从收集箱安排的移回收集箱（取消安排动作）
+          item.addEventListener("click", (e) => {
+            if (e.target.closest(".task-checkbox")) return; // 复选框单独处理
+            if (item._dblTimer) {
+              clearTimeout(item._dblTimer);
+              item._dblTimer = null;
+              e.stopPropagation();
+              e.preventDefault();
+              // 阻止单次点击触发的任务编辑弹窗
+              if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+              moveTaskBackToInbox(period, cell, idx);
+            } else {
+              item._dblTimer = setTimeout(() => { item._dblTimer = null; }, 300);
+            }
+          });
+
           contentEl.appendChild(item);
         });
         // 属性 meta 行
@@ -2795,6 +2836,78 @@ const SW_VER = "20260815d";
     if (!rec) attachDeleteAll(attachCellKey(period, cell, state.currentDate)).catch(() => {});
   }
 
+  // ---------- 持续记录 ----------
+  // 开启持续记录的重复任务，到点自动写入记录页（仅今天、仅当前已到时辰、未记录过的格子）
+  function autoRecordDueRepeats() {
+    if (!isToday(state.currentDate)) return 0;
+    const today = state.currentDate;
+    const now = nowSeconds();
+    const rules = Object.values(state.repeats);
+    if (!rules.length) return 0;
+    let added = 0;
+    rules.forEach((r) => {
+      if (!state.autoRecord[r.id]) return;
+      if (!dateMatchesRule(today, r.rule, r.sourceDate)) return;
+      if (state.records[today] && state.records[today][r.period + "-" + r.cell]) return; // 已记录
+      const range = getCellRange(r.period, r.cell);
+      if (now < range.start) return; // 未到点
+      const texts = (r.tasks || []).map((t) => taskText(normalizeTask(t))).filter(Boolean).join("; ");
+      if (!texts) return;
+      const spentMin = Math.max(1, Math.min(Math.round(SECONDS_PER_CELL / 60), Math.round((now - range.start) / 60)));
+      setCellRecord(r.period, r.cell, {
+        spent: "~" + spentMin + "分钟",
+        actual: texts,
+        note: "🔁 持续记录自动写入",
+      });
+      added++;
+    });
+    if (added) {
+      if (el.recordStatsInline) el.recordStatsInline.dataset.autoAdded = added;
+      toast(`持续记录已自动写入 ${added} 格`, "success");
+    }
+    return added;
+  }
+
+  // 记录页「持续记录」面板：列出所有重复任务，开关控制是否自动延续记录
+  function renderRepeatAutoRecordPanel() {
+    if (!el.recordAutoRecordList) return;
+    const rules = Object.values(state.repeats);
+    if (!rules.length) {
+      el.recordAutoRecordList.innerHTML = '<div class="record-autorecord-empty">暂无重复任务。可在计划页为任务设置「重复」后，到这里开启自动延续记录。</div>';
+      return;
+    }
+    const today = state.currentDate;
+    const ruleLabel = { daily: "每天", weekdays: "工作日", weekend: "周末", weekly: "每周" };
+    el.recordAutoRecordList.innerHTML = rules.map((r) => {
+      const label = ruleLabel[r.rule] || r.rule;
+      const on = !!state.autoRecord[r.id];
+      const appliesToday = dateMatchesRule(today, r.rule, r.sourceDate);
+      const firstText = (r.tasks || []).map((t) => taskText(normalizeTask(t))).find(Boolean) || "未命名任务";
+      const timeLabel = `${label} · ${secondsToHHMM(getCellRange(r.period, r.cell).start)}`;
+      return `<div class="record-autorecord-item ${on ? "on" : ""}">
+        <div class="record-autorecord-info">
+          <div class="record-autorecord-task">${escapeHtml(firstText)}</div>
+          <div class="record-autorecord-meta">${timeLabel}${appliesToday ? ' <span class="record-autorecord-today">今日生效</span>' : ""}</div>
+        </div>
+        <label class="record-autorecord-switch" title="${on ? "点击关闭自动延续记录" : "点击开启：到点自动写入记录页"}">
+          <input type="checkbox" data-rpt="${escapeHtml(r.id)}" ${on ? "checked" : ""} />
+          <span class="record-autorecord-slider"></span>
+        </label>
+      </div>`;
+    }).join("");
+    el.recordAutoRecordList.querySelectorAll("input[type='checkbox']").forEach((cb) => {
+      cb.addEventListener("change", () => {
+        const id = cb.dataset.rpt;
+        if (cb.checked) state.autoRecord[id] = true;
+        else delete state.autoRecord[id];
+        save(AUTO_RECORD_KEY, state.autoRecord);
+        renderRepeatAutoRecordPanel();
+        toast(cb.checked ? "已开启持续记录" : "已关闭持续记录", "info");
+        if (cb.checked) autoRecordDueRepeats();
+      });
+    });
+  }
+
   // ---------- 截图粘贴自动弹窗：选择要记录到的时间格子 ----------
   // 全局监听 paste 事件（用户截图后 Ctrl+V），自动弹出"记录到哪个格子"对话框
   let _pasteAttachGuard = false;
@@ -3075,12 +3188,24 @@ const SW_VER = "20260815d";
   // 渲染记录页
   function renderRecord() {
     if (!el.recordGrid) return;
+    // 持续记录：到点的重复任务自动写入（仅今天）
+    autoRecordDueRepeats();
     const period = state.activePeriod;
     const range = getPeriodRange(period);
     el.recordTitle.textContent =
       `${PERIOD_NAMES[period]} · ${secondsToHHMM(range.start)} - ${secondsToHHMM(range.end)} · 记录`;
     // 渲染过去时辰快览导航
     renderPeriodNav(el.recordPeriodNav);
+
+    // 记录笔记本：日期 + 当日笔记（输入中不覆盖）
+    if (el.recordNotebookDate) {
+      el.recordNotebookDate.textContent = formatDateLabel(state.currentDate) + (isToday(state.currentDate) ? "（今天）" : "");
+    }
+    if (el.recordNotebookText && document.activeElement !== el.recordNotebookText) {
+      el.recordNotebookText.value = state.notes[state.currentDate] || "";
+      el.recordNotebookText.dataset.saved = el.recordNotebookText.value;
+    }
+    renderRepeatAutoRecordPanel();
 
     const currentGlobalCell = getCurrentGlobalCell();
     el.recordGrid.innerHTML = "";
@@ -6708,6 +6833,31 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   if (el.goReviewFromRecord) el.goReviewFromRecord.addEventListener("click", () => {
     setRealm("review");
   });
+  // 记录笔记本：输入自动保存（按当前日期）、清空按钮
+  let noteSaveTimer = null;
+  if (el.recordNotebookText) {
+    el.recordNotebookText.addEventListener("input", () => {
+      if (!state.currentDate) return;
+      clearTimeout(noteSaveTimer);
+      noteSaveTimer = setTimeout(() => {
+        const v = el.recordNotebookText.value;
+        if (v.trim()) state.notes[state.currentDate] = v;
+        else delete state.notes[state.currentDate];
+        save(NOTE_KEY, state.notes);
+        if (el.recordNotebookText.dataset.saved !== v) {
+          el.recordNotebookText.dataset.saved = v;
+          toast("笔记已保存", "info");
+        }
+      }, 600);
+    });
+  }
+  if (el.recordNotebookClear) el.recordNotebookClear.addEventListener("click", () => {
+    if (!confirm("清空当前日期的笔记？")) return;
+    delete state.notes[state.currentDate];
+    save(NOTE_KEY, state.notes);
+    if (el.recordNotebookText) el.recordNotebookText.value = "";
+    toast("当日笔记已清空", "info");
+  });
   if (el.goRecordFromPlan) el.goRecordFromPlan.addEventListener("click", () => setRealm("record"));
   if (el.goReviewFromPlan) el.goReviewFromPlan.addEventListener("click", () => setRealm("review"));
   // 底部浮动三才切换条
@@ -10215,10 +10365,18 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     // 注意：cellEl 本身不再 draggable，由内部 task-bar 单条拖拽
     // 但保留 dragover/drop 用于接收单条任务拖入
     cellEl.addEventListener("dragover", (e) => {
-      // 如果是单条任务拖拽，高亮目标格子
+      // 单条任务拖拽 → 高亮目标格子
       if (draggingTaskSource) {
         e.preventDefault();
         e.dataTransfer.dropEffect = "move";
+        cellEl.classList.add("drag-over");
+        return;
+      }
+      // 收集箱卡片/行拖入 → 同样高亮
+      const types = e.dataTransfer && e.dataTransfer.types;
+      if (types && types.includes("text/plain")) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
         cellEl.classList.add("drag-over");
       }
     });
@@ -10246,6 +10404,13 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         toast(`已移动任务到第 ${cell + 1} 格`, "success");
         return;
       }
+      // 收集箱拖入（看板卡片 / 表格行）
+      const raw = e.dataTransfer.getData("text/plain");
+      if (!raw) return;
+      let payload;
+      try { payload = JSON.parse(raw); } catch (err) { payload = { idx: parseInt(raw, 10) }; }
+      if (typeof payload.idx !== "number" || isNaN(payload.idx)) return;
+      dropInboxItemToCell(payload.idx, period, cell);
     });
   }
 
@@ -11329,14 +11494,36 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       // 用 hashTaskText 生成与 recordHatchHistory 一致的 task_hash，确保可回看孵化过程
       newTask.hatchHash = hashTaskText(it.meta.hatchTask);
     }
+    newTask._fromInbox = it.id; // 标记来源：双击该任务可移回收集箱
     setCellTasks(period, cell, [...existing, newTask]);
     it.done = true; // 保留以便回看，不删除
     saveInbox();
     renderInboxList();
     renderInboxGridPreview();
+    renderMandala(); // 主曼陀罗同步更新
     const pname = PERIOD_NAMES[period] || `第${period + 1}时辰`;
     toast(`已安排到 ${pname} 第${cell + 1}格`, "success");
     if (navigator.vibrate) navigator.vibrate(30);
+  }
+
+  // 双击曼陀罗任务条 → 若来自收集箱则移回（取消安排动作）
+  function moveTaskBackToInbox(period, cell, idx) {
+    const tasks = getCellTasks(period, cell);
+    const t = tasks[idx];
+    if (!t) return;
+    if (!t._fromInbox) {
+      toast("该任务不是从收集箱安排的，无法移回", "info");
+      return;
+    }
+    const remaining = tasks.slice();
+    remaining.splice(idx, 1);
+    setCellTasks(period, cell, remaining);
+    const it = inboxItems.find((x) => x.id === t._fromInbox);
+    if (it) { it.done = false; saveInbox(); }
+    renderInboxList();
+    renderMandala();
+    toast("已移回收集箱", "info");
+    if (navigator.vibrate) navigator.vibrate(20);
   }
 
   function renderInboxFilter() {
@@ -11745,7 +11932,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
             const cls = diff < 0 ? "is-overdue" : diff === 0 ? "is-due" : "";
             return `<span class="ikb-due ${cls}">📅${diff < 0 ? "逾期" + -diff : diff === 0 ? "今日" : diff + "天"}</span>`;
           })() : "";
-          return `<div class="inbox-kanban-card ${item.done ? "done" : ""}" data-idx="${idx}" title="点击切换完成">
+          return `<div class="inbox-kanban-card ${item.done ? "done" : ""}" data-idx="${idx}" title="${item.done ? "点击切换回未完成" : "点击切换完成 · 拖拽可安排到九宫格"}"${item.done ? "" : ' draggable="true"'}>
             <div class="ikb-card-main"><span class="ikb-card-cb">${item.done ? "✓" : "○"}</span><span class="ikb-card-text">${escapeHtml(item.text || "")}</span></div>
             <div class="ikb-card-meta">${prio}${extraTags}${dueStr}</div>
           </div>`;
@@ -11769,6 +11956,19 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       saveInbox();
       renderInboxStats();
       renderInboxList();
+    });
+    // 拖拽卡片 → 九宫格（与表格视图一致）
+    el.inboxList.addEventListener("dragstart", (e) => {
+      const card = e.target.closest(".inbox-kanban-card[draggable='true']");
+      if (!card) return;
+      const idx = parseInt(card.dataset.idx, 10);
+      e.dataTransfer.effectAllowed = "copy";
+      e.dataTransfer.setData("text/plain", JSON.stringify({ idx, kind: "inbox" }));
+      card.classList.add("dragging");
+    });
+    el.inboxList.addEventListener("dragend", (e) => {
+      const card = e.target.closest(".inbox-kanban-card");
+      if (card) card.classList.remove("dragging");
     });
   }
 
@@ -12890,6 +13090,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       autoCarryForward();
       checkPeriodTransition(); // 时辰切换检测：进入新时辰时提示+闪烁
       pullSync(); // 拉取 Hermes trigger_action 写入的动作队列并消费
+      // 持续记录：在记录页时到点自动补写并刷新
+      if (state.realm === "record" && autoRecordDueRepeats()) renderRecord();
     }, 30000);
     checkNotify();
     // 初始化时辰检测基线（首次不触发提示）
