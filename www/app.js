@@ -119,9 +119,16 @@ const SW_VER = "20260821b";
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.7.10";
+  const APP_VERSION = "2.7.11";
   const APP_VERSION_DATE = "2026-08-21";
   const APP_CHANGELOG = [
+    { v: "2.7.11", date: "2026-08-21", items: [
+      "修复：弹窗内 toast 被遮住——原生弹窗顶层渲染会盖住全局提示，现在提示自动挂到当前活跃弹窗内，弹窗关闭时迁回（收集箱/孵化/设置等所有弹窗内的反馈都可见了）",
+      "修复：APK 震动反馈从未生效——补 Android VIBRATE 权限，并统一走 haptic() 通道；新增时辰/三才切换、任务勾选、格子完成、秒记、拖拽落位等十余处触感反馈",
+      "新增：收集箱删除可撤销——看板 ✎ 弹窗新增删除按钮，看板/表格/批量删除后 5 秒内可点 toast「撤销」恢复（含子任务收纳关系一并还原）",
+      "新增：看板卡片长按编辑（移动端）/右键编辑（桌面端），与 ✎ 按钮等效；工具条提示更新",
+      "优化：看板卡片按压微缩放反馈、看板列横向滚动吸附（scroll-snap），移动端滑列更跟手",
+    ]},
     { v: "2.7.10", date: "2026-08-21", items: [
       "优化：顶部 UI 精修——顶栏紧凑毛玻璃吸顶（高度对齐 --header-h 无露缝）、时辰标签条同步吸顶、三才切换器横排紧凑化、长期任务地图可折叠（点击标题栏收起/展开，状态记忆）",
       "新增：看板拖拽改分类——卡片拖到另一列即可改标签/主线/优先级/完成状态，主线模式可拖进具体支线分块（多链精确定位），拖拽目标高亮反馈",
@@ -1147,6 +1154,7 @@ const SW_VER = "20260821b";
     const items = getCellChecklist(period, cell);
     if (items[idx]) {
       items[idx].done = !items[idx].done;
+      haptic(12); // 清单项勾选轻震
       setCellChecklist(period, cell, items);
       // 完成时若带 dim 标记（孵化产出），提示去评分
       const it = items[idx];
@@ -1163,7 +1171,7 @@ const SW_VER = "20260821b";
     if (!meta) return;
     const goalTxt = goal ? `目标 ${goal} 星` : "自评 1-5 星";
     toast(`${dim} 练习完成（${goalTxt}）。${meta.question}`, "success", 5000);
-    if (navigator.vibrate) navigator.vibrate([10, 30, 10, 30, 10]);
+    haptic([10, 30, 10, 30, 10]);
   }
   function checklistProgress(period, cell) {
     const items = getCellChecklist(period, cell);
@@ -1573,7 +1581,27 @@ const SW_VER = "20260821b";
   // ---------- Toast ----------
   // 支持可选操作按钮：toast(msg, type, duration, {label, onClick, timeout})
   function toast(msg, type, duration, action) {
-    const container = document.getElementById("toastContainer");
+    // 原生 <dialog>（showModal）位于顶层渲染，会盖住全局 toast 容器：
+    // 有弹窗打开时把 toast 挂到「当前活跃弹窗」内，保证可见
+    let container = document.getElementById("toastContainer");
+    const openDialogs = [...document.querySelectorAll("dialog[open]")];
+    if (openDialogs.length) {
+      // 焦点所在的弹窗 = 用户正在交互的最顶层弹窗；否则退到最后打开的
+      let host = null;
+      let node = document.activeElement;
+      while (node && node !== document.body) {
+        if (node instanceof HTMLDialogElement && node.open) { host = node; break; }
+        node = node.parentElement;
+      }
+      if (!host) host = openDialogs[openDialogs.length - 1];
+      let inner = host.querySelector(":scope > .toast-container.toast-in-dialog");
+      if (!inner) {
+        inner = document.createElement("div");
+        inner.className = "toast-container toast-in-dialog";
+        host.appendChild(inner);
+      }
+      container = inner;
+    }
     const el = document.createElement("div");
     el.className = `toast ${type || ""}`;
     el.innerHTML = `<span class="toast-msg"></span>`;
@@ -1602,6 +1630,17 @@ const SW_VER = "20260821b";
       }
     }, (action && action.timeout) || duration || 2400);
   }
+
+  // 弹窗关闭时，把挂在弹窗内的 toast 迁回全局容器（避免随弹窗一起被藏住）
+  document.addEventListener("close", (e) => {
+    const dlg = e.target;
+    if (!(dlg instanceof HTMLDialogElement)) return;
+    const inner = dlg.querySelector(":scope > .toast-container.toast-in-dialog");
+    if (!inner) return;
+    const global = document.getElementById("toastContainer");
+    if (global) while (inner.firstChild) global.appendChild(inner.firstChild);
+    inner.remove();
+  }, true);
 
   // ---------- 快捷键视觉浮层 ----------
   function showKeyHint(key, label) {
@@ -2412,7 +2451,7 @@ const SW_VER = "20260821b";
       if (i === state.activePeriod) tab.classList.add("active");
       if (i === currentPeriod && isToday(state.currentDate)) tab.classList.add("current");
       tab.textContent = `${PERIOD_GLYPHS[i]} ${secondsToHHMM(range.start)}`;
-      tab.addEventListener("click", () => { state.activePeriod = i; renderAll(); });
+      tab.addEventListener("click", () => { state.activePeriod = i; haptic(15); renderAll(); });
       el.periodTabs.appendChild(tab);
     }
     const activeTab = el.periodTabs.querySelector(".period-tab.active");
@@ -2660,6 +2699,7 @@ const SW_VER = "20260821b";
   function toggleDone(period, cell) {
     const tasks = getCellTasks(period, cell);
     if (!tasks.length) { toast("该格无任务", "error"); return; }
+    haptic(25);
     if (getCellDone(period, cell)) {
       setCellDone(period, cell, false);
       toast("已取消完成", "info");
@@ -2676,6 +2716,7 @@ const SW_VER = "20260821b";
     const tasks = getCellTasks(period, cell).slice();
     if (idx < 0 || idx >= tasks.length) return;
     tasks[idx].done = !tasks[idx].done;
+    haptic(15); // 勾选轻震
     setCellTasks(period, cell, tasks);
 
     // 如果勾选了完成，检查是否所有任务都完成 → 自动标记格子完成
@@ -2824,6 +2865,7 @@ const SW_VER = "20260821b";
     if (state.realm === realm) return;
     const oldRealm = state.realm;
     state.realm = realm;
+    haptic(20); // 三才切换轻震
     // 进入/离开复盘 realm 时重置复盘对话阶段
     if (realm === "review") {
       state.reviewChatStage = state.reviewChatStage || "entry";
@@ -3121,7 +3163,7 @@ const SW_VER = "20260821b";
     renderRecord();
     const r = getCellRange(period, cell);
     toast(`⚡ 秒记「${item.name}」${spent} → ${secondsToHHMM(r.start)} 第 ${cell + 1} 格`, "success");
-    if (navigator.vibrate) navigator.vibrate(30);
+    haptic(30); // 秒记震感
     if (cardEl) cardEl.classList.add("og-flash");
     setTimeout(() => { if (cardEl) cardEl.classList.remove("og-flash"); }, 600);
   }
@@ -3200,7 +3242,7 @@ const SW_VER = "20260821b";
     renderRecord();
     const r = getCellRange(period, cell);
     toast(`已记录「${qrCurrentItem.name}」→ ${PERIOD_NAMES[period]} ${secondsToHHMM(r.start)} 第 ${cell + 1} 格`, "success");
-    if (navigator.vibrate) navigator.vibrate(20);
+    haptic(20);
     el.quickRecordDialog.close();
   }
 
@@ -3850,7 +3892,7 @@ const SW_VER = "20260821b";
       swiping = false;
       if (swipeCellsDone.size) {
         toast(`已滑动记录「${swipeRecordItem ? swipeRecordItem.name : ""}」× ${swipeCellsDone.size} 格`, "success");
-        if (navigator.vibrate) navigator.vibrate(25);
+        haptic(25);
       }
       swipeCellsDone.clear();
       renderRecord(); // 重绘格子显示新记录
@@ -6199,7 +6241,7 @@ ${noteSection}
         templated.mode = mode;
         templated.scene = scene;
         renderHatchResult(templated);
-        if (navigator.vibrate) navigator.vibrate(30);
+        haptic(30);
         hatchState.running = false;
         el.hatchBtn.disabled = false;
         el.hatchBtn.classList.remove("loading");
@@ -6286,7 +6328,7 @@ ${noteSection}
       local.longTaskId = longTaskId || null;
       renderHatchResult(local);
       toast("未配置 AI API，已用本地启发式拆解（离线模式）", "info");
-      if (navigator.vibrate) navigator.vibrate(30);
+      haptic(30);
       hatchState.running = false;
       el.hatchBtn.disabled = false;
       el.hatchBtn.classList.remove("loading");
@@ -6336,7 +6378,7 @@ ${noteSection}
 
       renderHatchResult(parsed);
       // 轻震动反馈
-      if (navigator.vibrate) navigator.vibrate(30);
+      haptic(30);
     } catch (err) {
       if (hatchState.suppressErrorOnce) {
         hatchState.suppressErrorOnce = false; // 主动中止（复用/降档重孵），不打扰
@@ -6809,7 +6851,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     }
     const dimCount = acceptedSteps.filter((s) => s.target_dim).length;
     toast(`已加入 ${newOnes.length} 条到清单${dimCount ? `（含 ${dimCount} 条维度练习）` : ""}`, "success");
-    if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+    haptic([20, 40, 20]);
     closeHatchDialog();
   }
 
@@ -6906,7 +6948,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     }
     const dimCount = acceptedSteps.filter((s) => s.target_dim).length;
     toast(`已安排 ${written} 个任务到 ${filledPeriods.size} 个时辰${dimCount ? `（含 ${dimCount} 条维度练习）` : ""}`, "success");
-    if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+    haptic([20, 40, 20]);
     closeHatchDialog();
     renderAll();
   }
@@ -7024,7 +7066,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     recordHatchHistory(hatchState.taskHash, hatchState.taskText, result, added, { rawOutput });
     const dimCount = acceptedSteps.filter((s) => s.target_dim).length;
     toast(`已拆分 ${added} 条到收集箱${dimCount ? `（含 ${dimCount} 条维度练习）` : ""}，可拖拽到格子`, "success");
-    if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+    haptic([20, 40, 20]);
     closeHatchDialog();
     // 直接打开收集箱，便于拖拽
     setTimeout(() => openInbox(), 200);
@@ -7484,7 +7526,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     }
     const dimCount = steps.filter((s) => s.target_dim).length;
     toast(`已安排 ${written} 个任务到 ${filledPeriods.size} 个时辰${dimCount ? `（含 ${dimCount} 条维度练习）` : ""}`, "success");
-    if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+    haptic([20, 40, 20]);
     closeHatchHistoryDialog();
     renderAll();
   }
@@ -11589,6 +11631,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         targetTasks.push(task);
         setCellTasks(period, cell, targetTasks);
         renderAll();
+        haptic(30); // 任务移动落格震感
         toast(`已移动任务到第 ${cell + 1} 格`, "success");
         return;
       }
@@ -12706,7 +12749,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     renderMandala(); // 主曼陀罗同步更新
     const pname = PERIOD_NAMES[period] || `第${period + 1}时辰`;
     toast(`已安排到 ${pname} 第${cell + 1}格`, "success");
-    if (navigator.vibrate) navigator.vibrate(30);
+    haptic(30); // 安排落位震感
   }
 
   // 双击曼陀罗任务条 → 若来自收集箱则移回（取消安排动作）
@@ -12726,7 +12769,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     renderInboxList();
     renderMandala();
     toast("已移回收集箱", "info");
-    if (navigator.vibrate) navigator.vibrate(20);
+    haptic(20);
   }
 
   function renderInboxFilter() {
@@ -13254,6 +13297,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       </div>
       <p style="margin:2px 0 12px;color:var(--text-muted);font-size:11px;">提示：「归属主线/支线」与「收纳到任务」两套归属互斥——选了父任务则以任务级收纳为准（主线/支线会被清空），反之亦然。</p>
       <div class="assign-actions">
+        <button class="tool-btn" id="kceDelete" style="color:var(--danger, #ff6b6b);" title="删除该任务（5 秒内可撤销）">删除</button>
         <button class="tool-btn" id="assignCancel">取消</button>
         <button class="tool-btn" id="assignOk" style="background:var(--accent);color:#fff;">保存</button>
       </div>
@@ -13276,6 +13320,39 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         : '<option value="">无支线</option>';
     });
     document.getElementById("assignCancel").addEventListener("click", () => el.assignDialog.close());
+    // 删除（可撤销）：与表格视图删除一致的 toast 撤销模式
+    document.getElementById("kceDelete").addEventListener("click", () => {
+      const removedId = it.id;
+      const curIdx = inboxItems.indexOf(it);
+      if (curIdx < 0) { el.assignDialog.close(); return; }
+      const removedChildren = inboxItems.filter((c) => c.parentId === removedId);
+      inboxItems.splice(curIdx, 1);
+      if (removedId) {
+        inboxItems.forEach((c) => { if (c.parentId === removedId) c.parentId = null; });
+        inboxCollapsedParents.delete(removedId);
+      }
+      saveInbox();
+      updateInboxTagDatalist();
+      renderInboxFilter();
+      renderInboxList();
+      renderInboxStats();
+      el.assignDialog.close();
+      haptic(20);
+      toast(`已删除「${(it.text || "").slice(0, 12)}」`, "info", 5000, {
+        label: "撤销",
+        timeout: 5000,
+        onClick: () => {
+          inboxItems.splice(Math.min(curIdx, inboxItems.length), 0, it);
+          removedChildren.forEach((c) => { c.parentId = removedId; });
+          saveInbox();
+          updateInboxTagDatalist();
+          renderInboxFilter();
+          renderInboxList();
+          renderInboxStats();
+          toast("已恢复删除的任务", "success");
+        },
+      });
+    });
     document.getElementById("assignOk").addEventListener("click", () => {
       it.priority = prioVal;
       const mlId = document.getElementById("kceMl").value;
@@ -13345,7 +13422,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     const opt = (v, label) => `<button type="button" class="ikg-btn ${g === v ? "on" : ""}" data-g="${v}">${label}</button>`;
     bar.innerHTML = `<span class="itb-label">分列</span>
       ${opt("tag", "🏷 标签")}${opt("mainline", "🎯 主线")}${opt("prio", "★ 优先级")}${opt("status", "✓ 状态")}
-      <span class="ikg-hint">拖卡片到别的列即可改分类${g === "mainline" ? " · 列内按支线分块" : ""}</span>`;
+      <span class="ikg-hint">点卡片完成 · 长按编辑 · 拖到别的列改分类${g === "mainline" ? " · 列内按支线分块" : ""}</span>`;
   }
   function bindInboxKanbanBarEvents() {
     const bar = el.inboxKanbanBar;
@@ -13396,7 +13473,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     // 备注标记 + 展开区（组块备注）
     const noteBadge = item.note ? `<span class="ikb-note-badge" title="有备注，点击 ✎ 查看/编辑">📝</span>` : "";
     const noteBlock = item.note ? `<div class="ikb-note ${inboxCollapsedNotes.has(item.id) ? "collapsed" : ""}" data-idx="${idx}">${escapeHtml(item.note)}</div>` : "";
-    return `<div class="inbox-kanban-card ${item.done ? "done" : ""}" data-idx="${idx}" title="${item.done ? "点击切换回未完成 · 拖拽可移动分类" : "点击切换完成 · 拖拽可安排到九宫格或移动分类"}" draggable="true">
+    return `<div class="inbox-kanban-card ${item.done ? "done" : ""}" data-idx="${idx}" title="${item.done ? "点击切换回未完成 · 长按编辑 · 拖拽可移动分类" : "点击切换完成 · 长按编辑 · 拖拽可安排到九宫格或移动分类"}" draggable="true">
       <button type="button" class="ikb-edit" data-idx="${idx}" title="编辑：优先级星标 / 归属主线支线 / 收纳到任务 / 备注">✎</button>
       <div class="ikb-card-main"><span class="ikb-card-cb">${item.done ? "✓" : "○"}</span><span class="ikb-card-text">${escapeHtml(item.text || "")}</span></div>
       <div class="ikb-card-meta">${prio}${groupBadge}${childBadge}${noteBadge}${extraTags}${dueStr}</div>
@@ -13504,6 +13581,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   function bindInboxKanbanEvents() {
     if (inboxKanbanBound) return;
     inboxKanbanBound = true;
+    // 长按看板卡片 → 打开编辑弹窗（移动端 ✎ 按钮小，长按更顺手）
+    let kbPressTimer = null, kbLongPressed = false;
     el.inboxList.addEventListener("click", (e) => {
       // ✎ 编辑按钮：打开卡片编辑弹窗（优先级星标 / 归属主线支线 / 收纳到任务 / 备注）
       const editBtn = e.target.closest(".ikb-edit");
@@ -13528,12 +13607,41 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       }
       const card = e.target.closest(".inbox-kanban-card");
       if (!card) return;
+      if (kbLongPressed) { kbLongPressed = false; return; } // 长按已处理，跳过点击
       const idx = parseInt(card.dataset.idx);
       if (!inboxItems[idx]) return;
+      haptic(15); // 看板卡片切换完成轻震
       inboxItems[idx].done = !inboxItems[idx].done;
       saveInbox();
       renderInboxStats();
       renderInboxList();
+    });
+    // 触摸长按检测（500ms）：触发编辑弹窗；移动/提前抬起则取消
+    el.inboxList.addEventListener("touchstart", (e) => {
+      if (inboxView !== "kanban") return;
+      const card = e.target.closest(".inbox-kanban-card");
+      if (!card) return;
+      kbLongPressed = false;
+      kbPressTimer = setTimeout(() => {
+        kbPressTimer = null;
+        kbLongPressed = true;
+        haptic(30);
+        const idx = parseInt(card.dataset.idx);
+        if (inboxItems[idx]) openKanbanCardEdit(idx);
+      }, 500);
+    }, { passive: true });
+    const cancelKbPress = () => { if (kbPressTimer) { clearTimeout(kbPressTimer); kbPressTimer = null; } };
+    el.inboxList.addEventListener("touchmove", cancelKbPress, { passive: true });
+    el.inboxList.addEventListener("touchend", cancelKbPress);
+    el.inboxList.addEventListener("touchcancel", cancelKbPress);
+    // 桌面端右键卡片 → 编辑（与移动端长按对齐）
+    el.inboxList.addEventListener("contextmenu", (e) => {
+      if (inboxView !== "kanban") return;
+      const card = e.target.closest(".inbox-kanban-card");
+      if (!card) return;
+      e.preventDefault();
+      const idx = parseInt(card.dataset.idx);
+      if (inboxItems[idx]) openKanbanCardEdit(idx);
     });
     // 拖拽卡片 → 九宫格（与表格视图一致）
     el.inboxList.addEventListener("dragstart", (e) => {
@@ -13618,6 +13726,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       renderInboxList();
       renderInboxStats();
       if (inboxMode === "mainline") renderMainlineList();
+      haptic(30); // 拖拽落位震感
       toast(msg, "success");
     });
   }
@@ -13837,6 +13946,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         }
         if (act === "del") {
           const removedId = it.id;
+          const removedChildren = inboxItems.filter((c) => c.parentId === removedId);
           inboxItems.splice(idx, 1);
           if (removedId) {
             inboxItems.forEach((c) => { if (c.parentId === removedId) c.parentId = null; });
@@ -13846,6 +13956,22 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
           updateInboxTagDatalist();
           renderInboxFilter();
           renderInboxList();
+          haptic(20);
+          // 删除可撤销：toast 内提供「撤销」按钮（5 秒内有效）
+          toast(`已删除「${(it.text || "").slice(0, 12)}」`, "info", 5000, {
+            label: "撤销",
+            timeout: 5000,
+            onClick: () => {
+              inboxItems.splice(Math.min(idx, inboxItems.length), 0, it);
+              removedChildren.forEach((c) => { c.parentId = removedId; });
+              saveInbox();
+              updateInboxTagDatalist();
+              renderInboxFilter();
+              renderInboxList();
+              renderInboxStats();
+              toast("已恢复删除的任务", "success");
+            },
+          });
           return;
         }
         if (act === "hatch") {
@@ -14148,13 +14274,42 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   if (el.inboxBatchDel) el.inboxBatchDel.addEventListener("click", () => {
     if (!confirm(`删除 ${inboxMultiSelect.size} 项？`)) return;
     const idxs = Array.from(inboxMultiSelect).sort((a, b) => b - a);
+    const removed = idxs.map((idx) => inboxItems[idx]).filter(Boolean);
+    const insertAt = idxs.length ? Math.min(...idxs) : inboxItems.length;
     idxs.forEach((idx) => inboxItems.splice(idx, 1));
+    // 清理指向已删项的收纳关系，记录原值以便撤销
+    const orphanRestores = [];
+    const removedIds = new Set(removed.map((r) => r.id).filter(Boolean));
+    if (removedIds.size) {
+      inboxItems.forEach((c) => {
+        if (c.parentId && removedIds.has(c.parentId)) {
+          orphanRestores.push([c, c.parentId]);
+          c.parentId = null;
+        }
+      });
+    }
     inboxMultiSelect.clear();
     saveInbox();
     updateInboxTagDatalist();
     renderInboxFilter();
     renderInboxList();
-    toast("已删除", "success");
+    renderInboxStats();
+    haptic(25);
+    // 批量删除可撤销（5 秒内）
+    toast(`已删除 ${removed.length} 项`, "info", 5000, {
+      label: "撤销",
+      timeout: 5000,
+      onClick: () => {
+        inboxItems.splice(Math.min(insertAt, inboxItems.length), 0, ...removed);
+        orphanRestores.forEach(([c, pid]) => { c.parentId = pid; });
+        saveInbox();
+        updateInboxTagDatalist();
+        renderInboxFilter();
+        renderInboxList();
+        renderInboxStats();
+        toast("已恢复批量删除的任务", "success");
+      },
+    });
   });
   if (el.inboxBatchSchedule) el.inboxBatchSchedule.addEventListener("click", () => {
     const items = Array.from(inboxMultiSelect).map((idx) => inboxItems[idx]).filter(Boolean).filter((i) => !i.done);
@@ -14220,7 +14375,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       setRealm("plan");
     }
     toast(written === items.length ? `已安排 ${written} 个任务` : `安排了 ${written}/${items.length}（剩余空格不足）`, written ? "success" : "error");
-    if (written && navigator.vibrate) navigator.vibrate([20, 40, 20]);
+    if (written) haptic([20, 40, 20]);
   }
 
   function renderStat() {
