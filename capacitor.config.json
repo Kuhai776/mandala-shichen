@@ -2,8 +2,8 @@
   "appId": "com.kuhai.mandala",
   "appName": "曼陀罗时辰",
   "webDir": "www",
-  "appVersion": "2.4.0",
-  "appVersionCode": 11,
+  "appVersion": "2.7.9",
+  "appVersionCode": 25,
   "server": {
     "cleartext": false
   },
