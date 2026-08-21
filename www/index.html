@@ -86,7 +86,7 @@
       } catch (e) { console.warn("[polyfill] dialog 降级失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260821a" />
+  <link rel="stylesheet" href="styles.css?v=20260821d" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
   <script src="lib/mermaid.min.js"></script>
@@ -95,7 +95,7 @@
   <!-- 顶部状态栏 -->
   <header class="app-header">
     <div class="header-left">
-      <h1 class="app-title">曼陀罗时辰 <span class="version-badge" id="versionBadge" title="点击查看更新日志">v2.7.1</span></h1>
+      <h1 class="app-title">曼陀罗时辰 <span class="version-badge" id="versionBadge" title="点击查看更新日志">v2.7.10</span></h1>
       <p class="app-subtitle" id="dateLabel">AI 对话式日程规划</p>
     </div>
     <div class="header-right">
@@ -107,9 +107,10 @@
     <button class="icon-btn settings-btn" id="settingsBtn" aria-label="设置">⚙</button>
   </header>
 
-  <!-- 长期任务时间地图（顶部甘特条） -->
+  <!-- 长期任务时间地图（顶部甘特条，可折叠） -->
   <div class="longtask-bar" id="longtaskBar">
-    <div class="longtask-bar-header">
+    <div class="longtask-bar-header" id="ltbHeader" title="点击展开/收起">
+      <span class="ltb-toggle-btn" id="ltbToggleBtn" aria-hidden="true">▾</span>
       <span class="ltb-title">🗺️ 长期事项时间地图</span>
       <span class="ltb-hint" id="ltbHint">跨日/周/月的长线任务</span>
       <button class="ltb-add-btn" id="ltbAddBtn" title="新建长期任务">＋ 新建</button>
@@ -1655,6 +1656,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=20260821a" defer></script>
+  <script src="app.js?v=20260821d" defer></script>
 </body>
 </html>

@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260815g";
+const SW_VER = "20260821b";
 
 (function () {
   "use strict";
@@ -119,9 +119,14 @@ const SW_VER = "20260815g";
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.7.9";
+  const APP_VERSION = "2.7.10";
   const APP_VERSION_DATE = "2026-08-21";
   const APP_CHANGELOG = [
+    { v: "2.7.10", date: "2026-08-21", items: [
+      "优化：顶部 UI 精修——顶栏紧凑毛玻璃吸顶（高度对齐 --header-h 无露缝）、时辰标签条同步吸顶、三才切换器横排紧凑化、长期任务地图可折叠（点击标题栏收起/展开，状态记忆）",
+      "新增：看板拖拽改分类——卡片拖到另一列即可改标签/主线/优先级/完成状态，主线模式可拖进具体支线分块（多链精确定位），拖拽目标高亮反馈",
+      "优化：看板已完成卡片也可拖拽（状态分列时可拖回进行中），工具条提示拖拽用法",
+    ]},
     { v: "2.7.9", date: "2026-08-21", items: [
       "新增：归属图双链全景——主线/支线归属（实线）与任务级收纳（虚线）合并为一张 mermaid 图，附图例与统计",
       "新增：看板分列工具条（标签/主线/优先级/状态四维切换），主线模式列内按支线分块（多链），列头「N 链」徽标",
@@ -9131,6 +9136,21 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   const changelogDialog = document.getElementById("changelogDialog");
   if (changelogDialog) changelogDialog.addEventListener("click", (e) => { if (e.target === changelogDialog) changelogDialog.close(); });
 
+  // ---------- 长期任务地图折叠（记忆状态，减少顶部占屏） ----------
+  const LTB_COLLAPSED_KEY = "mandala.ltbCollapsed";
+  const ltbBar = document.getElementById("longtaskBar");
+  if (ltbBar) {
+    if (localStorage.getItem(LTB_COLLAPSED_KEY) === "1") ltbBar.classList.add("collapsed");
+    const ltbHeader = document.getElementById("ltbHeader");
+    if (ltbHeader) {
+      ltbHeader.addEventListener("click", (e) => {
+        if (e.target.closest("#ltbAddBtn")) return; // 新建按钮不触发折叠
+        const collapsed = ltbBar.classList.toggle("collapsed");
+        localStorage.setItem(LTB_COLLAPSED_KEY, collapsed ? "1" : "0");
+      });
+    }
+  }
+
   // ---------- 引导式按钮渲染 ----------
   function renderSuggestions(buttons) {
     el.chatSuggestions.innerHTML = "";
@@ -13325,7 +13345,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     const opt = (v, label) => `<button type="button" class="ikg-btn ${g === v ? "on" : ""}" data-g="${v}">${label}</button>`;
     bar.innerHTML = `<span class="itb-label">分列</span>
       ${opt("tag", "🏷 标签")}${opt("mainline", "🎯 主线")}${opt("prio", "★ 优先级")}${opt("status", "✓ 状态")}
-      ${g === "mainline" ? '<span class="ikg-hint">列内按支线分块 · 无归属任务在「未归属」列</span>' : ""}`;
+      <span class="ikg-hint">拖卡片到别的列即可改分类${g === "mainline" ? " · 列内按支线分块" : ""}</span>`;
   }
   function bindInboxKanbanBarEvents() {
     const bar = el.inboxKanbanBar;
@@ -13376,7 +13396,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     // 备注标记 + 展开区（组块备注）
     const noteBadge = item.note ? `<span class="ikb-note-badge" title="有备注，点击 ✎ 查看/编辑">📝</span>` : "";
     const noteBlock = item.note ? `<div class="ikb-note ${inboxCollapsedNotes.has(item.id) ? "collapsed" : ""}" data-idx="${idx}">${escapeHtml(item.note)}</div>` : "";
-    return `<div class="inbox-kanban-card ${item.done ? "done" : ""}" data-idx="${idx}" title="${item.done ? "点击切换回未完成" : "点击切换完成 · 拖拽可安排到九宫格"}"${item.done ? "" : ' draggable="true"'}>
+    return `<div class="inbox-kanban-card ${item.done ? "done" : ""}" data-idx="${idx}" title="${item.done ? "点击切换回未完成 · 拖拽可移动分类" : "点击切换完成 · 拖拽可安排到九宫格或移动分类"}" draggable="true">
       <button type="button" class="ikb-edit" data-idx="${idx}" title="编辑：优先级星标 / 归属主线支线 / 收纳到任务 / 备注">✎</button>
       <div class="ikb-card-main"><span class="ikb-card-cb">${item.done ? "✓" : "○"}</span><span class="ikb-card-text">${escapeHtml(item.text || "")}</span></div>
       <div class="ikb-card-meta">${prio}${groupBadge}${childBadge}${noteBadge}${extraTags}${dueStr}</div>
@@ -13391,13 +13411,14 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       // 主线分列：列内再按支线分块（多链：一个主线多个支线）
       cols = inboxMainlines.map((ml) => {
         const items = filtered.filter((i) => i.mainline === ml.id);
-        const sections = (ml.sidelines || []).map((sl) => ({ name: sl.name, dim: sl.dim, items: items.filter((i) => i.sideline === sl.id) }))
+        const sections = (ml.sidelines || []).map((sl) => ({ id: sl.id, name: sl.name, dim: sl.dim, items: items.filter((i) => i.sideline === sl.id) }))
           .filter((s) => s.items.length);
         const unsectioned = items.filter((i) => !i.sideline || !(ml.sidelines || []).some((s) => s.id === i.sideline));
         return { key: ml.id, name: ml.name, color: ml.color, items, sections, unsectioned };
       }).filter((c) => c.items.length);
       const noneItems = filtered.filter((i) => !i.mainline);
-      if (noneItems.length) cols.push({ key: "__none__", name: "未归属", color: "#6b7280", items: noneItems, sections: [], unsectioned: noneItems });
+      // 未归属列常显（含空）：拖入即移出主线
+      cols.push({ key: "__none__", name: "未归属", color: "#6b7280", items: noneItems, sections: [], unsectioned: noneItems });
       cols.sort((a, b) => (a.key === "__none__" ? 1 : 0) - (b.key === "__none__" ? 1 : 0));
     } else if (groupKey === "prio") {
       const defs = [
@@ -13405,7 +13426,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         { key: "1", name: "★ 重要", color: "#ffd93d" },
         { key: "0", name: "○ 普通", color: "#6b7280" },
       ];
-      cols = defs.map((d) => ({ ...d, items: filtered.filter((i) => (i.priority || 0) === Number(d.key)) })).filter((c) => c.items.length);
+      // 固定三列全部显示（含空列）：便于拖拽改优先级
+      cols = defs.map((d) => ({ ...d, items: filtered.filter((i) => (i.priority || 0) === Number(d.key)) }));
     } else if (groupKey === "status") {
       const defs = [
         { key: "overdue", name: "逾期", color: "#ff6b6b" },
@@ -13413,6 +13435,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         { key: "done", name: "已完成", color: "#3ddc84" },
       ];
       const now = new Date(); now.setHours(0, 0, 0, 0);
+      // 固定三列全部显示（含空列）：便于拖拽改状态
       cols = defs.map((d) => ({
         ...d,
         items: filtered.filter((i) => {
@@ -13421,7 +13444,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
           if (d.key === "overdue") return !!(i.due && i.due < now.getTime());
           return !(i.due && i.due < now.getTime());
         }),
-      })).filter((c) => c.items.length);
+      }));
     } else {
       // 默认：按第一个 tag 分列
       const NO_TAG = "未分类";
@@ -13432,6 +13455,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         colMap.get(tag).items.push(item);
       });
       cols = [...colMap.entries()].map(([tag, col]) => ({ key: tag, name: tag, color: col.color, items: col.items }));
+      // 未分类列常显（含空）：拖入即移除标签
+      if (!colMap.has(NO_TAG)) cols.push({ key: NO_TAG, name: NO_TAG, color: tagColor(NO_TAG), items: [] });
       cols.sort((a, b) => {
         if (a.name === NO_TAG) return 1;
         if (b.name === NO_TAG) return -1;
@@ -13449,13 +13474,13 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       if (groupKey === "mainline") {
         const sectionHTML = (col.sections || []).map((sec) => {
           const secUndone = sec.items.filter((i) => !i.done).length;
-          return `<div class="ikb-section">
+          return `<div class="ikb-section" data-sl="${escapeHtml(sec.id)}">
             <div class="ikb-section-head"><span class="ikb-section-dot" style="background:${col.color};"></span><span class="ikb-section-name">${escapeHtml(sec.name)}</span>${sec.dim ? `<span class="ikb-section-dim" style="background:${col.color}20;color:${col.color};">${escapeHtml(sec.dim)}</span>` : ""}<span class="ikb-section-count">${secUndone}/${sec.items.length}</span></div>
             ${sec.items.map((item) => inboxKanbanCardHTML(item, { groupKey })).join("")}
           </div>`;
         }).join("");
         const unHTML = (col.unsectioned || []).map((item) => inboxKanbanCardHTML(item, { groupKey })).join("");
-        bodyHTML = sectionHTML + ((col.unsectioned || []).length ? `<div class="ikb-section ikb-section-flat"><div class="ikb-section-head"><span class="ikb-section-name" style="color:var(--text-muted);">未分支线</span></div>${unHTML}</div>` : "");
+        bodyHTML = sectionHTML + ((col.unsectioned || []).length ? `<div class="ikb-section ikb-section-flat" data-sl=""><div class="ikb-section-head"><span class="ikb-section-name" style="color:var(--text-muted);">未分支线</span></div>${unHTML}</div>` : "");
       } else {
         bodyHTML = col.items.map((item) => inboxKanbanCardHTML(item, { groupKey })).join("");
       }
@@ -13466,7 +13491,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
           ${groupKey === "mainline" && col.sections && col.sections.length ? `<span class="ikb-sl-count" title="${col.sections.length} 条支线">${col.sections.length} 链</span>` : ""}
           <span class="inbox-kanban-col-count">${undone}/${col.items.length}</span>
         </div>
-        <div class="inbox-kanban-col-body">${bodyHTML}</div>
+        <div class="inbox-kanban-col-body">${bodyHTML || '<div class="ikb-empty-hint">拖卡片到这里</div>'}</div>
       </div>`;
     }).join("")}</div>`;
     el.inboxList.innerHTML = html;
@@ -13522,6 +13547,78 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     el.inboxList.addEventListener("dragend", (e) => {
       const card = e.target.closest(".inbox-kanban-card");
       if (card) card.classList.remove("dragging");
+      clearDragOverMarks();
+    });
+
+    // ---------- 拖拽卡片 → 另一列/支线分块：快速改分类 ----------
+    const clearDragOverMarks = () => el.inboxList.querySelectorAll(".drag-over, .drag-over-col").forEach((x) => x.classList.remove("drag-over", "drag-over-col"));
+    el.inboxList.addEventListener("dragover", (e) => {
+      if (inboxView !== "kanban") return;
+      const colEl = e.target.closest(".inbox-kanban-col");
+      if (!colEl) return;
+      e.preventDefault(); // 允许放置
+      e.dataTransfer.dropEffect = "copy";
+      clearDragOverMarks();
+      // 主线模式优先高亮支线分块，其余高亮整列
+      const sec = e.target.closest(".ikb-section");
+      if (sec) sec.classList.add("drag-over");
+      else colEl.querySelector(".inbox-kanban-col-body")?.classList.add("drag-over-col");
+    });
+    el.inboxList.addEventListener("dragleave", (e) => {
+      if (!e.relatedTarget || !el.inboxList.contains(e.relatedTarget)) clearDragOverMarks();
+    });
+    el.inboxList.addEventListener("drop", (e) => {
+      if (inboxView !== "kanban") return;
+      const colEl = e.target.closest(".inbox-kanban-col");
+      if (!colEl) return;
+      e.preventDefault();
+      e.stopPropagation(); // 阻止冒泡到页面级 drop（避免误当九宫格投放）
+      const raw = e.dataTransfer.getData("text/plain");
+      if (!raw) return;
+      let payload;
+      try { payload = JSON.parse(raw); } catch (err) { return; }
+      if (!payload || payload.kind !== "inbox") return;
+      const it = inboxItems[payload.idx];
+      if (!it) return;
+      const groupKey = inboxOptions.kanbanGroup || "tag";
+      const colKey = colEl.dataset.col;
+      const secEl = e.target.closest(".ikb-section");
+      const slId = secEl ? (secEl.dataset.sl || null) : undefined; // null=未分支线区 undefined=非主线模式
+      clearDragOverMarks();
+      // 应用分类变更
+      let msg = "";
+      if (groupKey === "tag") {
+        if (colKey === "未分类") { it.tags = []; msg = "已移除标签"; }
+        else {
+          // 替换首标签（看板按首标签分列）：其余标签保留
+          const rest = (it.tags || []).slice(1).filter((t) => t !== colKey);
+          it.tags = [colKey, ...rest];
+          msg = `已分类到「${colKey}」`;
+        }
+      } else if (groupKey === "mainline") {
+        if (colKey === "__none__") { it.mainline = null; it.sideline = null; msg = "已移出主线（独立任务）"; }
+        else {
+          const hadParent = !!it.parentId;
+          it.parentId = null; // 主线归属与任务级收纳互斥，拖入主线即解除收纳
+          it.mainline = colKey;
+          it.sideline = slId || null;
+          const ml = inboxMainlines.find((m) => m.id === colKey);
+          msg = `已归属主线「${ml ? ml.name : ""}」${slId ? " · " + ((ml && (ml.sidelines || []).find((s) => s.id === slId)) || {}).name : ""}`;
+          if (hadParent) msg += "（已解除原收纳关系）";
+        }
+      } else if (groupKey === "prio") {
+        it.priority = Number(colKey) || 0;
+        msg = it.priority === 2 ? "已标记 ⚡ 紧急" : it.priority === 1 ? "已标记 ★ 重要" : "已设为普通优先级";
+      } else if (groupKey === "status") {
+        if (colKey === "done") { it.done = true; msg = "已标记完成"; }
+        else if (colKey === "undone") { it.done = false; msg = "已恢复进行中"; }
+        else { toast("「逾期」由截止日期决定，请用 ✎ 修改日期", "info"); return; }
+      }
+      saveInbox();
+      renderInboxList();
+      renderInboxStats();
+      if (inboxMode === "mainline") renderMainlineList();
+      toast(msg, "success");
     });
   }
 
