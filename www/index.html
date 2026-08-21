@@ -1482,6 +1482,7 @@
             <datalist id="inboxTagList"></datalist>
             <input type="datetime-local" id="inboxNewStart" title="开始日期（可选）" style="padding:4px 8px;width:150px;" />
             <input type="datetime-local" id="inboxNewDue" title="截止日期（可选）" style="padding:4px 8px;width:150px;" />
+            <input type="text" id="inboxNewNote" placeholder="备注（可选，保存后组块显示）" maxlength="300" style="width:160px;" />
             <button class="tool-btn" id="inboxAddBtn" style="background:var(--accent);color:#fff;">＋ 添加</button>
           </div>
           <div class="inbox-tag-chips" id="inboxTagChips"></div>
@@ -1523,6 +1524,8 @@
           </div>
           <!-- 表格选项工具栏（仅表格视图显示：排序 / 列显隐 / 日期显示） -->
           <div class="inbox-table-bar" id="inboxTableBar" hidden></div>
+          <!-- 看板分组工具栏（仅看板视图显示：按标签/主线/优先级/状态分列） -->
+          <div class="inbox-table-bar" id="inboxKanbanBar" hidden></div>
           <!-- 当前时辰九宫格预览（拖拽落点） -->
           <div class="inbox-grid-preview" id="inboxGridPreview">
             <div class="inbox-grid-preview-head">

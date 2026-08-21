@@ -1861,6 +1861,7 @@ const SW_VER = "20260815g";
     inboxCategory: document.getElementById("inboxCategory"),
     inboxNewStart: document.getElementById("inboxNewStart"),
     inboxNewDue: document.getElementById("inboxNewDue"),
+    inboxNewNote: document.getElementById("inboxNewNote"),
     inboxDateDialog: document.getElementById("inboxDateDialog"),
     inboxDateStart: document.getElementById("inboxDateStart"),
     inboxDateDue: document.getElementById("inboxDateDue"),
@@ -1876,6 +1877,7 @@ const SW_VER = "20260815g";
     inboxViewSwitch: document.getElementById("inboxViewSwitch"),
     inboxRelGraphBtn: document.getElementById("inboxRelGraphBtn"),
     inboxTableBar: document.getElementById("inboxTableBar"),
+    inboxKanbanBar: document.getElementById("inboxKanbanBar"),
     // 收集箱-九宫格预览
     igpGrid: document.getElementById("igpGrid"),
     igpPeriodLabel: document.getElementById("igpPeriodLabel"),
@@ -2999,7 +3001,10 @@ const SW_VER = "20260815g";
     return n;
   }
 
-  // 渲染持续事项面板：卡片点击 → 快速记录弹窗；长按 → 秒记（上次时长+当前格）；✕ 删除
+  // 滑动记录模式：启动后按住并滑过记录页格子，逐格重复写入该持续事项
+  let swipeRecordItem = null;
+  let swipeCellsDone = new Set(); // 本次滑动已写入的格子 key（period-cell），防重复
+  // 渲染持续事项面板：卡片点击 → 快速记录弹窗；长按 → 秒记（上次时长+当前格）；▶ 启动 → 滑动格子重复记录；✕ 删除
   function renderOngoingPanel() {
     if (!el.recordOngoingList) return;
     const items = state.ongoing;
@@ -3010,21 +3015,45 @@ const SW_VER = "20260815g";
     el.recordOngoingList.innerHTML = items.map((it) => {
       const n = countOngoingToday(it);
       const w = countOngoingWeek(it);
-      return `<div class="og-card" data-og="${escapeHtml(it.id)}" title="点击快速记录「${escapeHtml(it.name)}」 · 长按直接用上次时长记录到当前格">
+      const active = swipeRecordItem && swipeRecordItem.id === it.id;
+      return `<div class="og-card ${active ? "og-swiping" : ""}" data-og="${escapeHtml(it.id)}" title="点击快速记录「${escapeHtml(it.name)}」 · 长按秒记 · ▶ 启动后滑动格子批量记录">
         <span class="og-icon">${escapeHtml(it.icon || "⚡")}</span>
         <span class="og-info">
           <span class="og-name">${escapeHtml(it.name)}</span>
           <span class="og-stats">今日 ${n} 次 · 本周 ${w} 次${it.lastSpent ? " · 上次 " + escapeHtml(it.lastSpent) : ""}</span>
         </span>
+        <button class="og-swipe-btn ${active ? "on" : ""}" data-og="${escapeHtml(it.id)}" title="${active ? "停止滑动记录" : "启动滑动记录：在记录页按住并滑过格子，逐格重复记录该事项"}">${active ? "⏹ 停止" : "▶ 启动"}</button>
         <button class="og-record-btn" data-og="${escapeHtml(it.id)}" title="快速记录">⚡ 记录</button>
         <button class="og-del-btn" data-og="${escapeHtml(it.id)}" title="删除该持续事项">✕</button>
       </div>`;
     }).join("");
+    // 滑动记录提示条（启动后显示在九宫格上方）
+    if (el.recordGrid) {
+      el.recordGrid.classList.toggle("swipe-mode", !!swipeRecordItem);
+      el.recordGrid.dataset.swipeName = swipeRecordItem ? swipeRecordItem.name : "";
+    }
+    const stopSwipe = () => { swipeRecordItem = null; renderOngoingPanel(); renderRecord(); };
+    el.recordOngoingList.querySelectorAll(".og-swipe-btn").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const it = state.ongoing.find((x) => x.id === btn.dataset.og);
+        if (!it) return;
+        if (swipeRecordItem && swipeRecordItem.id === it.id) {
+          stopSwipe();
+          toast("已停止滑动记录", "info");
+        } else {
+          swipeRecordItem = it;
+          renderOngoingPanel();
+          renderRecord();
+          toast(`▶ 已启动「${it.name}」滑动记录：在下方九宫格按住并滑过格子，每格自动重复记录`, "success");
+        }
+      });
+    });
     el.recordOngoingList.querySelectorAll(".og-card").forEach((card) => {
       // 长按 500ms → 秒记（用上次时长记录到当前时间格，无弹窗）
       let lpTimer = null, lpFired = false;
       const startLp = (e) => {
-        if (e.target.closest(".og-del-btn")) return;
+        if (e.target.closest(".og-del-btn") || e.target.closest(".og-swipe-btn")) return;
         lpFired = false;
         lpTimer = setTimeout(() => {
           lpFired = true;
@@ -3747,9 +3776,13 @@ const SW_VER = "20260815g";
         attachWrap.appendChild(thumbs);
       }).catch(() => {});
 
-      // 点击编辑记录
-      cellEl.addEventListener("click", () => openRecordEditor(period, cell));
+      // 点击编辑记录（滑动记录模式下：格子只用于滑动批量记录，点击不打开编辑器）
+      cellEl.addEventListener("click", () => {
+        if (swipeRecordItem) return;
+        openRecordEditor(period, cell);
+      });
       cellEl.addEventListener("dblclick", () => {
+        if (swipeRecordItem) return;
         // 双击直接快速记录"完成"，与计划同步
         if (planTasks.length && !record) {
           setCellRecord(period, cell, {
@@ -3768,6 +3801,64 @@ const SW_VER = "20260815g";
     if (el.recordStatsInline) {
       el.recordStatsInline.textContent = `本时辰 ${recordedInPeriod}/9 格已记录 · 计划 ${planInPeriod} 格`;
     }
+    bindSwipeRecordEvents();
+  }
+
+  // ---------- 滑动记录：按住并滑过格子 → 逐格重复写入启动的持续事项 ----------
+  function applySwipeRecord(cellEl) {
+    if (!swipeRecordItem) return;
+    const period = Number(cellEl.dataset.period);
+    const cell = Number(cellEl.dataset.cell);
+    const key = period + "-" + cell;
+    if (swipeCellsDone.has(key)) return;
+    swipeCellsDone.add(key);
+    const item = swipeRecordItem;
+    const spent = item.lastSpent || (Math.round(SECONDS_PER_CELL / 60) + "分钟");
+    const actual = `${item.icon || "⚡"} ${item.name}`;
+    cellEl.classList.add("swiped");
+    // 该格已含同名记录则只做标记，不重复写入
+    const rec = getCellRecord(period, cell);
+    if (rec && rec.actual && rec.actual.includes(actual)) return;
+    const merged = rec && rec.actual
+      ? { ...rec, actual: rec.actual + "；" + actual, spent, note: rec.note || "" }
+      : { spent, actual, note: "" };
+    setCellRecord(period, cell, merged);
+  }
+  function bindSwipeRecordEvents() {
+    const grid = el.recordGrid;
+    if (!grid || grid._swipeBound) return;
+    grid._swipeBound = true;
+    let swiping = false;
+    const cellFromPoint = (x, y) => {
+      const t = document.elementFromPoint(x, y);
+      return t ? t.closest(".cell") : null;
+    };
+    const endSwipe = () => {
+      if (!swiping) return;
+      swiping = false;
+      if (swipeCellsDone.size) {
+        toast(`已滑动记录「${swipeRecordItem ? swipeRecordItem.name : ""}」× ${swipeCellsDone.size} 格`, "success");
+        if (navigator.vibrate) navigator.vibrate(25);
+      }
+      swipeCellsDone.clear();
+      renderRecord(); // 重绘格子显示新记录
+    };
+    grid.addEventListener("pointerdown", (e) => {
+      if (!swipeRecordItem) return;
+      const cell = e.target.closest(".cell");
+      if (!cell) return;
+      swiping = true;
+      e.preventDefault();
+      applySwipeRecord(cell);
+    });
+    grid.addEventListener("pointermove", (e) => {
+      if (!swiping || !swipeRecordItem) return;
+      const cell = cellFromPoint(e.clientX, e.clientY);
+      if (cell && cell.parentElement === grid) applySwipeRecord(cell);
+    });
+    grid.addEventListener("pointerup", endSwipe);
+    grid.addEventListener("pointercancel", endSwipe);
+    grid.addEventListener("pointerleave", endSwipe);
   }
 
   // 记录编辑弹层（轻量内联表单）
@@ -12318,10 +12409,11 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   let inboxMultiSelectMode = false;
   let inboxMode = "quick"; // 当前收集箱模式：quick / mainline / long
   const inboxCollapsedParents = new Set(); // 已折叠的父任务 id（任务级主线/支线）
+  const inboxCollapsedNotes = new Set(); // 已折叠备注的任务 id（看板组块备注）
   let inboxDateEditingIdx = -1; // 正在编辑日期的条目 idx（日期弹窗）
-  // 表格视图选项（排序/列显隐/日期显示），持久化到 localStorage
+  // 表格视图选项（排序/列显隐/日期显示）+ 看板分组维度，持久化到 localStorage
   const inboxOptions = Object.assign(
-    { sortKey: "default", sortDir: -1, cols: { tags: true, prio: true, date: true, group: true, created: false }, absDate: false },
+    { sortKey: "default", sortDir: -1, cols: { tags: true, prio: true, date: true, group: true, created: false }, absDate: false, kanbanGroup: "tag" },
     load("mandala-inbox-options", {})
   );
   function saveInboxOptions() { save("mandala-inbox-options", inboxOptions); }
@@ -12694,6 +12786,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
           <span class="ml-color-dot" style="background:${ml.color};"></span>
           <span class="ml-name">${escapeHtml(ml.name)}</span>
           ${ml.dim ? `<span class="ml-dim-badge" style="background:${ml.color}20;color:${ml.color};">${ml.dim}</span>` : ""}
+          <span class="ml-sl-total" title="该主线下的支线数量">${(ml.sidelines || []).length} 支线</span>
           <div class="ml-progress-mini">
             <div class="ml-progress-bar" style="width:${progress}%;background:${ml.color};"></div>
           </div>
@@ -12858,21 +12951,38 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   // 任务归属弹窗
   function openAssignDialog(taskIds, batchMode) {
     const ids = Array.isArray(taskIds) ? taskIds : [taskIds];
+    const single = ids.length === 1 && !batchMode;
+    const singleItem = single ? inboxItems.find((i) => i.id === ids[0]) : null;
+    // 单任务模式：同时提供「收纳到其他任务」（任务级主线/支线）选项
+    const parentForm = singleItem ? (() => {
+      const candidates = getParentCandidates(singleItem.id);
+      return `<div class="assign-form">
+        <label>收纳到任务</label>
+        <select id="assignParent" style="flex:1;">
+          <option value="">— 保持现状 —</option>
+          <option value="__none__" ${!singleItem.parentId ? "selected" : ""}>— 取消收纳（独立任务）—</option>
+          ${candidates.map((c) => `<option value="${c.id}" ${singleItem.parentId === c.id ? "selected" : ""}>${escapeHtml((c.text || "").slice(0, 36))}${c.parentId ? "（子任务）" : ""}</option>`).join("")}
+        </select>
+      </div>
+      <p style="margin:2px 0 12px;color:var(--text-muted);font-size:11px;">提示：「归属主线/支线」与「收纳到任务」互斥——选了父任务会清空主线/支线归属；归属主线会解除收纳。</p>`;
+    })() : "";
     el.assignBody.innerHTML = `
-      <p style="margin:0 0 12px;color:var(--text-secondary);font-size:13px;">选择主线和支线（可只选主线）：</p>
+      <p style="margin:0 0 12px;color:var(--text-secondary);font-size:13px;">选择主线和支线（可只选主线）${single ? "，或改用任务级收纳" : ""}：</p>
       <div class="assign-form">
         <label>主线</label>
         <select id="assignMl" style="flex:1;">
           <option value="">— 不归属（移出主线）—</option>
-          ${inboxMainlines.map((ml) => `<option value="${ml.id}">${escapeHtml(ml.name)}</option>`).join("")}
+          ${inboxMainlines.map((ml) => `<option value="${ml.id}" ${singleItem && singleItem.mainline === ml.id ? "selected" : ""}>${escapeHtml(ml.name)}</option>`).join("")}
         </select>
       </div>
       <div class="assign-form">
         <label>支线</label>
         <select id="assignSl" style="flex:1;">
           <option value="">无支线</option>
+          ${(singleItem && singleItem.mainline ? (getMainline(singleItem.mainline) || { sidelines: [] }).sidelines : []).map((sl) => `<option value="${sl.id}" ${singleItem && singleItem.sideline === sl.id ? "selected" : ""}>${escapeHtml(sl.name)}</option>`).join("")}
         </select>
       </div>
+      ${parentForm}
       <div class="assign-actions">
         <button class="tool-btn" id="assignCancel">取消</button>
         <button class="tool-btn" id="assignOk" style="background:var(--accent);color:#fff;">确定</button>
@@ -12890,7 +13000,22 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     document.getElementById("assignOk").addEventListener("click", () => {
       const mlId = document.getElementById("assignMl").value;
       const slId = document.getElementById("assignSl").value;
+      const parentVal = single ? document.getElementById("assignParent").value : "";
       ids.forEach((tid) => assignTaskToMainline(tid, mlId || null, slId || null));
+      // 单任务模式：应用任务级收纳（父任务优先，两套归属互斥）
+      if (single && singleItem) {
+        if (parentVal === "__none__") {
+          singleItem.parentId = null;
+        } else if (parentVal) {
+          singleItem.parentId = parentVal;
+          singleItem.mainline = null;
+          singleItem.sideline = null;
+        } else if (mlId) {
+          // 归属了主线 → 解除任务级收纳
+          singleItem.parentId = null;
+        }
+      }
+      saveInbox();
       el.assignDialog.close();
       renderInboxList();
       renderInboxStats();
@@ -12899,69 +13024,117 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     });
   }
 
-  // 任务级主线/支线关系图：把收集箱任务的 parentId 层级画成 mermaid 树（可多级）
+  // 归属关系图（双链全景）：合并「主线/支线归属」与「任务级收纳(parentId)」两套关系为一张 mermaid 图
   async function showInboxRelGraph() {
     if (typeof mermaid === "undefined") { toast("图表库未加载（lib/mermaid.min.js 缺失）", "error"); return; }
     const items = inboxItems.filter((i) => i && i.text);
     if (!items.length) { toast("收集箱为空", "info"); return; }
-    // 建树：parentId -> children；无 parentId 为根
+    // 任务级父子索引：parentId -> children
     const byParent = new Map();
     items.forEach((it) => {
       const pid = it.parentId || "__root__";
       if (!byParent.has(pid)) byParent.set(pid, []);
       byParent.get(pid).push(it);
     });
-    // 有父子关系的才算图（纯根任务太多会很难看，先过滤出有关系的）
-    const hasRel = new Set();
-    items.forEach((it) => { if (it.parentId && items.some((x) => x.id === it.parentId)) hasRel.add(it.id); });
-    const roots = (byParent.get("__root__") || []).filter((r) => hasRel.size === 0 || hasRel.has(r.id) || (byParent.get(r.id) || []).length > 0);
-    const esc = (s) => String(s || "").replace(/[\[\](){}|#]/g, " ").replace(/"/g, "＂").replace(/\n/g, " ").slice(0, 50);
-    const lines = ["flowchart TD"];
-    const nid = (id) => "N" + id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8) + Math.abs(id.split("").reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7));
-    const emit = (it, depth) => {
+    const esc = (s) => String(s || "").replace(/[\[\](){}|#"]/g, " ").replace(/"/g, "＂").replace(/\n/g, " ").slice(0, 50);
+    const lines = ["flowchart LR"];
+    const nodeIds = new Map();
+    const nid = (id, prefix) => {
+      const key = prefix + id;
+      if (!nodeIds.has(key)) nodeIds.set(key, (prefix || "N") + id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8) + Math.abs(id.split("").reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7)));
+      return nodeIds.get(key);
+    };
+    let edgeCount = 0;
+    // 发射一个任务节点及其任务级子树（parentId 收纳链，虚线）
+    const emitTaskTree = (it) => {
+      const my = nid(it.id, "T");
       const doneMark = it.done ? "✅ " : "";
-      const cls = it.done ? ":::done" : (it.parentId ? ":::child" : ":::root");
-      lines.push(`${nid(it.id)}["${doneMark}${esc(it.text)}"]${cls}`);
-      const kids = byParent.get(it.id) || [];
-      kids.forEach((k) => {
-        lines.push(`${nid(it.id)} --> ${nid(k.id)}`);
-        emit(k, depth + 1);
+      const prioMark = it.priority === 2 ? "⚡ " : it.priority === 1 ? "★ " : "";
+      const cls = it.done ? ":::done" : ":::task";
+      lines.push(`${my}["${doneMark}${prioMark}${esc(it.text)}"]${cls}`);
+      (byParent.get(it.id) || []).forEach((k) => {
+        if (!k.parentId || items.some((x) => x.id === k.parentId)) {
+          lines.push(`${my} -.收纳.- ${nid(k.id, "T")}`);
+          edgeCount++;
+          emitTaskTree(k);
+        }
       });
     };
-    roots.forEach((r) => {
-      lines.push(`${nid(r.id)}["${r.done ? "✅ " : ""}${esc(r.text)}"]${r.parentId ? ":::child" : ":::root"}`);
-      (byParent.get(r.id) || []).forEach((k) => {
-        lines.push(`${nid(r.id)} --> ${nid(k.id)}`);
-        emit(k, 1);
+    // ① 主线/支线归属（实线层级）：主线 → 支线 → 任务
+    inboxMainlines.forEach((ml) => {
+      const mlNode = nid(ml.id, "M");
+      lines.push(`${mlNode}((("${esc(ml.name)}"))):::ml`);
+      const mlTasks = items.filter((i) => i.mainline === ml.id && !i.parentId);
+      (ml.sidelines || []).forEach((sl) => {
+        const slNode = nid(sl.id, "S");
+        lines.push(`${slNode}("${esc(sl.name)}"):::sl`);
+        lines.push(`${mlNode} === ${slNode}`);
+        edgeCount++;
+        const slTasks = mlTasks.filter((i) => i.sideline === sl.id);
+        slTasks.forEach((t) => {
+          lines.push(`${slNode} === ${nid(t.id, "T")}`);
+          edgeCount++;
+          emitTaskTree(t);
+        });
+      });
+      // 挂在主线上、未选支线的任务
+      mlTasks.filter((i) => !i.sideline || !(ml.sidelines || []).some((s) => s.id === i.sideline)).forEach((t) => {
+        lines.push(`${mlNode} === ${nid(t.id, "T")}`);
+        edgeCount++;
+        emitTaskTree(t);
       });
     });
-    lines.push("classDef root fill:#241f4a,stroke:#7c5cff,color:#c9bfff;");
-    lines.push("classDef child fill:#102a3a,stroke:#4dc3ff,color:#b8e8ff;");
+    // ② 独立的任务级父子树（未挂主线的根任务，有子树才画）
+    const hasRelRoot = (r) => (byParent.get(r.id) || []).length > 0;
+    (byParent.get("__root__") || []).filter((r) => !r.mainline && hasRelRoot(r)).forEach((r) => emitTaskTree(r));
+    // ③ 统计 + 图例
+    const mlCount = inboxMainlines.length;
+    const slCount = inboxMainlines.reduce((a, m) => a + (m.sidelines || []).length, 0);
+    const groupedCount = items.filter((i) => i.mainline).length;
+    const nestedCount = items.filter((i) => i.parentId).length;
+    if (!edgeCount) {
+      // 没有任何归属关系：给出引导而非空白
+      el.mermaidLightboxBody.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-secondary);font-size:13px;line-height:2;">
+        <div style="font-size:32px;margin-bottom:8px;">🕸️</div>
+        当前收集箱还没有任何归属关系。<br>
+        可通过表格视图的 <b>📂 归属主线/支线</b> 或 <b>🔗 收纳到任务</b> 建立双链，<br>
+        再回到此图查看全景。
+      </div>`;
+      if (el.mermaidLightbox.showModal) el.mermaidLightbox.showModal();
+      else el.mermaidLightbox.setAttribute("open", "");
+      toast(`共 ${items.length} 个任务，暂无归属关系`, "info");
+      return;
+    }
+    lines.push("classDef ml fill:#241f4a,stroke:#7c5cff,color:#c9bfff,stroke-width:2px;");
+    lines.push("classDef sl fill:#102a3a,stroke:#4dc3ff,color:#b8e8ff;");
+    lines.push("classDef task fill:#1e2a32,stroke:#5a7a8a,color:#dce8ee;");
     lines.push("classDef done fill:#0e3a24,stroke:#3ddc84,color:#a8f0c8;");
-    mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "loose", fontFamily: "inherit", flowchart: { curve: "basis", nodeSpacing: 24, rankSpacing: 34, htmlLabels: true } });
+    mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "loose", fontFamily: "inherit", flowchart: { curve: "basis", nodeSpacing: 20, rankSpacing: 42, htmlLabels: true } });
     const id = "relg" + Math.random().toString(36).slice(2, 8);
     const { svg } = await mermaid.render(id, lines.join("\n"));
-    // 塞进 lightbox 并打开（PNG 导出按钮复用）
-    el.mermaidLightboxBody.innerHTML = `<div class="hh-mm-svg">${svg}</div>`;
+    // 塞进 lightbox 并打开（PNG 导出按钮复用）：图例 + 统计条 + 图
+    const legend = `<div class="relg-legend">
+      <span class="rl-item"><i class="rl-dot" style="background:#7c5cff;"></i>主线</span>
+      <span class="rl-item"><i class="rl-dot" style="background:#4dc3ff;"></i>支线</span>
+      <span class="rl-item"><i class="rl-dot" style="background:#5a7a8a;"></i>任务（✅已完成 · ★重要 · ⚡紧急）</span>
+      <span class="rl-item">=== 主线/支线归属</span>
+      <span class="rl-item">-.收纳.- 任务级父子（双链）</span>
+    </div>
+    <div class="relg-stats">任务 ${items.length} · 主线 ${mlCount} · 支线 ${slCount} · 已归属 ${groupedCount} · 收纳关系 ${nestedCount}</div>`;
+    el.mermaidLightboxBody.innerHTML = `${legend}<div class="hh-mm-svg">${svg}</div>`;
     const svgEl = el.mermaidLightboxBody.querySelector("svg");
     if (svgEl) { svgEl.removeAttribute("width"); svgEl.style.maxWidth = "100%"; svgEl.style.height = "auto"; }
     if (el.mermaidLightbox.showModal) el.mermaidLightbox.showModal();
     else el.mermaidLightbox.setAttribute("open", "");
-    const relCount = items.filter((i) => i.parentId).length;
-    toast(`已生成关系图：${items.length} 个任务，${relCount} 条主线/支线关系`, "success");
+    toast(`已生成归属全景图：${items.length} 任务 · ${mlCount} 主线 · ${slCount} 支线 · ${nestedCount} 条收纳链`, "success");
   }
 
   // 任务级主线/支线收纳弹窗（把任务收纳到另一个任务下，如「嵌入式」收纳「STM32」）
   function openLinkParentDialog(taskId) {
     const it = inboxItems.find((i) => i.id === taskId);
     if (!it) return;
-    // 候选父任务：收集箱里其他任务（排除自己、排除自己的子任务，避免循环引用）
-    const childIds = new Set();
-    const collectChildren = (pid) => {
-      inboxItems.forEach((c) => { if (c.parentId === pid && !childIds.has(c.id)) { childIds.add(c.id); collectChildren(c.id); } });
-    };
-    collectChildren(taskId);
-    const candidates = inboxItems.filter((c) => c.id !== taskId && !childIds.has(c.id));
+    // 候选父任务：收集箱里其他任务（排除自己、排除自己的子孙，避免循环引用）
+    const candidates = getParentCandidates(taskId);
     if (!candidates.length) {
       toast("收集箱中暂无其他任务可收纳", "info");
       return;
@@ -13002,6 +13175,105 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     });
   }
 
+  // 候选父任务：收集箱里其他任务（排除自己、排除自己的子孙，避免循环引用）
+  function getParentCandidates(taskId) {
+    const childIds = new Set();
+    const collectChildren = (pid) => {
+      inboxItems.forEach((c) => { if (c.parentId === pid && !childIds.has(c.id)) { childIds.add(c.id); collectChildren(c.id); } });
+    };
+    collectChildren(taskId);
+    return inboxItems.filter((c) => c.id !== taskId && !childIds.has(c.id));
+  }
+
+  // 看板卡片编辑弹窗：优先级星标 + 归属主线/支线 + 收纳到其他任务（任务级主线/支线）
+  function openKanbanCardEdit(idx) {
+    const it = inboxItems[idx];
+    if (!it) return;
+    const candidates = getParentCandidates(it.id);
+    const curMl = getMainline(it.mainline);
+    const prioBtn = (v, label, cls) => `<button type="button" class="kce-prio ${cls || ""} ${(it.priority || 0) === v ? "on" : ""}" data-prio="${v}">${label}</button>`;
+    el.assignBody.innerHTML = `
+      <p style="margin:0 0 12px;color:var(--text-secondary);font-size:13px;">编辑卡片：<b style="color:var(--accent);">${escapeHtml((it.text || "").slice(0, 30))}</b></p>
+      <div class="assign-form">
+        <label>优先级</label>
+        <div class="kce-prio-row">
+          ${prioBtn(0, "○ 普通", "")}${prioBtn(1, "★ 重要", "imp")}${prioBtn(2, "⚡ 紧急", "urgent")}
+        </div>
+      </div>
+      <div class="assign-form">
+        <label>归属主线</label>
+        <select id="kceMl" style="flex:1;">
+          <option value="">— 不归属（移出主线）—</option>
+          ${inboxMainlines.map((ml) => `<option value="${ml.id}" ${it.mainline === ml.id ? "selected" : ""}>${escapeHtml(ml.name)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="assign-form">
+        <label>支线</label>
+        <select id="kceSl" style="flex:1;">
+          <option value="">无支线</option>
+          ${(curMl ? curMl.sidelines : []).map((sl) => `<option value="${sl.id}" ${it.sideline === sl.id ? "selected" : ""}>${escapeHtml(sl.name)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="assign-form">
+        <label>收纳到任务</label>
+        <select id="kceParent" style="flex:1;">
+          <option value="">— 独立任务（不收纳）—</option>
+          ${candidates.map((c) => `<option value="${c.id}" ${it.parentId === c.id ? "selected" : ""}>${escapeHtml((c.text || "").slice(0, 36))}${c.parentId ? "（子任务）" : ""}</option>`).join("")}
+        </select>
+      </div>
+      <div class="assign-form kce-note-form">
+        <label>备注</label>
+        <textarea id="kceNote" rows="3" placeholder="组块备注：补充说明、上下文、检查清单…（看板卡片下方展示，点击可折叠）" style="flex:1;">${escapeHtml(it.note || "")}</textarea>
+      </div>
+      <p style="margin:2px 0 12px;color:var(--text-muted);font-size:11px;">提示：「归属主线/支线」与「收纳到任务」两套归属互斥——选了父任务则以任务级收纳为准（主线/支线会被清空），反之亦然。</p>
+      <div class="assign-actions">
+        <button class="tool-btn" id="assignCancel">取消</button>
+        <button class="tool-btn" id="assignOk" style="background:var(--accent);color:#fff;">保存</button>
+      </div>
+    `;
+    el.assignDialog.showModal();
+    // 优先级按钮组（单选）
+    let prioVal = it.priority || 0;
+    el.assignBody.querySelectorAll(".kce-prio").forEach((b) => {
+      b.addEventListener("click", () => {
+        prioVal = parseInt(b.dataset.prio) || 0;
+        el.assignBody.querySelectorAll(".kce-prio").forEach((x) => x.classList.toggle("on", x === b));
+      });
+    });
+    // 主线联动支线
+    document.getElementById("kceMl").addEventListener("change", (e) => {
+      const ml = getMainline(e.target.value);
+      const slSel = document.getElementById("kceSl");
+      slSel.innerHTML = ml && ml.sidelines.length
+        ? '<option value="">无支线</option>' + ml.sidelines.map((sl) => `<option value="${sl.id}">${escapeHtml(sl.name)}</option>`).join("")
+        : '<option value="">无支线</option>';
+    });
+    document.getElementById("assignCancel").addEventListener("click", () => el.assignDialog.close());
+    document.getElementById("assignOk").addEventListener("click", () => {
+      it.priority = prioVal;
+      const mlId = document.getElementById("kceMl").value;
+      const slId = document.getElementById("kceSl").value;
+      const parentId = document.getElementById("kceParent").value;
+      it.note = (document.getElementById("kceNote").value || "").trim();
+      if (parentId) {
+        // 任务级收纳优先：清空主线/支线（与收纳弹窗逻辑一致）
+        it.parentId = parentId;
+        it.mainline = null;
+        it.sideline = null;
+      } else {
+        it.parentId = null;
+        it.mainline = mlId || null;
+        it.sideline = slId || null;
+      }
+      saveInbox();
+      el.assignDialog.close();
+      renderInboxList();
+      renderInboxStats();
+      if (inboxMode === "mainline") renderMainlineList();
+      toast("卡片已更新", "success");
+    });
+  }
+
   // 统计行
   function renderInboxStats() {
     if (!el.inboxStatsInline) return;
@@ -13017,6 +13289,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     renderInboxStats();
     renderInboxTableBar();
     bindInboxTableBarEvents();
+    renderInboxKanbanBar();
+    bindInboxKanbanBarEvents();
     const filtered = filterInboxItems();
     if (!filtered.length) {
       el.inboxList.classList.remove("inbox-kanban-view");
@@ -13033,51 +13307,164 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     renderInboxTable(filtered);
   }
 
-  // 收集箱看板：按 tag 横向分列，卡片名字固定宽度自动换行
+  // 收集箱看板：多维度分列（tag/主线/优先级/状态），主线模式列内按支线分块（多链），卡片名字固定宽度自动换行
   let inboxKanbanBound = false;
+  // 看板分组维度工具条（仅看板视图显示）
+  function renderInboxKanbanBar() {
+    const bar = el.inboxKanbanBar;
+    if (!bar) return;
+    bar.hidden = inboxView !== "kanban";
+    const g = inboxOptions.kanbanGroup || "tag";
+    const opt = (v, label) => `<button type="button" class="ikg-btn ${g === v ? "on" : ""}" data-g="${v}">${label}</button>`;
+    bar.innerHTML = `<span class="itb-label">分列</span>
+      ${opt("tag", "🏷 标签")}${opt("mainline", "🎯 主线")}${opt("prio", "★ 优先级")}${opt("status", "✓ 状态")}
+      ${g === "mainline" ? '<span class="ikg-hint">列内按支线分块 · 无归属任务在「未归属」列</span>' : ""}`;
+  }
+  function bindInboxKanbanBarEvents() {
+    const bar = el.inboxKanbanBar;
+    if (!bar || bar._bound) return;
+    bar._bound = true;
+    bar.addEventListener("click", (e) => {
+      const btn = e.target.closest(".ikg-btn");
+      if (!btn) return;
+      inboxOptions.kanbanGroup = btn.dataset.g;
+      saveInboxOptions();
+      renderInboxKanbanBar();
+      renderInboxList();
+    });
+  }
+  // 单张看板卡片 HTML（分组维度内通用）
+  function inboxKanbanCardHTML(item, opts) {
+    const idx = inboxItems.indexOf(item);
+    const { showGroupBadge = true, groupKey = "tag" } = opts || {};
+    const extraTags = (item.tags || []).slice(1).map((t) => `<span class="ikb-tag-mini" style="background:${tagColor(t)}20;color:${tagColor(t)};">${escapeHtml(t)}</span>`).join("");
+    const prio = item.priority === 2 ? '<span class="ikb-prio" title="紧急">⚡</span>'
+      : item.priority === 1 ? '<span class="ikb-prio" title="重要">★</span>' : "";
+    const dueStr = item.due ? (() => {
+      const now = new Date(); now.setHours(0, 0, 0, 0);
+      const due = new Date(item.due); due.setHours(0, 0, 0, 0);
+      const diff = Math.round((due - now) / 86400000);
+      const cls = diff < 0 ? "is-overdue" : diff === 0 ? "is-due" : "";
+      return `<span class="ikb-due ${cls}">📅${diff < 0 ? "逾期" + -diff : diff === 0 ? "今日" : diff + "天"}</span>`;
+    })() : "";
+    // 归属徽标：主线/支线（或任务级父任务），双链展示——按主线分列时列头已表达主线，卡片只显示另一套归属
+    const groupBadge = (() => {
+      if (!showGroupBadge) return "";
+      if (item.parentId) {
+        const p = inboxItems.find((x) => x.id === item.parentId);
+        if (p) return `<span class="ikb-group" title="收纳于父任务：${escapeHtml(p.text)}">📎${escapeHtml((p.text || "").slice(0, 10))}</span>`;
+      }
+      if (item.mainline && groupKey !== "mainline") {
+        const ml = inboxMainlines.find((m) => m.id === item.mainline);
+        if (ml) {
+          const sl = item.sideline ? (ml.sidelines || []).find((s) => s.id === item.sideline) : null;
+          return `<span class="ikb-group" title="归属：${escapeHtml(ml.name)}${sl ? " · " + escapeHtml(sl.name) : ""}"><span class="ikb-group-dot" style="background:${ml.color};"></span>${escapeHtml(ml.name)}${sl ? "·" + escapeHtml(sl.name) : ""}</span>`;
+        }
+      }
+      return "";
+    })();
+    // 子任务数（父任务侧的双链：显示收纳了多少个支线任务）
+    const childCount = inboxItems.filter((c) => c.parentId === item.id).length;
+    const childBadge = childCount ? `<span class="ikb-child" title="${childCount} 个子任务（支线）">↳${childCount}</span>` : "";
+    // 备注标记 + 展开区（组块备注）
+    const noteBadge = item.note ? `<span class="ikb-note-badge" title="有备注，点击 ✎ 查看/编辑">📝</span>` : "";
+    const noteBlock = item.note ? `<div class="ikb-note ${inboxCollapsedNotes.has(item.id) ? "collapsed" : ""}" data-idx="${idx}">${escapeHtml(item.note)}</div>` : "";
+    return `<div class="inbox-kanban-card ${item.done ? "done" : ""}" data-idx="${idx}" title="${item.done ? "点击切换回未完成" : "点击切换完成 · 拖拽可安排到九宫格"}"${item.done ? "" : ' draggable="true"'}>
+      <button type="button" class="ikb-edit" data-idx="${idx}" title="编辑：优先级星标 / 归属主线支线 / 收纳到任务 / 备注">✎</button>
+      <div class="ikb-card-main"><span class="ikb-card-cb">${item.done ? "✓" : "○"}</span><span class="ikb-card-text">${escapeHtml(item.text || "")}</span></div>
+      <div class="ikb-card-meta">${prio}${groupBadge}${childBadge}${noteBadge}${extraTags}${dueStr}</div>
+      ${noteBlock}
+    </div>`;
+  }
   function renderInboxKanban(filtered) {
-    // 每个条目取第一个 tag 作为列归属，无 tag → 未分类
-    const NO_TAG = "未分类";
-    const colMap = new Map();
-    filtered.forEach((item) => {
-      const tag = (item.tags && item.tags.length ? item.tags[0] : NO_TAG);
-      if (!colMap.has(tag)) colMap.set(tag, { items: [], color: tagColor(tag) });
-      colMap.get(tag).items.push(item);
-    });
-    // 列排序：未分类最后，其余按标签名
-    const cols = [...colMap.entries()].sort((a, b) => {
-      if (a[0] === NO_TAG) return 1;
-      if (b[0] === NO_TAG) return -1;
-      return a[0].localeCompare(b[0], "zh");
-    });
-    const html = `<div class="inbox-kanban-board">${cols.map(([tag, col]) => {
+    const groupKey = inboxOptions.kanbanGroup || "tag";
+    // 计算列分组：[{ key, name, color, items, sections? }]
+    let cols = [];
+    if (groupKey === "mainline") {
+      // 主线分列：列内再按支线分块（多链：一个主线多个支线）
+      cols = inboxMainlines.map((ml) => {
+        const items = filtered.filter((i) => i.mainline === ml.id);
+        const sections = (ml.sidelines || []).map((sl) => ({ name: sl.name, dim: sl.dim, items: items.filter((i) => i.sideline === sl.id) }))
+          .filter((s) => s.items.length);
+        const unsectioned = items.filter((i) => !i.sideline || !(ml.sidelines || []).some((s) => s.id === i.sideline));
+        return { key: ml.id, name: ml.name, color: ml.color, items, sections, unsectioned };
+      }).filter((c) => c.items.length);
+      const noneItems = filtered.filter((i) => !i.mainline);
+      if (noneItems.length) cols.push({ key: "__none__", name: "未归属", color: "#6b7280", items: noneItems, sections: [], unsectioned: noneItems });
+      cols.sort((a, b) => (a.key === "__none__" ? 1 : 0) - (b.key === "__none__" ? 1 : 0));
+    } else if (groupKey === "prio") {
+      const defs = [
+        { key: "2", name: "⚡ 紧急", color: "#ff6b6b" },
+        { key: "1", name: "★ 重要", color: "#ffd93d" },
+        { key: "0", name: "○ 普通", color: "#6b7280" },
+      ];
+      cols = defs.map((d) => ({ ...d, items: filtered.filter((i) => (i.priority || 0) === Number(d.key)) })).filter((c) => c.items.length);
+    } else if (groupKey === "status") {
+      const defs = [
+        { key: "overdue", name: "逾期", color: "#ff6b6b" },
+        { key: "undone", name: "进行中", color: "#4dc3ff" },
+        { key: "done", name: "已完成", color: "#3ddc84" },
+      ];
+      const now = new Date(); now.setHours(0, 0, 0, 0);
+      cols = defs.map((d) => ({
+        ...d,
+        items: filtered.filter((i) => {
+          if (d.key === "done") return !!i.done;
+          if (i.done) return false;
+          if (d.key === "overdue") return !!(i.due && i.due < now.getTime());
+          return !(i.due && i.due < now.getTime());
+        }),
+      })).filter((c) => c.items.length);
+    } else {
+      // 默认：按第一个 tag 分列
+      const NO_TAG = "未分类";
+      const colMap = new Map();
+      filtered.forEach((item) => {
+        const tag = (item.tags && item.tags.length ? item.tags[0] : NO_TAG);
+        if (!colMap.has(tag)) colMap.set(tag, { items: [], color: tagColor(tag) });
+        colMap.get(tag).items.push(item);
+      });
+      cols = [...colMap.entries()].map(([tag, col]) => ({ key: tag, name: tag, color: col.color, items: col.items }));
+      cols.sort((a, b) => {
+        if (a.name === NO_TAG) return 1;
+        if (b.name === NO_TAG) return -1;
+        return a.name.localeCompare(b.name, "zh");
+      });
+    }
+    if (!cols.length) {
+      el.inboxList.innerHTML = '<div class="inbox-empty">当前筛选下暂无任务</div>';
+      return;
+    }
+    const html = `<div class="inbox-kanban-board">${cols.map((col) => {
       const undone = col.items.filter((i) => !i.done).length;
-      return `<div class="inbox-kanban-col" data-tag="${escapeHtml(tag)}">
+      // 主线分组：列内支线分块（多链）+ 未分块区
+      let bodyHTML = "";
+      if (groupKey === "mainline") {
+        const sectionHTML = (col.sections || []).map((sec) => {
+          const secUndone = sec.items.filter((i) => !i.done).length;
+          return `<div class="ikb-section">
+            <div class="ikb-section-head"><span class="ikb-section-dot" style="background:${col.color};"></span><span class="ikb-section-name">${escapeHtml(sec.name)}</span>${sec.dim ? `<span class="ikb-section-dim" style="background:${col.color}20;color:${col.color};">${escapeHtml(sec.dim)}</span>` : ""}<span class="ikb-section-count">${secUndone}/${sec.items.length}</span></div>
+            ${sec.items.map((item) => inboxKanbanCardHTML(item, { groupKey })).join("")}
+          </div>`;
+        }).join("");
+        const unHTML = (col.unsectioned || []).map((item) => inboxKanbanCardHTML(item, { groupKey })).join("");
+        bodyHTML = sectionHTML + ((col.unsectioned || []).length ? `<div class="ikb-section ikb-section-flat"><div class="ikb-section-head"><span class="ikb-section-name" style="color:var(--text-muted);">未分支线</span></div>${unHTML}</div>` : "");
+      } else {
+        bodyHTML = col.items.map((item) => inboxKanbanCardHTML(item, { groupKey })).join("");
+      }
+      return `<div class="inbox-kanban-col" data-col="${escapeHtml(String(col.key))}">
         <div class="inbox-kanban-col-head">
           <span class="inbox-kanban-col-dot" style="background:${col.color};"></span>
-          <span class="inbox-kanban-col-name">${escapeHtml(tag)}</span>
+          <span class="inbox-kanban-col-name">${escapeHtml(col.name)}</span>
+          ${groupKey === "mainline" && col.sections && col.sections.length ? `<span class="ikb-sl-count" title="${col.sections.length} 条支线">${col.sections.length} 链</span>` : ""}
           <span class="inbox-kanban-col-count">${undone}/${col.items.length}</span>
         </div>
-        <div class="inbox-kanban-col-body">${col.items.map((item) => {
-          const idx = inboxItems.indexOf(item);
-          const extraTags = (item.tags || []).slice(1).map((t) => `<span class="ikb-tag-mini" style="background:${tagColor(t)}20;color:${tagColor(t)};">${escapeHtml(t)}</span>`).join("");
-          const prio = item.priority === 2 ? '<span class="ikb-prio" title="紧急">⚡</span>'
-            : item.priority === 1 ? '<span class="ikb-prio" title="重要">★</span>' : "";
-          const dueStr = item.due ? (() => {
-            const now = new Date(); now.setHours(0, 0, 0, 0);
-            const due = new Date(item.due); due.setHours(0, 0, 0, 0);
-            const diff = Math.round((due - now) / 86400000);
-            const cls = diff < 0 ? "is-overdue" : diff === 0 ? "is-due" : "";
-            return `<span class="ikb-due ${cls}">📅${diff < 0 ? "逾期" + -diff : diff === 0 ? "今日" : diff + "天"}</span>`;
-          })() : "";
-          return `<div class="inbox-kanban-card ${item.done ? "done" : ""}" data-idx="${idx}" title="${item.done ? "点击切换回未完成" : "点击切换完成 · 拖拽可安排到九宫格"}"${item.done ? "" : ' draggable="true"'}>
-            <div class="ikb-card-main"><span class="ikb-card-cb">${item.done ? "✓" : "○"}</span><span class="ikb-card-text">${escapeHtml(item.text || "")}</span></div>
-            <div class="ikb-card-meta">${prio}${extraTags}${dueStr}</div>
-          </div>`;
-        }).join("")}</div>
+        <div class="inbox-kanban-col-body">${bodyHTML}</div>
       </div>`;
     }).join("")}</div>`;
     el.inboxList.innerHTML = html;
+    renderInboxKanbanBar();
+    bindInboxKanbanBarEvents();
     bindInboxKanbanEvents();
   }
 
@@ -13086,6 +13473,27 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     if (inboxKanbanBound) return;
     inboxKanbanBound = true;
     el.inboxList.addEventListener("click", (e) => {
+      // ✎ 编辑按钮：打开卡片编辑弹窗（优先级星标 / 归属主线支线 / 收纳到任务 / 备注）
+      const editBtn = e.target.closest(".ikb-edit");
+      if (editBtn) {
+        e.stopPropagation();
+        const idx = parseInt(editBtn.dataset.idx);
+        if (inboxItems[idx]) openKanbanCardEdit(idx);
+        return;
+      }
+      // 备注块：点击切换展开/折叠（组块备注）
+      const noteEl = e.target.closest(".ikb-note");
+      if (noteEl) {
+        e.stopPropagation();
+        const idx = parseInt(noteEl.dataset.idx);
+        const it = inboxItems[idx];
+        if (it) {
+          if (inboxCollapsedNotes.has(it.id)) inboxCollapsedNotes.delete(it.id);
+          else inboxCollapsedNotes.add(it.id);
+          noteEl.classList.toggle("collapsed");
+        }
+        return;
+      }
       const card = e.target.closest(".inbox-kanban-card");
       if (!card) return;
       const idx = parseInt(card.dataset.idx);
@@ -13223,6 +13631,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       : `<span class="it-cb ${item.done ? "done" : ""}" data-idx="${idx}" title="点击切换完成">${item.done ? "✓" : "○"}</span>`;
     const text = escapeHtml(item.text || item.title || "");
     const sub = (item.kind === "card" && item.summary) ? `<div class="it-sub">${escapeHtml(item.summary)}</div>` : "";
+    // 组块备注：任务名下方展示（点击 ✎ 或卡片编辑弹窗修改）
+    const noteBlock = item.note ? `<div class="it-note" title="备注">${escapeHtml(item.note)}</div>` : "";
     const link = (item.kind === "card" && item.link)
       ? `<a class="it-link" href="${escapeHtml(item.link)}" target="_blank" rel="noopener">🔗 ${escapeHtml(item.source || "原文")}</a>` : "";
     const childCount = isChild ? 0 : inboxItems.filter((c) => c.parentId === item.id).length;
@@ -13265,6 +13675,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       ${!isChild ? `<button class="it-op" data-act="up" data-idx="${idx}" title="上移（手动调整顺序）">↑</button>
       <button class="it-op" data-act="down" data-idx="${idx}" title="下移（手动调整顺序）">↓</button>` : ""}
       <button class="it-op" data-act="hatch" data-idx="${idx}" title="🥚 AI 孵化拆解">🥚</button>
+      <button class="it-op" data-act="edit" data-idx="${idx}" title="编辑：优先级/归属/收纳/备注">✎</button>
       <button class="it-op" data-act="assign" data-idx="${idx}" title="归属主线/支线">📂</button>
       <button class="it-op" data-act="link" data-idx="${idx}" title="🔗 任务级主线/支线：收纳到另一个任务下">🔗</button>
       <button class="it-op" data-act="due" data-idx="${idx}" title="设置开始/截止">📅</button>
@@ -13274,7 +13685,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     const { cols } = inboxOptions;
     return `<tr class="it-row ${item.done ? "done" : ""} ${isChild ? "is-child" : ""}" data-idx="${idx}"${dragAttr}>
       <td class="it-col-done">${cb}</td>
-      <td class="it-col-text">${isChild ? '<span class="it-child-mark">↳</span>' : ""}<span class="it-text" data-idx="${idx}" title="单击发给AI，双击编辑">${text}</span>${sub}${link}${parentMark}${childBadge}</td>
+      <td class="it-col-text">${isChild ? '<span class="it-child-mark">↳</span>' : ""}<span class="it-text" data-idx="${idx}" title="单击发给AI，双击编辑">${text}</span>${sub}${noteBlock}${link}${parentMark}${childBadge}</td>
       ${cols.tags ? `<td class="it-col-tags">${tags}</td>` : ""}
       ${cols.prio ? `<td class="it-col-prio">${prio}</td>` : ""}
       ${cols.date ? `<td class="it-col-date">${dateHtml}</td>` : ""}
@@ -13336,6 +13747,10 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         if (act === "hatch") {
           if (el.inboxDialog && el.inboxDialog.open) el.inboxDialog.close();
           openHatchDialog({ text: it.text, sourceLabel: "收集箱待办" });
+          return;
+        }
+        if (act === "edit") {
+          openKanbanCardEdit(idx);
           return;
         }
         if (act === "assign") {
@@ -13523,6 +13938,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       priority: parseInt(el.inboxNewPriority.value) || 0,
       start: startVal ? new Date(startVal).getTime() : null,
       due: dueVal ? new Date(dueVal).getTime() : null,
+      note: (el.inboxNewNote && el.inboxNewNote.value || "").trim(),
       done: false,
       createdAt: Date.now(),
     });
@@ -13531,6 +13947,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     el.inboxCategory.value = "";
     el.inboxNewStart.value = "";
     el.inboxNewDue.value = "";
+    if (el.inboxNewNote) el.inboxNewNote.value = "";
     updateInboxTagDatalist();
     renderInboxFilter();
     renderInboxList();

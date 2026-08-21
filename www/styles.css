@@ -777,6 +777,36 @@ textarea, input, select {
   border: 1px solid var(--border); cursor: pointer;
 }
 .og-del-btn:hover { color: var(--danger); border-color: var(--danger); }
+/* ▶ 启动滑动记录按钮 + 激活态（启动后整卡高亮） */
+.og-swipe-btn {
+  flex-shrink: 0; font-size: 10px; font-weight: 600; padding: 4px 8px; border-radius: 6px;
+  background: rgba(74, 222, 128, 0.12); color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.35); cursor: pointer;
+}
+.og-swipe-btn:hover { background: rgba(74, 222, 128, 0.22); }
+.og-swipe-btn.on {
+  background: #4ade80; color: #0a1620; border-color: #4ade80;
+  animation: ogSwipePulse 1.6s ease-in-out infinite;
+}
+@keyframes ogSwipePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.45); }
+  50% { box-shadow: 0 0 10px 2px rgba(74, 222, 128, 0.35); }
+}
+.og-card.og-swiping { border-color: rgba(74, 222, 128, 0.6); background: rgba(74, 222, 128, 0.06); }
+/* 滑动记录模式：记录页九宫格提示与格子反馈 */
+.record-grid.swipe-mode { position: relative; outline: 2px dashed rgba(74, 222, 128, 0.45); outline-offset: 5px; border-radius: 8px; }
+.record-grid.swipe-mode::after {
+  content: "🖐 滑动记录中：" attr(data-swipe-name);
+  position: absolute; top: -11px; right: 10px; z-index: 2;
+  font-size: 10px; color: #4ade80; background: var(--bg-card, #131a26);
+  padding: 2px 9px; border-radius: 8px; border: 1px solid rgba(74, 222, 128, 0.45);
+  pointer-events: none; white-space: nowrap;
+}
+.record-grid.swipe-mode .cell { touch-action: none; cursor: crosshair; border-style: dashed; }
+.record-grid .cell.swiped {
+  border-color: #4ade80; box-shadow: inset 0 0 12px rgba(74, 222, 128, 0.18);
+  animation: ogFlash .6s ease;
+}
 /* 重复任务自动延续：折叠区 */
 .og-autorecord-fold { margin-top: 8px; border-top: 1px dashed var(--border); padding-top: 6px; }
 .og-autorecord-fold summary {
@@ -8465,7 +8495,7 @@ dialog.inbox-dialog-fullscreen::backdrop {
 .inbox-kanban-col-name { font-size:12px; font-weight:600; color:var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:110px; }
 .inbox-kanban-col-count { margin-left:auto; font-size:10px; color:var(--text-secondary); background:var(--input-bg); padding:1px 6px; border-radius:8px; flex-shrink:0; }
 .inbox-kanban-col-body { display:flex; flex-direction:column; gap:6px; overflow-y:auto; }
-.inbox-kanban-card { background:var(--input-bg); border:1px solid var(--input-border); border-radius:8px; padding:7px 8px; cursor:pointer; transition:border-color .15s; }
+.inbox-kanban-card { position:relative; background:var(--input-bg); border:1px solid var(--input-border); border-radius:8px; padding:7px 8px; cursor:pointer; transition:border-color .15s; }
 .inbox-kanban-card:hover { border-color:var(--accent); }
 .inbox-kanban-card.done { opacity:.5; }
 .inbox-kanban-card.done .ikb-card-text { text-decoration:line-through; }
@@ -8479,6 +8509,63 @@ dialog.inbox-dialog-fullscreen::backdrop {
 .ikb-due { font-size:9px; padding:0 4px; border-radius:6px; background:var(--input-bg); color:var(--text-secondary); }
 .ikb-due.is-due { background:#ffd93d20; color:#ffd93d; }
 .ikb-due.is-overdue { background:#ff6b6b20; color:#ff6b6b; font-weight:600; }
+/* 看板卡片右上角 ✎ 编辑按钮（优先级星标 / 归属主线支线 / 收纳到任务） */
+.ikb-edit { position:absolute; top:4px; right:4px; border:none; background:transparent; color:var(--text-muted); font-size:11px; line-height:1; padding:3px 4px; border-radius:4px; cursor:pointer; opacity:0; transition:opacity .15s, color .15s, background .15s; }
+.inbox-kanban-card:hover .ikb-edit, .ikb-edit:focus-visible { opacity:1; }
+.ikb-edit:hover { color:var(--accent); background:var(--hover); }
+/* 看板卡片归属徽标（主线/支线 或 父任务，双链展示） */
+.ikb-group { display:inline-flex; align-items:center; gap:3px; font-size:9px; padding:0 4px; border-radius:6px; background:var(--card-bg); color:var(--text-secondary); max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ikb-group-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+/* 看板卡片子任务数（父任务侧双链：收纳了多少个支线任务） */
+.ikb-child { font-size:9px; padding:0 4px; border-radius:6px; background:#4dc3ff20; color:#4dc3ff; font-weight:600; }
+/* 看板卡片编辑弹窗：优先级按钮组（普通/重要/紧急） */
+.kce-prio-row { flex:1; display:flex; gap:6px; }
+.kce-prio { flex:1; border:1px solid var(--input-border); background:var(--input-bg); color:var(--text-secondary); font-size:12px; padding:5px 0; border-radius:6px; cursor:pointer; transition:all .15s; }
+.kce-prio:hover { border-color:var(--accent); color:var(--text-primary); }
+.kce-prio.on { border-color:var(--accent); background:var(--accent); color:#fff; }
+.kce-prio.on.imp { border-color:#ffd93d; background:#ffd93d; color:#1a1a2e; }
+.kce-prio.on.urgent { border-color:#ff6b6b; background:#ff6b6b; color:#fff; }
+/* 主线卡：支线数量统计徽标 */
+.ml-sl-total { font-size:10px; color:var(--text-secondary); background:var(--input-bg); padding:1px 6px; border-radius:8px; flex-shrink:0; }
+/* 看板分组工具条（分列维度切换） */
+.ikg-btn { border:1px solid var(--input-border); background:var(--input-bg); color:var(--text-secondary); font-size:11px; padding:3px 9px; border-radius:6px; cursor:pointer; transition:all .15s; }
+.ikg-btn:hover { border-color:var(--accent); color:var(--text-primary); }
+.ikg-btn.on { border-color:var(--accent); background:var(--accent); color:#fff; }
+.ikg-hint { font-size:10px; color:var(--text-muted); margin-left:4px; }
+/* 看板列内支线分块（多链：一个主线多个支线） */
+.ikb-section { display:flex; flex-direction:column; gap:5px; }
+.ikb-section + .ikb-section { margin-top:8px; }
+.ikb-section-head { display:flex; align-items:center; gap:5px; padding:2px 2px 3px; border-bottom:1px dashed var(--border); }
+.ikb-section-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; opacity:.85; }
+.ikb-section-name { font-size:10px; font-weight:600; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ikb-section-dim { font-size:8px; padding:0 4px; border-radius:6px; flex-shrink:0; }
+.ikb-section-count { margin-left:auto; font-size:9px; color:var(--text-muted); flex-shrink:0; }
+.ikb-section-flat .ikb-section-head { border-bottom-style:dotted; }
+.ikb-sl-count { font-size:9px; padding:0 5px; border-radius:7px; background:#4dc3ff20; color:#4dc3ff; font-weight:600; flex-shrink:0; }
+/* 看板卡片组块备注：默认展开、点击折叠为单行 */
+.ikb-note-badge { font-size:9px; }
+.ikb-note {
+  margin-top:5px; padding:5px 7px; border-radius:6px;
+  background:var(--card-bg); border:1px dashed var(--border);
+  font-size:10.5px; line-height:1.5; color:var(--text-secondary);
+  white-space:pre-wrap; word-break:break-word; cursor:pointer;
+}
+.ikb-note:hover { border-color:var(--accent); }
+.ikb-note.collapsed {
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+/* 看板编辑弹窗：备注 textarea */
+.assign-form.kce-note-form { align-items:flex-start; }
+.assign-form.kce-note-form label { margin-top:6px; }
+.assign-form.kce-note-form textarea {
+  flex:1; padding:6px 8px; background:var(--input-bg); border:1px solid var(--input-border);
+  border-radius:6px; color:var(--text-primary); font-size:12px; resize:vertical; font-family:inherit;
+}
+/* 归属关系图：图例 + 统计条 */
+.relg-legend { display:flex; flex-wrap:wrap; gap:10px; align-items:center; font-size:11px; color:var(--text-secondary); margin-bottom:8px; }
+.relg-legend .rl-item { display:inline-flex; align-items:center; gap:4px; }
+.relg-legend .rl-dot { width:9px; height:9px; border-radius:50%; display:inline-block; }
+.relg-stats { font-size:11px; color:var(--text-muted); margin-bottom:10px; padding:5px 10px; background:var(--input-bg); border-radius:6px; display:inline-block; }
 /* 看板卡片可拖拽：拖拽提示 + 拖拽中状态 */
 .inbox-kanban-card[draggable="true"] { cursor: grab; }
 .inbox-kanban-card[draggable="true"]:active { cursor: grabbing; }
@@ -8538,6 +8625,13 @@ dialog.inbox-dialog-fullscreen::backdrop {
 .it-cb { cursor:pointer; font-size:13px; color:var(--accent); }
 .it-text { display:block; font-size:13px; line-height:1.45; color:var(--text-primary); word-break:break-word; overflow-wrap:anywhere; white-space:normal; cursor:pointer; }
 .it-sub { font-size:11px; color:var(--text-secondary); margin-top:3px; word-break:break-word; }
+/* 组块备注（表格行内）：任务名下方虚线块，与看板 .ikb-note 一致的折叠交互 */
+.it-note {
+  margin-top:3px; padding:4px 7px; border-radius:6px;
+  background:var(--card-bg, rgba(255,255,255,0.03)); border:1px dashed var(--border);
+  font-size:10.5px; line-height:1.5; color:var(--text-secondary);
+  white-space:pre-wrap; word-break:break-word; max-width:520px;
+}
 .it-link { display:inline-block; font-size:11px; color:var(--accent); margin-top:2px; }
 .it-child-mark { color:var(--text-secondary); margin-right:2px; }
 .it-parent-mark { display:block; font-size:10px; color:var(--text-secondary); margin-top:2px; word-break:break-word; }
