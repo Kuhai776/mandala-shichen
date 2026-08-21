@@ -23,7 +23,7 @@
           await Promise.all(keys.map(function (k) { return caches.delete(k); }));
         }
         // 检测当前 app.js 版本，若仍是旧的则强制带时间戳 reload
-        var APP_VERSION = "20260815g";
+        var APP_VERSION = "20260816b";
         if (sessionStorage.getItem("mandala-app-ver") !== APP_VERSION) {
           sessionStorage.setItem("mandala-app-ver", APP_VERSION);
           if (!location.search || location.search.indexOf("t=") === -1) {
@@ -86,7 +86,7 @@
       } catch (e) { console.warn("[polyfill] dialog 降级失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260815g" />
+  <link rel="stylesheet" href="styles.css?v=20260816b" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
   <script src="lib/mermaid.min.js"></script>
@@ -1241,8 +1241,19 @@
             <div class="hatch-chat-head">
               <span class="hatch-chat-title">💬 继续与 AI 对话</span>
               <span class="hatch-chat-hint">有上下文 · 可要求细化 / 增删步骤 / 换场景重拆</span>
+              <span class="hatch-chat-ops">
+                <button type="button" class="hatch-chat-op" id="hatchChatCopy" title="复制全部对话记录">📋 复制</button>
+                <button type="button" class="hatch-chat-op" id="hatchChatClear" title="清空对话记录">🧹 清空</button>
+              </span>
             </div>
             <div class="hatch-chat-log" id="hatchChatLog"></div>
+            <div class="hatch-chat-chips" id="hatchChatChips">
+              <button type="button" class="hatch-chip" data-chip="把方案精简到 3-4 步，删掉可以合并的步骤">✂️ 精简</button>
+              <button type="button" class="hatch-chip" data-chip="把方案细化：总步数提到 8-10 步，每步更具体">🔬 更细</button>
+              <button type="button" class="hatch-chip" data-chip="改成主线优先：只保留主干 3 步主线，其余并入支线">🧭 主线优先</button>
+              <button type="button" class="hatch-chip" data-chip="把每个主线步骤都补充 1-2 条支线步骤">🌿 补支线</button>
+              <button type="button" class="hatch-chip" data-chip="调整顺序：把风险最高的一步提前到第 1 步先做">⚡ 风险前置</button>
+            </div>
             <div class="hatch-chat-input-row">
               <textarea id="hatchChatInput" class="hatch-chat-input" rows="1" placeholder="例如：把第3步再细化 / 精简到3步 / 换成学习场景重拆…"></textarea>
               <button class="primary-btn hatch-chat-send" id="hatchChatSend">发送</button>
@@ -1255,6 +1266,7 @@
           <div class="hatch-error-actions">
             <button class="tool-btn" id="hatchRetryBtn" title="相同参数重试">🔄 重试</button>
             <button class="tool-btn" id="hatchDowngradeBtn" title="降一档重试（如 medium→lite）">⬇ 降档重试</button>
+            <button class="tool-btn" id="hatchLocalBtn" title="不调用 AI，用本地启发式模板离线拆解">🏠 本地拆解</button>
           </div>
         </div>
 
@@ -1278,6 +1290,7 @@
     <div class="mlb-head">
       <span class="mlb-title">🕸 孵化过程图 · 放大查看</span>
       <span class="mlb-hint">可滚动查看完整流程图</span>
+      <button class="icon-btn" id="mlbDownloadBtn" title="导出为 PNG 图片">⬇ PNG</button>
       <button class="icon-btn" id="closeMermaidLightbox" aria-label="关闭">✕</button>
     </div>
     <div class="mlb-body" id="mermaidLightboxBody"></div>
@@ -1502,7 +1515,10 @@
               <button class="iv-tab" data-view="table">📋 表格</button>
               <button class="iv-tab active" data-view="kanban">🗂 看板</button>
             </div>
+            <button class="tool-btn" id="inboxRelGraphBtn" title="根据任务级主线/支线（parentId）绘制关系图">🕸 关系图</button>
           </div>
+          <!-- 表格选项工具栏（仅表格视图显示：排序 / 列显隐 / 日期显示） -->
+          <div class="inbox-table-bar" id="inboxTableBar" hidden></div>
           <!-- 当前时辰九宫格预览（拖拽落点） -->
           <div class="inbox-grid-preview" id="inboxGridPreview">
             <div class="inbox-grid-preview-head">
@@ -1632,6 +1648,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=20260815g" defer></script>
+  <script src="app.js?v=20260816b" defer></script>
 </body>
 </html>
