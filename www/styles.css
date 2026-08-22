@@ -3718,6 +3718,115 @@ dialog::backdrop {
   transform: scale(0.95);
 }
 
+/* ---------- 便利贴（格子内黄色小贴纸，可拖到其他格子） ---------- */
+.cell-sticky-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-bottom: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px dashed rgba(255, 193, 7, 0.35);
+}
+.sticky-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  background: #fff398;
+  color: #6b5410;
+  border: 1px solid #e6c94a;
+  border-radius: 3px 8px 3px 3px;
+  padding: 2px 5px;
+  font-size: 10px;
+  line-height: 1.25;
+  box-shadow: 1px 2px 3px rgba(0, 0, 0, 0.12);
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  animation: sticky-pop 0.18s ease;
+}
+.sticky-chip:active { cursor: grabbing; }
+.sticky-chip:hover { transform: rotate(-1deg) scale(1.03); }
+.sticky-chip.dragging-item { opacity: 0.35; transform: scale(0.92); }
+.sticky-chip.done .sticky-text { text-decoration: line-through; opacity: 0.55; }
+.sticky-chip.done { filter: grayscale(0.45); }
+.sticky-pin { font-size: 9px; flex-shrink: 0; }
+.sticky-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 108px;
+}
+.sticky-del {
+  border: none;
+  background: transparent;
+  color: #a08a3a;
+  font-size: 10px;
+  line-height: 1;
+  padding: 1px 2px;
+  border-radius: 3px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.sticky-del:hover { color: var(--danger, #ff6b6b); background: rgba(0, 0, 0, 0.08); }
+@keyframes sticky-pop {
+  from { transform: scale(0.7) rotate(-4deg); opacity: 0; }
+  to { transform: scale(1) rotate(0); opacity: 1; }
+}
+
+/* 任务弹窗：便利贴输入区 + 已贴列表 */
+.task-sticky-row { display: flex; gap: 6px; }
+.task-sticky-row input {
+  flex: 1;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 7px 9px;
+}
+.task-sticky-list { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.sticky-chip.dlg { font-size: 12px; padding: 4px 8px; }
+.sticky-chip.dlg .sticky-text { max-width: 200px; }
+
+/* ---------- 触屏拖拽 ghost（看板卡片 / 便利贴共用） ---------- */
+.kb-drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 99999;
+  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--card-bg, #2a2a35);
+  color: var(--text-primary, #eee);
+  border: 1.5px solid var(--accent, #7c5cff);
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 13px;
+  max-width: 220px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  transform: translate(-50%, -130%) scale(1.02);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kb-drag-ghost.sticky {
+  background: #fff398;
+  color: #6b5410;
+  border-color: #e6c94a;
+  box-shadow: 0 8px 22px rgba(230, 201, 74, 0.35);
+}
+/* 触屏拖拽进行中：全局禁选中/禁长按菜单，拖拽手感更稳 */
+body.kb-touch-dragging {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+body.kb-touch-dragging * { cursor: grabbing !important; }
+
 /* 复选框 */
 .task-checkbox {
   flex-shrink: 0;

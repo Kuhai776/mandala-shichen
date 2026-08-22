@@ -86,7 +86,7 @@
       } catch (e) { console.warn("[polyfill] dialog 降级失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260821e" />
+  <link rel="stylesheet" href="styles.css?v=20260822a" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
   <script src="lib/mermaid.min.js"></script>
@@ -993,6 +993,14 @@
           <small>保存后可在格子上看到完成进度，点击进度徽章可快速勾选</small>
         </div>
         <div class="form-group">
+          <label>📌 便利贴（贴在本格的小提醒，可拖到其他格子）</label>
+          <div class="task-sticky-row">
+            <input type="text" id="taskStickyInput" placeholder="快速贴一句：回电话 / 带伞 / 别忘了…" maxlength="60" />
+            <button type="button" class="tool-btn" id="taskStickyAdd" title="贴到本格（黄色贴纸，可拖动）">📌 贴上</button>
+          </div>
+          <div class="task-sticky-list" id="taskStickyList"></div>
+        </div>
+        <div class="form-group">
           <label>重复规则（可选）</label>
           <div class="repeat-row">
             <select id="taskRepeat">
@@ -1656,6 +1664,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=20260821e" defer></script>
+  <script src="app.js?v=20260822a" defer></script>
 </body>
 </html>

@@ -119,9 +119,19 @@ const SW_VER = "20260821b";
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.7.11";
-  const APP_VERSION_DATE = "2026-08-21";
+  const APP_VERSION = "2.7.12";
+  const APP_VERSION_DATE = "2026-08-22";
   const APP_CHANGELOG = [
+    { v: "2.7.12", date: "2026-08-22", items: [
+      "新增：格子便利贴 📌——任务弹窗写一句贴上，格子内显示黄色小贴纸；点击切换完成、✕ 移除，桌面可拖到其他时间格子，移动端长按 260ms 拖起跟手移动",
+      "新增：看板卡片双击编辑（优先级/主线支线/收纳/备注），单击延迟切换完成，长按拖拽改分类/安排到九宫格格子",
+      "新增：看板触屏长按拖拽（移动端修复）——HTML5 拖拽在触屏不可用，现在长按 260ms 拖起 ghost 跟手，实时高亮列/支线分块/九宫格预览格落点",
+      "修复：触屏拖拽落点调用了未定义函数（applyKanbanCardDrop）导致落位无效——已提取为桌面/触屏共用的落位逻辑",
+      "优化：孵化问询可跳过——「开始孵化」按钮常显，不必先生成问题才能开始；「重新问询」按需出现",
+      "优化：孵化问询生成加 60s 超时保护 + 友好错误（超时/网络/AI 失败分别提示，失败自动降级内置 7 维度模板）",
+      "优化：孵化 AI 对话——思考中每秒计时显示耗时；请求超时（60s）明确提示并恢复输入到输入框一键重试；失败不再丢失已打内容；发送按钮加载态",
+      "优化：无 API 时对话错误提示区分场景（对话需联网 AI；孵化本身无 AI 也会本地拆解）",
+    ]},
     { v: "2.7.11", date: "2026-08-21", items: [
       "修复：弹窗内 toast 被遮住——原生弹窗顶层渲染会盖住全局提示，现在提示自动挂到当前活跃弹窗内，弹窗关闭时迁回（收集箱/孵化/设置等所有弹窗内的反馈都可见了）",
       "修复：APK 震动反馈从未生效——补 Android VIBRATE 权限，并统一走 haptic() 通道；新增时辰/三才切换、任务勾选、格子完成、秒记、拖拽落位等十余处触感反馈",
@@ -1276,8 +1286,8 @@ const SW_VER = "20260821b";
   // ---------- 旧数据迁移 ----------
   // 任务对象标准化：字符串/对象 → 对象 {text, priority, tag, estimate, deadline}
   function normalizeTask(t) {
-    if (typeof t === "string") return { text: t, priority: "medium", tag: "", estimate: "", deadline: "", done: false, mainline: null, sideline: null, attachments: [], location: null, hatchHash: null };
-    if (!t || typeof t !== "object") return { text: "", priority: "medium", tag: "", estimate: "", deadline: "", done: false, mainline: null, sideline: null, attachments: [], location: null, hatchHash: null };
+    if (typeof t === "string") return { text: t, priority: "medium", tag: "", estimate: "", deadline: "", done: false, mainline: null, sideline: null, attachments: [], location: null, hatchHash: null, sticky: false };
+    if (!t || typeof t !== "object") return { text: "", priority: "medium", tag: "", estimate: "", deadline: "", done: false, mainline: null, sideline: null, attachments: [], location: null, hatchHash: null, sticky: false };
     return {
       text: t.text || String(t.text || ""),
       priority: t.priority || "medium",
@@ -1290,6 +1300,7 @@ const SW_VER = "20260821b";
       attachments: Array.isArray(t.attachments) ? t.attachments : [],
       location: t.location || null,
       hatchHash: t.hatchHash || null,
+      sticky: !!t.sticky, // 便利贴任务（黄色小贴纸，可拖到其他格子）
       // 来源标记：从收集箱拖入（双击可移回） / 重复任务 id（用于持续记录）
       _fromInbox: t._fromInbox || null,
       rptId: t.rptId || null,
@@ -1791,6 +1802,9 @@ const SW_VER = "20260821b";
     taskEstimate: document.getElementById("taskEstimate"),
     taskDeadline: document.getElementById("taskDeadline"),
     taskChecklist: document.getElementById("taskChecklist"),
+    taskStickyInput: document.getElementById("taskStickyInput"),
+    taskStickyAdd: document.getElementById("taskStickyAdd"),
+    taskStickyList: document.getElementById("taskStickyList"),
     taskRepeat: document.getElementById("taskRepeat"),
     taskRepeatCount: document.getElementById("taskRepeatCount"),
     // 任务详情面板（主线/支线/孵化/附件/位置）
@@ -2496,8 +2510,9 @@ const SW_VER = "20260821b";
       if (tasks.length > 1) cellEl.classList.add("multi");
       if (isDone) cellEl.classList.add("done");
       if (globalCellIndex === currentGlobalCell && isToday(state.currentDate)) cellEl.classList.add("current-cell");
-      // 优先级颜色（取第一个任务的优先级代表本格）
-      if (tasks.length) cellEl.classList.add("priority-" + (tasks[0].priority || "medium"));
+      // 优先级颜色（取第一个非便利贴任务的优先级代表本格）
+      const firstRegular = tasks.find((t) => !t.sticky) || tasks[0];
+      if (tasks.length) cellEl.classList.add("priority-" + (firstRegular.priority || "medium"));
       // 批量选择模式
       if (state.batchMode) {
         cellEl.classList.add("selectable");
@@ -2521,7 +2536,120 @@ const SW_VER = "20260821b";
       const contentEl = document.createElement("div");
       if (tasks.length) {
         contentEl.className = "cell-content-list";
+        // 便利贴行（sticky 任务独立展示为黄色小贴纸，可拖到其他格子）
+        const stickies = tasks.map((t, i) => ({ t, i })).filter((x) => x.t.sticky);
+        if (stickies.length) {
+          const stickyRow = document.createElement("div");
+          stickyRow.className = "cell-sticky-row";
+          stickies.forEach(({ t, i }) => {
+            const chip = document.createElement("div");
+            chip.className = "sticky-chip" + (t.done ? " done" : "");
+            chip.dataset.idx = i;
+            chip.draggable = true;
+            chip.title = "点击切换完成 · 拖到其他格子移动 · ✕ 移除";
+            chip.innerHTML = `<span class="sticky-pin">📌</span><span class="sticky-text">${escapeHtml((t.text || "").slice(0, 24))}</span><button class="sticky-del" title="移除便利贴">✕</button>`;
+            chip.addEventListener("dragstart", (e) => {
+              e.stopPropagation();
+              draggingTaskSource = { period, cell, idx: i };
+              chip.classList.add("dragging-item");
+              e.dataTransfer.effectAllowed = "move";
+              e.dataTransfer.setData("text/plain", String(i));
+            });
+            chip.addEventListener("dragend", () => {
+              chip.classList.remove("dragging-item");
+              draggingTaskSource = null;
+            });
+            chip.addEventListener("click", (e) => {
+              if (stickyLongPressed) { stickyLongPressed = false; return; } // 长按拖拽刚结束，跳过点击
+              if (e.target.closest(".sticky-del")) {
+                e.stopPropagation();
+                const arr = getCellTasks(period, cell).slice();
+                arr.splice(i, 1);
+                setCellTasks(period, cell, arr);
+                renderAll();
+                haptic(15);
+                toast("已移除便利贴", "info");
+                return;
+              }
+              e.stopPropagation();
+              toggleTaskDone(period, cell, i);
+            });
+            // 触屏长按 260ms 拖起便利贴 → 拖到其他时间格子（移动端）
+            chip.addEventListener("touchstart", (e) => {
+              if (e.target.closest(".sticky-del")) return;
+              const t = e.touches[0];
+              stickyTouch = { chip, period, cell, idx: i, startX: t.clientX, startY: t.clientY, holdTimer: null, ghost: null };
+              stickyTouch.holdTimer = setTimeout(() => {
+                if (!stickyTouch) return;
+                const cur = getCellTasks(period, cell);
+                const task = cur && cur[i];
+                if (!task || !task.sticky) { stickyTouch = null; return; }
+                const ghost = document.createElement("div");
+                ghost.className = "kb-drag-ghost sticky";
+                ghost.innerHTML = `<span class="sticky-pin">📌</span>${escapeHtml((task.text || "").slice(0, 24))}`;
+                document.body.appendChild(ghost);
+                stickyTouch.ghost = ghost;
+                chip.classList.add("dragging-item");
+                document.body.classList.add("kb-touch-dragging");
+                haptic(25); // 拖起震感
+                moveStickyGhost(stickyTouch, t.clientX, t.clientY);
+                stickyHighlightCellAt(t.clientX, t.clientY);
+              }, 260);
+            }, { passive: true });
+            chip.addEventListener("touchmove", (e) => {
+              if (!stickyTouch || stickyTouch.chip !== chip) return;
+              const t = e.touches[0];
+              if (stickyTouch.ghost) {
+                e.preventDefault(); // 拖拽中阻止页面滚动
+                moveStickyGhost(stickyTouch, t.clientX, t.clientY);
+                stickyHighlightCellAt(t.clientX, t.clientY);
+                return;
+              }
+              // 未拖起：位移超过阈值取消长按（让页面正常滚动）
+              if (stickyTouch.holdTimer && Math.hypot(t.clientX - stickyTouch.startX, t.clientY - stickyTouch.startY) > 10) {
+                clearTimeout(stickyTouch.holdTimer);
+                stickyTouch.holdTimer = null;
+              }
+            }, { passive: false });
+            const endStickyTouch = (e) => {
+              if (!stickyTouch || stickyTouch.chip !== chip) return;
+              const st = stickyTouch;
+              stickyTouch = null;
+              if (st.holdTimer) { clearTimeout(st.holdTimer); st.holdTimer = null; }
+              if (!st.ghost) return;
+              const t = (e.changedTouches && e.changedTouches[0]) || (e.touches && e.touches[0]);
+              const x = t ? t.clientX : 0, y = t ? t.clientY : 0;
+              st.ghost.remove();
+              chip.classList.remove("dragging-item");
+              document.body.classList.remove("kb-touch-dragging");
+              const targetCell = stickyHighlightCellAt(x, y);
+              document.querySelectorAll(".cell.drag-over").forEach((c) => c.classList.remove("drag-over"));
+              stickyLongPressed = true; // 标记：跳过紧随其后的 click
+              setTimeout(() => { stickyLongPressed = false; }, 400);
+              if (!targetCell) return;
+              const tPeriod = parseInt(targetCell.dataset.period, 10);
+              const tCell = parseInt(targetCell.dataset.cell, 10);
+              if (tPeriod === st.period && tCell === st.cell) return; // 同格子不处理
+              const sourceTasks = getCellTasks(st.period, st.cell).slice();
+              const task = sourceTasks[st.idx];
+              if (!task || !task.sticky) return;
+              sourceTasks.splice(st.idx, 1);
+              setCellTasks(st.period, st.cell, sourceTasks);
+              const targetTasks = getCellTasks(tPeriod, tCell).slice();
+              targetTasks.push(task);
+              setCellTasks(tPeriod, tCell, targetTasks);
+              renderAll();
+              haptic(30); // 落格震感
+              toast(`便利贴已移动到第 ${tCell + 1} 格`, "success");
+            };
+            chip.addEventListener("touchend", endStickyTouch);
+            chip.addEventListener("touchcancel", endStickyTouch);
+            stickyRow.appendChild(chip);
+          });
+          contentEl.appendChild(stickyRow);
+        }
         tasks.forEach((t, idx) => {
+          if (t.sticky) return; // 便利贴已在上方展示
           const item = document.createElement("div");
           item.className = "cell-content-item task-bar" + (t.done ? " task-done" : "");
           item.dataset.idx = idx;
@@ -4832,10 +4960,10 @@ ${noteSection}
     const range = getCellRange(period, cell);
     el.taskTimeRange.textContent = `${secondsToHHMM(range.start)} - ${secondsToHHMM(range.end)}`;
     const tasks = getCellTasks(period, cell);
-    el.taskContent.value = tasks.map(taskText).join("\n");
+    el.taskContent.value = tasks.filter((t) => !t.sticky).map(taskText).join("\n"); // 便利贴独立管理，不进正文
     el.taskDone.checked = getCellDone(period, cell);
-    // 属性：取第一个任务的属性作为默认（本格统一）
-    const first = tasks[0];
+    // 属性：取第一个非便利贴任务的属性作为默认（本格统一）
+    const first = tasks.find((t) => !t.sticky) || tasks[0];
     el.taskPriority.value = first?.priority || "medium";
     el.taskTag.value = first?.tag || "";
     el.taskEstimate.value = first?.estimate || "";
@@ -4846,6 +4974,7 @@ ${noteSection}
       if (i.dim) line += ` #${i.dim}${i.dimGoal ? `→${i.dimGoal}` : ""}#`;
       return line;
     }).join("\n");
+    renderTaskStickyList(period, cell);
     // 重复规则
     const rpt = getRepeatRuleForCell(state.currentDate, period, cell);
     el.taskRepeat.value = rpt ? rpt.rule : "";
@@ -4916,6 +5045,58 @@ ${noteSection}
 
   function closeTaskDialog() { el.taskDialog.close(); state.editingCell = null; }
 
+  // ---------- 便利贴（sticky task）：贴上/移除/切换完成 ----------
+  function renderTaskStickyList(period, cell) {
+    if (!el.taskStickyList) return;
+    const tasks = getCellTasks(period, cell);
+    const stickies = tasks.map((t, i) => ({ t, i })).filter((x) => x.t.sticky);
+    el.taskStickyList.innerHTML = stickies.length
+      ? stickies.map(({ t, i }) => `<div class="sticky-chip dlg${t.done ? " done" : ""}" data-idx="${i}"><span class="sticky-pin">📌</span><span class="sticky-text">${escapeHtml((t.text || "").slice(0, 30))}</span><button class="sticky-del" title="移除便利贴">✕</button></div>`).join("")
+      : '<small style="color:var(--text-muted);">本格还没有便利贴——写一句贴上，格子会显示黄色贴纸，随时可拖到其他时间格子。</small>';
+  }
+  if (el.taskStickyList) {
+    el.taskStickyList.addEventListener("click", (e) => {
+      if (!state.editingCell) return;
+      const { period, cell } = state.editingCell;
+      const chip = e.target.closest(".sticky-chip");
+      if (!chip) return;
+      const idx = parseInt(chip.dataset.idx, 10);
+      const arr = getCellTasks(period, cell).slice();
+      if (e.target.closest(".sticky-del")) {
+        arr.splice(idx, 1);
+        setCellTasks(period, cell, arr);
+        haptic(15);
+        toast("已移除便利贴", "info");
+      } else {
+        if (!arr[idx]) return;
+        arr[idx].done = !arr[idx].done;
+        setCellTasks(period, cell, arr);
+        haptic(12);
+      }
+      renderTaskStickyList(period, cell);
+      renderMandala();
+    });
+  }
+  if (el.taskStickyAdd) {
+    el.taskStickyAdd.addEventListener("click", () => {
+      if (!state.editingCell) return;
+      const text = (el.taskStickyInput.value || "").trim();
+      if (!text) { toast("先写一句要贴的内容", "info"); el.taskStickyInput.focus(); return; }
+      const { period, cell } = state.editingCell;
+      const arr = getCellTasks(period, cell).slice();
+      arr.push(normalizeTask({ text, priority: "low", sticky: true }));
+      setCellTasks(period, cell, arr);
+      el.taskStickyInput.value = "";
+      renderTaskStickyList(period, cell);
+      renderMandala();
+      haptic(20);
+      toast("已贴上便利贴（可拖到其他格子）", "success");
+    });
+    el.taskStickyInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); el.taskStickyAdd.click(); }
+    });
+  }
+
   el.saveTask.addEventListener("click", () => {
     if (!state.editingCell) return;
     const { period, cell } = state.editingCell;
@@ -4936,6 +5117,8 @@ ${noteSection}
       hatchHash: firstOld.hatchHash || null,
     };
     const tasks = texts.map((t) => ({ text: t, ...meta }));
+    // 便利贴独立于正文：保存时原样保留（贴上/移除走便利贴区）
+    oldTasks.filter((t) => t.sticky).forEach((st) => tasks.push(normalizeTask(st)));
     setCellTasks(period, cell, tasks);
     // 子任务清单：支持 ☑/☐/✓/x 前缀标记完成状态
     const clLines = el.taskChecklist.value.split("\n").map((s) => s.trim()).filter(Boolean);
@@ -6153,9 +6336,15 @@ ${noteSection}
     appendHatchChat("user", text);
     hatchState.chatLog.push({ role: "user", content: text });
     input.value = "";
-    if (el.hatchChatSend) el.hatchChatSend.disabled = true;
+    if (el.hatchChatSend) { el.hatchChatSend.disabled = true; el.hatchChatSend.textContent = "…"; }
 
     const botEl = appendHatchChat("bot", "⏳ AI 思考中…");
+    // 思考计时：每秒更新占位（痛点：60s 超时干等无感知）
+    let thinkSec = 0;
+    const thinkTimer = setInterval(() => {
+      thinkSec++;
+      if (botEl && (botEl.textContent || "").startsWith("⏳")) botEl.textContent = `⏳ AI 思考中… ${thinkSec}s`;
+    }, 1000);
     try {
       const { systemPrompt, userPrompt } = buildFollowupPrompt(text);
       hatchState.abortController = new AbortController();
@@ -6182,10 +6371,19 @@ ${noteSection}
       }
       hatchState.chatLog.push({ role: "assistant", content: raw });
     } catch (err) {
-      if (botEl) botEl.textContent = "⚠ " + (err.message || "请求失败，请重试");
+      const aborted = err && (err.name === "AbortError" || /abort/i.test(err.message || ""));
+      const rawMsg = (err && err.message) || "请求失败，请重试";
+      let msg;
+      if (aborted) msg = "⚠ 请求超时（60 秒）。你的输入已恢复到输入框，可直接重试";
+      else if (/配置.*API|API.*配置/.test(rawMsg)) msg = "⚠ " + rawMsg + "（对话需联网 AI；孵化本身无 AI 也会本地拆解）";
+      else msg = "⚠ " + rawMsg;
+      if (botEl) botEl.textContent = msg;
+      // 失败回填输入框：一键重发，不必重新打字（痛点：失败后输入丢失）
+      if (!input.value.trim()) input.value = text;
     } finally {
+      clearInterval(thinkTimer);
       hatchState.abortController = null;
-      if (el.hatchChatSend) el.hatchChatSend.disabled = false;
+      if (el.hatchChatSend) { el.hatchChatSend.disabled = false; el.hatchChatSend.textContent = "发送"; }
     }
   }
 
@@ -6528,12 +6726,14 @@ ${noteSection}
     el.hatchError.hidden = true;
     el.hatchHistoryHint.hidden = true;
     if (el.hatchHistoryPanel) el.hatchHistoryPanel.hidden = true;
-    // 显示问询面板（重置为初始状态：显示生成按钮，隐藏问题区和启动按钮）
+    // 显示问询面板（重置为初始状态：显示生成按钮，隐藏问题区）
     if (el.hatchOnboard) el.hatchOnboard.hidden = false;
     if (el.hatchOnboard) el.hatchOnboard.classList.remove("collapsed");
     if (el.hatchOnboardGen) el.hatchOnboardGen.hidden = false;
     if (el.hatchOnboardQs) el.hatchOnboardQs.innerHTML = "";
-    if (el.hatchOnboardActions) el.hatchOnboardActions.hidden = true;
+    // 「开始孵化」常显：问询可跳过，不想答直接孵（卡点：以前必须先生成问题才能开始）
+    if (el.hatchOnboardActions) el.hatchOnboardActions.hidden = false;
+    if (el.hatchRegenBtn) el.hatchRegenBtn.hidden = true; // 还没有问题，隐藏「重新问询」
     if (el.hatchGenBtn) el.hatchGenBtn.disabled = false;
     if (el.hatchGenTip) el.hatchGenTip.textContent = "填好任务后点此，AI 会针对你的任务提 5-7 个关键问题（含 7 维度子维度）";
     hatchState.onboardQuestions = [];
@@ -6643,6 +6843,9 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
 - 只返回 JSON，不要任何解释`;
 
       const provider = state.settings.apiProvider || "openai";
+      // 60s 超时保护：避免无反馈干等（痛点：网络差时一直转圈）
+      hatchState.abortController = new AbortController();
+      const genTimeout = setTimeout(() => { try { hatchState.abortController.abort(); } catch (e2) {} }, 60000);
       const resp = await fetch(state.settings.apiUrl, {
         method: "POST",
         headers: {
@@ -6655,8 +6858,10 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
           temperature: 0.4,
           max_tokens: 1600,
         }),
+        signal: hatchState.abortController.signal,
       });
-      if (!resp.ok) throw new Error("API " + resp.status);
+      clearTimeout(genTimeout);
+      if (!resp.ok) throw new Error(formatApiError(resp.status, await resp.text().catch(() => "")));
       const data = await resp.json();
       const content = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || "";
       // 提取 JSON
@@ -6674,21 +6879,27 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       toast(`已生成 ${questions.length} 个针对性问题`, "success");
     } catch (e) {
       console.error("生成问询失败:", e);
+      const aborted = e && (e.name === "AbortError" || /abort/i.test(e.message || ""));
       // AI 失败时 fallback 到内置 7 维度模板，保证按 7 维度+子维度提问
       const tmplQs = buildTemplateOnboardQuestions(text);
-      if (tmplQs && tmplQs.length) {
+      if (!aborted && tmplQs && tmplQs.length) {
         renderOnboardQuestions(tmplQs);
         if (el.hatchOnboardGen) el.hatchOnboardGen.hidden = true;
         if (el.hatchOnboardActions) el.hatchOnboardActions.hidden = false;
-        if (el.hatchOnboardTip) el.hatchOnboardTip.textContent = `⚠️ AI 生成失败，已用内置 7 维度模板（${tmplQs.length} 问），答完点「开始孵化」`;
+        if (el.hatchOnboardTip) el.hatchOnboardTip.textContent = `⚠️ AI 生成失败（${aborted ? "超时" : e.message || "未知错误"}），已用内置 7 维度模板（${tmplQs.length} 问），答完点「开始孵化」`;
         toast("AI 失败，已用内置 7 维度模板", "info");
         return;
       }
-      if (el.hatchGenTip) el.hatchGenTip.textContent = "❌ 生成失败：" + (e.message || "未知错误") + "，可跳过直接孵化";
+      if (el.hatchGenTip) el.hatchGenTip.textContent = "❌ 生成失败：" + (aborted ? "请求超时（60s）" : (e.message || "未知错误")) + "，可重试或跳过直接孵化";
       if (el.hatchGenBtn) el.hatchGenBtn.disabled = false;
-      // 生成失败时显示「跳过问询直接孵化」按钮
+      // 生成失败时也保证「开始孵化」可用（可跳过问询）
       if (el.hatchOnboardActions) el.hatchOnboardActions.hidden = false;
-      if (el.hatchOnboardTip) el.hatchOnboardTip.textContent = "⚠️ 问询生成失败，可直接开始孵化（无问询上下文）";
+      if (el.hatchOnboardTip) el.hatchOnboardTip.textContent = aborted
+        ? "⚠️ AI 请求超时，可重试生成或直接开始孵化（无问询上下文）"
+        : "⚠️ 问询生成失败，可直接开始孵化（无问询上下文）";
+    } finally {
+      hatchState.abortController = null;
+      if (el.hatchGenBtn) el.hatchGenBtn.disabled = false;
     }
   }
 
@@ -6697,6 +6908,8 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     if (!el.hatchOnboardQs) return;
     el.hatchOnboardQs.innerHTML = "";
     hatchState.onboardQuestions = questions;
+    if (el.hatchOnboardActions) el.hatchOnboardActions.hidden = false;
+    if (el.hatchRegenBtn) el.hatchRegenBtn.hidden = false; // 有问题了，可重新生成
     // 顶部进度条（已答 / 总数）
     const progressEl = document.createElement("div");
     progressEl.className = "hoq-progress";
@@ -7628,12 +7841,13 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
   if (el.hatchRegenBtn) el.hatchRegenBtn.addEventListener("click", () => {
     if (el.hatchOnboardQs) el.hatchOnboardQs.innerHTML = "";
     if (el.hatchOnboardGen) el.hatchOnboardGen.hidden = false;
-    if (el.hatchOnboardActions) el.hatchOnboardActions.hidden = true;
+    if (el.hatchOnboardActions) el.hatchOnboardActions.hidden = false; // 开始孵化保持可用（可跳过问询）
+    if (el.hatchRegenBtn) el.hatchRegenBtn.hidden = true; // 问题已清空，隐藏本按钮
     if (el.hatchGenBtn) el.hatchGenBtn.disabled = false;
     if (el.hatchGenTip) el.hatchGenTip.textContent = "填好任务后点此，AI 会针对你的任务提 5-7 个关键问题（含 7 维度子维度）";
     if (el.hatchOnboardTip) el.hatchOnboardTip.textContent = "💡 答得越具体，AI 拆解越精准";
     hatchState.onboardQuestions = [];
-    toast("已清空问题，可重新生成或修改任务描述", "info");
+    toast("已清空问题，可重新生成或直接开始孵化", "info");
   });
   if (el.hatchTaskInput) el.hatchTaskInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); startHatchFromForm(); }
@@ -11590,6 +11804,21 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   // ---------- 拖拽任务移动 ----------
   let draggingSource = null; // {period, cell, index} 整格拖
   let draggingTaskSource = null; // {period, cell, idx} 单条拖
+  // 便利贴触屏拖拽状态（HTML5 DnD 在触屏不可用，长按 260ms 拖起到其他格子）
+  let stickyTouch = null; // { chip, period, cell, idx, startX, startY, holdTimer, ghost }
+  let stickyLongPressed = false;
+  function moveStickyGhost(st, x, y) {
+    if (!st || !st.ghost) return;
+    st.ghost.style.left = x + "px";
+    st.ghost.style.top = y + "px";
+  }
+  function stickyHighlightCellAt(x, y) {
+    document.querySelectorAll(".cell.drag-over").forEach((c) => c.classList.remove("drag-over"));
+    const hit = document.elementFromPoint(x, y);
+    const targetCell = hit && hit.closest(".cell");
+    if (targetCell) targetCell.classList.add("drag-over");
+    return targetCell;
+  }
 
   function attachDragHandlers(cellEl, period, cell) {
     // 注意：cellEl 本身不再 draggable，由内部 task-bar 单条拖拽
@@ -13577,12 +13806,54 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     bindInboxKanbanEvents();
   }
 
+  // 拖拽落位：把卡片应用到目标列/支线分块（桌面 drop 与触屏长按拖拽共用）
+  function applyKanbanCardDrop(it, colEl, secEl) {
+    if (!it || !colEl) return;
+    const groupKey = inboxOptions.kanbanGroup || "tag";
+    const colKey = colEl.dataset.col;
+    const slId = secEl ? (secEl.dataset.sl || null) : undefined; // null=未分支线区 undefined=非主线模式
+    let msg = "";
+    if (groupKey === "tag") {
+      if (colKey === "未分类") { it.tags = []; msg = "已移除标签"; }
+      else {
+        // 替换首标签（看板按首标签分列）：其余标签保留
+        const rest = (it.tags || []).slice(1).filter((t) => t !== colKey);
+        it.tags = [colKey, ...rest];
+        msg = `已分类到「${colKey}」`;
+      }
+    } else if (groupKey === "mainline") {
+      if (colKey === "__none__") { it.mainline = null; it.sideline = null; msg = "已移出主线（独立任务）"; }
+      else {
+        const hadParent = !!it.parentId;
+        it.parentId = null; // 主线归属与任务级收纳互斥，拖入主线即解除收纳
+        it.mainline = colKey;
+        it.sideline = slId || null;
+        const ml = inboxMainlines.find((m) => m.id === colKey);
+        msg = `已归属主线「${ml ? ml.name : ""}」${slId ? " · " + ((ml && (ml.sidelines || []).find((s) => s.id === slId)) || {}).name : ""}`;
+        if (hadParent) msg += "（已解除原收纳关系）";
+      }
+    } else if (groupKey === "prio") {
+      it.priority = Number(colKey) || 0;
+      msg = it.priority === 2 ? "已标记 ⚡ 紧急" : it.priority === 1 ? "已标记 ★ 重要" : "已设为普通优先级";
+    } else if (groupKey === "status") {
+      if (colKey === "done") { it.done = true; msg = "已标记完成"; }
+      else if (colKey === "undone") { it.done = false; msg = "已恢复进行中"; }
+      else { toast("「逾期」由截止日期决定，请用 ✎ 修改日期", "info"); return; }
+    }
+    saveInbox();
+    renderInboxList();
+    renderInboxStats();
+    if (inboxMode === "mainline") renderMainlineList();
+    haptic(30); // 拖拽落位震感
+    toast(msg, "success");
+  }
+
   // 看板事件委托（只绑定一次，避免监听器累积）
   function bindInboxKanbanEvents() {
     if (inboxKanbanBound) return;
     inboxKanbanBound = true;
-    // 长按看板卡片 → 打开编辑弹窗（移动端 ✎ 按钮小，长按更顺手）
-    let kbPressTimer = null, kbLongPressed = false;
+    // 长按看板卡片 → 拖拽模式（移动端）；双击 → 编辑
+    let kbDblTimer = null, kbSingleTimer = null, kbLongPressed = false;
     el.inboxList.addEventListener("click", (e) => {
       // ✎ 编辑按钮：打开卡片编辑弹窗（优先级星标 / 归属主线支线 / 收纳到任务 / 备注）
       const editBtn = e.target.closest(".ikb-edit");
@@ -13607,33 +13878,121 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       }
       const card = e.target.closest(".inbox-kanban-card");
       if (!card) return;
-      if (kbLongPressed) { kbLongPressed = false; return; } // 长按已处理，跳过点击
+      if (e.target.closest(".ikb-edit")) return; // ✎ 按钮有独立处理
+      if (kbLongPressed) { kbLongPressed = false; return; } // 长按拖拽刚结束，跳过点击
       const idx = parseInt(card.dataset.idx);
       if (!inboxItems[idx]) return;
-      haptic(15); // 看板卡片切换完成轻震
-      inboxItems[idx].done = !inboxItems[idx].done;
-      saveInbox();
-      renderInboxStats();
-      renderInboxList();
+      // 双击（含双触）→ 编辑；单击延迟 280ms 切换完成（等待可能的第二击）
+      if (kbDblTimer) {
+        clearTimeout(kbDblTimer); kbDblTimer = null;
+        if (kbSingleTimer) { clearTimeout(kbSingleTimer); kbSingleTimer = null; }
+        haptic(20);
+        openKanbanCardEdit(idx);
+        return;
+      }
+      kbDblTimer = setTimeout(() => { kbDblTimer = null; }, 320);
+      kbSingleTimer = setTimeout(() => {
+        kbSingleTimer = null;
+        haptic(15); // 看板卡片切换完成轻震
+        inboxItems[idx].done = !inboxItems[idx].done;
+        saveInbox();
+        renderInboxStats();
+        renderInboxList();
+      }, 280);
     });
-    // 触摸长按检测（500ms）：触发编辑弹窗；移动/提前抬起则取消
+    // ---------- 触屏长按拖拽（HTML5 DnD 在触屏不可用）：长按 260ms 拖起卡片 ----------
+    // 单击=完成 / 双击=编辑 / 长按=拖拽改分类或安排到格子 / 右键(桌面)=编辑
+    let kbTouch = null; // { card, idx, startX, startY, holdTimer, ghost }
     el.inboxList.addEventListener("touchstart", (e) => {
       if (inboxView !== "kanban") return;
       const card = e.target.closest(".inbox-kanban-card");
-      if (!card) return;
-      kbLongPressed = false;
-      kbPressTimer = setTimeout(() => {
-        kbPressTimer = null;
-        kbLongPressed = true;
-        haptic(30);
-        const idx = parseInt(card.dataset.idx);
-        if (inboxItems[idx]) openKanbanCardEdit(idx);
-      }, 500);
+      if (!card || e.target.closest(".ikb-edit, .ikb-note")) return;
+      const t = e.touches[0];
+      kbTouch = { card, idx: parseInt(card.dataset.idx, 10) || 0, startX: t.clientX, startY: t.clientY, holdTimer: null, ghost: null };
+      kbTouch.holdTimer = setTimeout(() => {
+        if (!kbTouch || !inboxItems[kbTouch.idx]) { kbTouch = null; return; }
+        // 拖起：创建跟手 ghost，标记源卡片
+        const it = inboxItems[kbTouch.idx];
+        const ghost = document.createElement("div");
+        ghost.className = "kb-drag-ghost";
+        ghost.innerHTML = `<span class="sticky-pin">🗂</span>${escapeHtml((it.text || "").slice(0, 30))}`;
+        document.body.appendChild(ghost);
+        kbTouch.ghost = ghost;
+        kbTouch.card.classList.add("dragging");
+        document.body.classList.add("kb-touch-dragging");
+        haptic(25); // 拖起震感
+        moveKbGhost(t.clientX, t.clientY);
+        kbHighlightAt(t.clientX, t.clientY);
+      }, 260);
     }, { passive: true });
-    const cancelKbPress = () => { if (kbPressTimer) { clearTimeout(kbPressTimer); kbPressTimer = null; } };
-    el.inboxList.addEventListener("touchmove", cancelKbPress, { passive: true });
-    el.inboxList.addEventListener("touchend", cancelKbPress);
-    el.inboxList.addEventListener("touchcancel", cancelKbPress);
+    function moveKbGhost(x, y) {
+      if (!kbTouch || !kbTouch.ghost) return;
+      kbTouch.ghost.style.left = x + "px";
+      kbTouch.ghost.style.top = y + "px";
+    }
+    // 探测触点下的落点（列/支线分块/内嵌九宫格预览格子）
+    function kbDropTargetAt(x, y) {
+      const hit = document.elementFromPoint(x, y);
+      if (!hit) return {};
+      const igpCell = hit.closest(".igp-cell");
+      if (igpCell) return { igpCell };
+      const sec = hit.closest(".ikb-section");
+      if (sec) return { sec, col: sec.closest(".inbox-kanban-col") };
+      const col = hit.closest(".inbox-kanban-col");
+      if (col) return { col };
+      return {};
+    }
+    function kbHighlightAt(x, y) {
+      clearDragOverMarks();
+      const igpGrid = document.getElementById("igpGrid");
+      if (igpGrid) igpGrid.querySelectorAll(".igp-cell.drag-over").forEach((c) => c.classList.remove("drag-over"));
+      const tgt = kbDropTargetAt(x, y);
+      if (tgt.igpCell) tgt.igpCell.classList.add("drag-over");
+      else if (tgt.sec) tgt.sec.classList.add("drag-over");
+      else if (tgt.col) tgt.col.querySelector(".inbox-kanban-col-body")?.classList.add("drag-over-col");
+      return tgt;
+    }
+    el.inboxList.addEventListener("touchmove", (e) => {
+      if (!kbTouch) return;
+      const t = e.touches[0];
+      if (kbTouch.ghost) {
+        e.preventDefault(); // 拖拽中阻止页面滚动
+        moveKbGhost(t.clientX, t.clientY);
+        kbHighlightAt(t.clientX, t.clientY);
+        return;
+      }
+      // 未拖起：位移超过阈值取消长按（让列表正常滚动）
+      if (kbTouch.holdTimer && Math.hypot(t.clientX - kbTouch.startX, t.clientY - kbTouch.startY) > 10) {
+        clearTimeout(kbTouch.holdTimer);
+        kbTouch.holdTimer = null;
+      }
+    }, { passive: false });
+    const endKbTouch = (e) => {
+      if (!kbTouch) return;
+      if (kbTouch.holdTimer) { clearTimeout(kbTouch.holdTimer); kbTouch.holdTimer = null; }
+      if (kbTouch.ghost) {
+        const t = (e.changedTouches && e.changedTouches[0]) || (e.touches && e.touches[0]);
+        const x = t ? t.clientX : 0, y = t ? t.clientY : 0;
+        kbTouch.ghost.remove();
+        kbTouch.card.classList.remove("dragging");
+        document.body.classList.remove("kb-touch-dragging");
+        const tgt = kbHighlightAt(x, y); // 复用探测拿到落点
+        clearDragOverMarks();
+        const igpGrid = document.getElementById("igpGrid");
+        if (igpGrid) igpGrid.querySelectorAll(".igp-cell.drag-over").forEach((c) => c.classList.remove("drag-over"));
+        const it = inboxItems[kbTouch.idx];
+        if (it && tgt.igpCell) {
+          dropInboxItemToCell(kbTouch.idx, parseInt(tgt.igpCell.dataset.period, 10), parseInt(tgt.igpCell.dataset.cell, 10));
+        } else if (it && tgt.col) {
+          applyKanbanCardDrop(it, tgt.col, tgt.sec || null);
+        }
+        kbLongPressed = true; // 标记：跳过紧随其后的 click
+        setTimeout(() => { kbLongPressed = false; }, 400);
+      }
+      kbTouch = null;
+    };
+    el.inboxList.addEventListener("touchend", endKbTouch);
+    el.inboxList.addEventListener("touchcancel", endKbTouch);
     // 桌面端右键卡片 → 编辑（与移动端长按对齐）
     el.inboxList.addEventListener("contextmenu", (e) => {
       if (inboxView !== "kanban") return;
@@ -13688,46 +14047,9 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       if (!payload || payload.kind !== "inbox") return;
       const it = inboxItems[payload.idx];
       if (!it) return;
-      const groupKey = inboxOptions.kanbanGroup || "tag";
-      const colKey = colEl.dataset.col;
       const secEl = e.target.closest(".ikb-section");
-      const slId = secEl ? (secEl.dataset.sl || null) : undefined; // null=未分支线区 undefined=非主线模式
       clearDragOverMarks();
-      // 应用分类变更
-      let msg = "";
-      if (groupKey === "tag") {
-        if (colKey === "未分类") { it.tags = []; msg = "已移除标签"; }
-        else {
-          // 替换首标签（看板按首标签分列）：其余标签保留
-          const rest = (it.tags || []).slice(1).filter((t) => t !== colKey);
-          it.tags = [colKey, ...rest];
-          msg = `已分类到「${colKey}」`;
-        }
-      } else if (groupKey === "mainline") {
-        if (colKey === "__none__") { it.mainline = null; it.sideline = null; msg = "已移出主线（独立任务）"; }
-        else {
-          const hadParent = !!it.parentId;
-          it.parentId = null; // 主线归属与任务级收纳互斥，拖入主线即解除收纳
-          it.mainline = colKey;
-          it.sideline = slId || null;
-          const ml = inboxMainlines.find((m) => m.id === colKey);
-          msg = `已归属主线「${ml ? ml.name : ""}」${slId ? " · " + ((ml && (ml.sidelines || []).find((s) => s.id === slId)) || {}).name : ""}`;
-          if (hadParent) msg += "（已解除原收纳关系）";
-        }
-      } else if (groupKey === "prio") {
-        it.priority = Number(colKey) || 0;
-        msg = it.priority === 2 ? "已标记 ⚡ 紧急" : it.priority === 1 ? "已标记 ★ 重要" : "已设为普通优先级";
-      } else if (groupKey === "status") {
-        if (colKey === "done") { it.done = true; msg = "已标记完成"; }
-        else if (colKey === "undone") { it.done = false; msg = "已恢复进行中"; }
-        else { toast("「逾期」由截止日期决定，请用 ✎ 修改日期", "info"); return; }
-      }
-      saveInbox();
-      renderInboxList();
-      renderInboxStats();
-      if (inboxMode === "mainline") renderMainlineList();
-      haptic(30); // 拖拽落位震感
-      toast(msg, "success");
+      applyKanbanCardDrop(it, colEl, secEl);
     });
   }
 
