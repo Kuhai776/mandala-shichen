@@ -802,6 +802,17 @@ textarea, input, select {
   background: #4ade80; color: #0a1620; border-color: #4ade80;
   animation: ogSwipePulse 1.6s ease-in-out infinite;
 }
+/* ▦ 整时辰秒记按钮：一次写入本时辰全部格子 */
+.og-period-btn {
+  flex-shrink: 0; font-size: 10px; font-weight: 600; padding: 4px 8px; border-radius: 6px;
+  background: rgba(250, 204, 21, 0.12); color: #facc15;
+  border: 1px solid rgba(250, 204, 21, 0.35); cursor: pointer;
+}
+.og-period-btn:hover { background: rgba(250, 204, 21, 0.22); }
+@media (max-width: 480px) {
+  .og-period-btn { padding: 4px 6px; font-size: 12px; } /* 窄屏只露 ▦ 图标 */
+  .og-period-btn .og-period-label { display: none; }
+}
 @keyframes ogSwipePulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.45); }
   50% { box-shadow: 0 0 10px 2px rgba(74, 222, 128, 0.35); }
@@ -995,6 +1006,18 @@ textarea, input, select {
   border: 1px solid var(--border); user-select: none;
 }
 .qr-chip.active { background: rgba(59, 130, 246, 0.18); color: #60a5fa; border-color: rgba(59, 130, 246, 0.5); font-weight: 700; }
+/* 记录范围切换：单格 / 整个时辰（重复记录） */
+.qr-scope-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.qr-scope-chip {
+  font-size: 11px; padding: 4px 10px; border-radius: 12px; cursor: pointer;
+  background: var(--bg-tertiary, rgba(255,255,255,0.05)); color: var(--text-secondary);
+  border: 1px solid var(--border); transition: all .15s; user-select: none;
+}
+.qr-scope-chip:hover { border-color: var(--accent, #60a5fa); color: var(--text-primary); }
+.qr-scope-chip.on {
+  background: rgba(250, 204, 21, 0.15); color: #facc15;
+  border-color: rgba(250, 204, 21, 0.5); font-weight: 700;
+}
 .qr-custom {
   width: 90px; font-size: 11px; padding: 5px 8px; border-radius: 14px;
   border: 1px solid var(--input-border); background: var(--input-bg);
@@ -3770,6 +3793,33 @@ dialog::backdrop {
   flex-shrink: 0;
 }
 .sticky-del:hover { color: var(--danger, #ff6b6b); background: rgba(0, 0, 0, 0.08); }
+/* 便利贴编辑按钮（✎ 改文字/颜色） */
+.sticky-edit {
+  border: none;
+  background: transparent;
+  color: #a08a3a;
+  font-size: 10px;
+  line-height: 1;
+  padding: 1px 2px;
+  border-radius: 3px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.sticky-edit:hover { color: var(--accent, #60a5fa); background: rgba(0, 0, 0, 0.08); }
+/* 便利贴四色：黄(默认) / 粉 / 蓝 / 绿 */
+.sticky-chip.c-p { background: #ffd6e8; color: #7a2c4e; border-color: #f0a0c0; }
+.sticky-chip.c-b { background: #cfe6ff; color: #1e4a7a; border-color: #9dc4ef; }
+.sticky-chip.c-g { background: #d4f5d9; color: #1d5c30; border-color: #93d9a3; }
+/* 便利贴选色圆点（任务弹窗/投放弹窗/编辑弹窗共用） */
+.sticky-colors { display: inline-flex; gap: 5px; align-items: center; flex-shrink: 0; }
+.sticky-color-dot {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid transparent; background: var(--dot, #facc15);
+  cursor: pointer; padding: 0; transition: transform .12s, border-color .12s;
+  box-shadow: inset 0 -2px 3px rgba(0,0,0,.12);
+}
+.sticky-color-dot:hover { transform: scale(1.15); }
+.sticky-color-dot.on { border-color: var(--text-primary, #fff); transform: scale(1.2); }
 @keyframes sticky-pop {
   from { transform: scale(0.7) rotate(-4deg); opacity: 0; }
   to { transform: scale(1) rotate(0); opacity: 1; }
@@ -8670,6 +8720,11 @@ dialog.inbox-dialog-fullscreen::backdrop {
 .ikb-edit { position:absolute; top:4px; right:4px; border:none; background:transparent; color:var(--text-muted); font-size:11px; line-height:1; padding:3px 4px; border-radius:4px; cursor:pointer; opacity:0; transition:opacity .15s, color .15s, background .15s; }
 .inbox-kanban-card:hover .ikb-edit, .ikb-edit:focus-visible { opacity:1; }
 .ikb-edit:hover { color:var(--accent); background:var(--hover); }
+/* 看板卡片 📌 便利贴按钮（贴到时间格子） */
+.ikb-sticky { position:absolute; top:4px; right:26px; border:none; background:transparent; color:var(--text-muted); font-size:11px; line-height:1; padding:3px 4px; border-radius:4px; cursor:pointer; opacity:0; transition:opacity .15s, color .15s, background .15s; }
+.inbox-kanban-card:hover .ikb-sticky, .ikb-sticky:focus-visible { opacity:1; }
+.ikb-sticky:hover { color:#facc15; background:var(--hover); }
+@media (hover: none) { .ikb-sticky, .ikb-edit { opacity:1; } } /* 触屏设备常显操作按钮 */
 /* 看板卡片归属徽标（主线/支线 或 父任务，双链展示） */
 .ikb-group { display:inline-flex; align-items:center; gap:3px; font-size:9px; padding:0 4px; border-radius:6px; background:var(--card-bg); color:var(--text-secondary); max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .ikb-group-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }

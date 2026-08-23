@@ -21,6 +21,15 @@ const SW_VER = "20260821b";
   const FULL_GLYPHS = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"];
   const FULL_PERIOD_NAMES = ["子时", "丑时", "寅时", "卯时", "辰时", "巳时", "午时", "未时", "申时", "酉时", "戌时", "亥时"];
 
+  // 便利贴颜色盘（黄色经典 / 粉 / 蓝 / 绿，四色分类贴）
+  const STICKY_COLORS = [
+    { key: "y", name: "黄", css: "c-y", dot: "#facc15" },
+    { key: "p", name: "粉", css: "c-p", dot: "#f472b6" },
+    { key: "b", name: "蓝", css: "c-b", dot: "#60a5fa" },
+    { key: "g", name: "绿", css: "c-g", dot: "#4ade80" },
+  ];
+  function stickyColorCss(key) { const c = STICKY_COLORS.find((x) => x.key === key); return c ? " " + c.css : ""; }
+
   // 默认配置（卯时起点：5:00 → 23:00，9 时辰，每时辰 9 格）
   const DEFAULT_TIME_CONFIG = {
     startHour: 5,       // 开始小时（0-23，整点）
@@ -119,9 +128,19 @@ const SW_VER = "20260821b";
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.7.14";
+  const APP_VERSION = "2.7.15";
   const APP_VERSION_DATE = "2026-08-23";
   const APP_CHANGELOG = [
+    { v: "2.7.15", date: "2026-08-23", items: [
+      "新增：整时辰重复记录——持续事项卡片「▦ 整时辰」按钮一键把该事项写入本时辰全部格子（同名已记录的格子自动跳过），整时辰都在做同一件事不用逐格记",
+      "新增：快速记录弹窗记录范围——「▸ 单格 / ▦ 整个时辰·重复记录」chips 一键切换，选整时辰保存即写入该时辰全部格子",
+      "新增：记录编辑弹窗「▦ 填满整时辰」——填好一条记录后一键重复填满本时辰全部格子（覆盖已有记录前会确认）",
+      "新增：便利贴四色系统——黄/粉/蓝/绿四色便利贴，任务弹窗贴上时可选色，格子贴纸按色显示",
+      "新增：便利贴编辑——贴纸 ✎ 按钮可改文字、换颜色、移动到其他时辰格子",
+      "新增：待办/看板 📌 便捷投放——收集箱表格行与看板卡片新增 📌 按钮，一键打开「贴便利贴到时间格子」弹窗（选色+时辰/格子选择+⏰现在定位+格子内容预览），待办秒变时间格提醒",
+      "优化：记录页同步展示便利贴贴纸——与计划页同款彩色贴纸，点击切换完成",
+      "优化：触屏设备看板卡片操作按钮常显（✎/📌 不再需要 hover）",
+    ]},
     { v: "2.7.14", date: "2026-08-23", items: [
       "修复：孵化历史看板维度列匹配 bug——带维度标签的卡片因 target_dim 含子维度（如 Cl.def）匹配不到列 key（Cl）而整卡消失；现按维度级编码正确归列",
       "新增：孵化历史看板列头子维度分布——每列下方显示该维度内各子维度的计数 chip（悬停显示核心追问），子维度一目了然",
@@ -1298,8 +1317,8 @@ const SW_VER = "20260821b";
   // ---------- 旧数据迁移 ----------
   // 任务对象标准化：字符串/对象 → 对象 {text, priority, tag, estimate, deadline}
   function normalizeTask(t) {
-    if (typeof t === "string") return { text: t, priority: "medium", tag: "", estimate: "", deadline: "", done: false, mainline: null, sideline: null, attachments: [], location: null, hatchHash: null, sticky: false };
-    if (!t || typeof t !== "object") return { text: "", priority: "medium", tag: "", estimate: "", deadline: "", done: false, mainline: null, sideline: null, attachments: [], location: null, hatchHash: null, sticky: false };
+    if (typeof t === "string") return { text: t, priority: "medium", tag: "", estimate: "", deadline: "", done: false, mainline: null, sideline: null, attachments: [], location: null, hatchHash: null, sticky: false, stickyColor: null };
+    if (!t || typeof t !== "object") return { text: "", priority: "medium", tag: "", estimate: "", deadline: "", done: false, mainline: null, sideline: null, attachments: [], location: null, hatchHash: null, sticky: false, stickyColor: null };
     return {
       text: t.text || String(t.text || ""),
       priority: t.priority || "medium",
@@ -1313,6 +1332,7 @@ const SW_VER = "20260821b";
       location: t.location || null,
       hatchHash: t.hatchHash || null,
       sticky: !!t.sticky, // 便利贴任务（黄色小贴纸，可拖到其他格子）
+      stickyColor: STICKY_COLORS.some((c) => c.key === t.stickyColor) ? t.stickyColor : null, // 便利贴颜色：y黄/p粉/b蓝/g绿
       // 来源标记：从收集箱拖入（双击可移回） / 重复任务 id（用于持续记录）
       _fromInbox: t._fromInbox || null,
       rptId: t.rptId || null,
@@ -1733,6 +1753,7 @@ const SW_VER = "20260821b";
     qrNowBtn: document.getElementById("qrNowBtn"),
     qrPeriodSel: document.getElementById("qrPeriodSel"),
     qrCellSel: document.getElementById("qrCellSel"),
+    qrScopeRow: document.getElementById("qrScopeRow"),
     qrNote: document.getElementById("qrNote"),
     qrCancel: document.getElementById("qrCancel"),
     qrSaveBtn: document.getElementById("qrSaveBtn"),
@@ -1816,6 +1837,7 @@ const SW_VER = "20260821b";
     taskChecklist: document.getElementById("taskChecklist"),
     taskStickyInput: document.getElementById("taskStickyInput"),
     taskStickyAdd: document.getElementById("taskStickyAdd"),
+    taskStickyColors: document.getElementById("taskStickyColors"),
     taskStickyList: document.getElementById("taskStickyList"),
     taskRepeat: document.getElementById("taskRepeat"),
     taskRepeatCount: document.getElementById("taskRepeatCount"),
@@ -2555,11 +2577,11 @@ const SW_VER = "20260821b";
           stickyRow.className = "cell-sticky-row";
           stickies.forEach(({ t, i }) => {
             const chip = document.createElement("div");
-            chip.className = "sticky-chip" + (t.done ? " done" : "");
+            chip.className = "sticky-chip" + stickyColorCss(t.stickyColor) + (t.done ? " done" : "");
             chip.dataset.idx = i;
             chip.draggable = true;
-            chip.title = "点击切换完成 · 拖到其他格子移动 · ✕ 移除";
-            chip.innerHTML = `<span class="sticky-pin">📌</span><span class="sticky-text">${escapeHtml((t.text || "").slice(0, 24))}</span><button class="sticky-del" title="移除便利贴">✕</button>`;
+            chip.title = "点击切换完成 · 拖到其他格子移动 · ✎ 编辑 · ✕ 移除";
+            chip.innerHTML = `<span class="sticky-pin">📌</span><span class="sticky-text">${escapeHtml((t.text || "").slice(0, 24))}</span><button class="sticky-edit" title="编辑文字/颜色">✎</button><button class="sticky-del" title="移除便利贴">✕</button>`;
             chip.addEventListener("dragstart", (e) => {
               e.stopPropagation();
               draggingTaskSource = { period, cell, idx: i };
@@ -2583,12 +2605,17 @@ const SW_VER = "20260821b";
                 toast("已移除便利贴", "info");
                 return;
               }
+              if (e.target.closest(".sticky-edit")) {
+                e.stopPropagation();
+                openStickyEditDialog(period, cell, i);
+                return;
+              }
               e.stopPropagation();
               toggleTaskDone(period, cell, i);
             });
             // 触屏长按 260ms 拖起便利贴 → 拖到其他时间格子（移动端）
             chip.addEventListener("touchstart", (e) => {
-              if (e.target.closest(".sticky-del")) return;
+              if (e.target.closest(".sticky-del") || e.target.closest(".sticky-edit")) return;
               const t = e.touches[0];
               stickyTouch = { chip, period, cell, idx: i, startX: t.clientX, startY: t.clientY, holdTimer: null, ghost: null };
               stickyTouch.holdTimer = setTimeout(() => {
@@ -2597,7 +2624,7 @@ const SW_VER = "20260821b";
                 const task = cur && cur[i];
                 if (!task || !task.sticky) { stickyTouch = null; return; }
                 const ghost = document.createElement("div");
-                ghost.className = "kb-drag-ghost sticky";
+                ghost.className = "kb-drag-ghost sticky" + stickyColorCss(task.stickyColor);
                 ghost.innerHTML = `<span class="sticky-pin">📌</span>${escapeHtml((task.text || "").slice(0, 24))}`;
                 document.body.appendChild(ghost);
                 stickyTouch.ghost = ghost;
@@ -3216,6 +3243,7 @@ const SW_VER = "20260821b";
           <span class="og-name">${escapeHtml(it.name)}</span>
           <span class="og-stats">今日 ${n} 次 · 本周 ${w} 次${it.lastSpent ? " · 上次 " + escapeHtml(it.lastSpent) : ""}</span>
         </span>
+        <button class="og-period-btn" data-og="${escapeHtml(it.id)}" title="整时辰秒记：一次把「${escapeHtml(it.name)}」重复写入本时辰全部格子（已有同名记录的格子自动跳过）">▦ <span class="og-period-label">整时辰</span></button>
         <button class="og-swipe-btn ${active ? "on" : ""}" data-og="${escapeHtml(it.id)}" title="${active ? "停止滑动记录" : "启动滑动记录：在记录页按住并滑过格子，逐格重复记录该事项"}">${active ? "⏹ 停止" : "▶ 启动"}</button>
         <button class="og-record-btn" data-og="${escapeHtml(it.id)}" title="快速记录">⚡ 记录</button>
         <button class="og-del-btn" data-og="${escapeHtml(it.id)}" title="删除该持续事项">✕</button>
@@ -3227,6 +3255,14 @@ const SW_VER = "20260821b";
       el.recordGrid.dataset.swipeName = swipeRecordItem ? swipeRecordItem.name : "";
     }
     const stopSwipe = () => { swipeRecordItem = null; renderOngoingPanel(); renderRecord(); };
+    // ▦ 整时辰秒记：一次写入本时辰全部格子（同名已记录的格子跳过）
+    el.recordOngoingList.querySelectorAll(".og-period-btn").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const it = state.ongoing.find((x) => x.id === btn.dataset.og);
+        if (it) quickRecordPeriodInstant(it, btn.closest(".og-card"));
+      });
+    });
     el.recordOngoingList.querySelectorAll(".og-swipe-btn").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -3247,7 +3283,7 @@ const SW_VER = "20260821b";
       // 长按 500ms → 秒记（用上次时长记录到当前时间格，无弹窗）
       let lpTimer = null, lpFired = false;
       const startLp = (e) => {
-        if (e.target.closest(".og-del-btn") || e.target.closest(".og-swipe-btn")) return;
+        if (e.target.closest(".og-del-btn") || e.target.closest(".og-swipe-btn") || e.target.closest(".og-period-btn") || e.target.closest(".og-record-btn")) return;
         lpFired = false;
         lpTimer = setTimeout(() => {
           lpFired = true;
@@ -3308,6 +3344,31 @@ const SW_VER = "20260821b";
     setTimeout(() => { if (cardEl) cardEl.classList.remove("og-flash"); }, 600);
   }
 
+  // 整时辰秒记：不弹窗，把该持续事项一次重复写入本时辰全部格子（同名已记录的格子跳过）
+  function quickRecordPeriodInstant(item, cardEl) {
+    const gc = getCurrentGlobalCell();
+    const period = (gc >= 0 && isToday(state.currentDate)) ? Math.floor(gc / CELLS_PER_PERIOD) : state.activePeriod;
+    const spent = item.lastSpent || "13分钟";
+    const actual = `${item.icon || "⚡"} ${item.name}`;
+    let written = 0;
+    for (let c = 0; c < CELLS_PER_PERIOD; c++) {
+      const rec = getCellRecord(period, c);
+      if (rec && rec.actual && rec.actual.includes(actual)) continue; // 该格已有同名记录，跳过
+      const merged = rec && rec.actual
+        ? { ...rec, actual: rec.actual + "；" + actual, spent, note: rec.note || "" }
+        : { spent, actual, note: "" };
+      setCellRecord(period, c, merged);
+      written++;
+    }
+    renderRecord();
+    haptic(30);
+    toast(written
+      ? `▦ 已把「${item.name}」记满${PERIOD_NAMES[period]}整时辰（写入 ${written}/${CELLS_PER_PERIOD} 格，已有同名记录的格子跳过）`
+      : `本时辰各格已都有「${item.name}」记录，无需重复写入`, written ? "success" : "info");
+    if (cardEl) cardEl.classList.add("og-flash");
+    setTimeout(() => { if (cardEl) cardEl.classList.remove("og-flash"); }, 600);
+  }
+
   function addOngoingItem(name, icon) {
     const trim = (name || "").trim();
     if (!trim) { toast("请输入持续事项名称", "warn"); return false; }
@@ -3322,6 +3383,16 @@ const SW_VER = "20260821b";
   // ---------- 持续事项快速记录弹窗 ----------
   let qrCurrentItem = null; // 当前要记录的持续事项
   let qrSpent = "13分钟";   // 默认时长
+  let qrScope = "cell";     // 记录范围：cell 单格 / period 整个时辰（重复记录）
+  function setQrScope(scope) {
+    qrScope = scope;
+    if (el.qrScopeRow) el.qrScopeRow.querySelectorAll(".qr-scope-chip").forEach((c) => c.classList.toggle("on", c.dataset.scope === scope));
+    if (el.qrCellSel) {
+      el.qrCellSel.disabled = scope === "period";
+      el.qrCellSel.style.opacity = scope === "period" ? "0.4" : "";
+      el.qrCellSel.title = scope === "period" ? "整时辰模式：全部格子都会写入" : "格子";
+    }
+  }
   function openQuickRecord(item) {
     qrCurrentItem = item;
     if (!el.quickRecordDialog) return;
@@ -3334,6 +3405,7 @@ const SW_VER = "20260821b";
     const chipMatch = Array.from(el.qrSpentChips.querySelectorAll(".qr-chip")).find((c) => c.dataset.v === last);
     el.qrSpentChips.querySelectorAll(".qr-chip").forEach((c) => c.classList.toggle("active", c === chipMatch));
     if (!chipMatch) el.qrSpentCustom.value = last; // 上次是自定义时长，填入输入框
+    setQrScope("cell"); // 每次打开重置为单格
     // 默认格子：当前时间所在格
     const gc = getCurrentGlobalCell();
     let p = state.activePeriod, c2 = 0;
@@ -3374,6 +3446,26 @@ const SW_VER = "20260821b";
       saveOngoing();
     }
     const actual = `${qrCurrentItem.icon || "⚡"} ${qrCurrentItem.name}${note ? " · " + note : ""}`;
+    // 整时辰模式：重复写入该时辰全部格子（同名已记录的格子跳过）
+    if (qrScope === "period") {
+      let written = 0;
+      for (let c = 0; c < CELLS_PER_PERIOD; c++) {
+        const rec = getCellRecord(period, c);
+        if (rec && rec.actual && rec.actual.includes(actual)) continue;
+        const merged = rec && rec.actual
+          ? { ...rec, actual: rec.actual + "；" + actual, spent: spent, note: rec.note || "" }
+          : { spent, actual, note: "" };
+        setCellRecord(period, c, merged);
+        written++;
+      }
+      renderRecord();
+      haptic(25);
+      toast(written
+        ? `▦ 已把「${qrCurrentItem.name}」重复记满${PERIOD_NAMES[period]}整时辰（写入 ${written}/${CELLS_PER_PERIOD} 格）`
+        : `该时辰各格已都有「${qrCurrentItem.name}」记录，无需重复写入`, written ? "success" : "info");
+      el.quickRecordDialog.close();
+      return;
+    }
     const rec = getCellRecord(period, cell);
     const merged = rec && rec.actual
       ? { ...rec, actual: rec.actual + "；" + actual, spent: spent, note: rec.note || "" }
@@ -3403,6 +3495,14 @@ const SW_VER = "20260821b";
     });
     if (el.qrSpentCustom) el.qrSpentCustom.addEventListener("input", () => {
       if (el.qrSpentCustom.value.trim()) el.qrSpentChips.querySelectorAll(".qr-chip").forEach((c) => c.classList.remove("active"));
+    });
+    // 记录范围切换：单格 / 整个时辰（重复记录）
+    if (el.qrScopeRow) el.qrScopeRow.querySelectorAll(".qr-scope-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        setQrScope(chip.dataset.scope);
+        haptic(10);
+        if (chip.dataset.scope === "period") toast("▦ 整时辰模式：保存时将写入所选时辰的全部格子（已有同名记录的格子跳过）", "info");
+      });
     });
     if (el.qrNowBtn) el.qrNowBtn.addEventListener("click", () => {
       const gc = getCurrentGlobalCell();
@@ -3883,11 +3983,31 @@ const SW_VER = "20260821b";
       timeEl.textContent = `${secondsToHHMM(cellRange.start)} - ${secondsToHHMM(cellRange.end)}`;
       cellEl.appendChild(timeEl);
 
-      // 计划任务预览（条状显示）
+      // 计划任务预览（条状显示）+ 便利贴贴纸（与计划页同款展示，点击切换完成）
       if (planTasks.length) {
+        const planStickies = planTasks.filter((t) => t.sticky);
+        if (planStickies.length) {
+          const stickyRow = document.createElement("div");
+          stickyRow.className = "cell-sticky-row";
+          planStickies.forEach((t) => {
+            const chip = document.createElement("div");
+            chip.className = "sticky-chip" + stickyColorCss(t.stickyColor) + (t.done ? " done" : "");
+            chip.title = "便利贴 · 点击切换完成";
+            chip.innerHTML = `<span class="sticky-pin">📌</span><span class="sticky-text">${escapeHtml((t.text || "").slice(0, 24))}</span>`;
+            chip.addEventListener("click", (ev) => {
+              ev.stopPropagation();
+              if (swipeRecordItem) return; // 滑动记录模式下不响应点击
+              const idx = getCellTasks(period, cell).findIndex((x) => x.sticky && x.text === t.text);
+              if (idx >= 0) toggleTaskDone(period, cell, idx);
+            });
+            stickyRow.appendChild(chip);
+          });
+          cellEl.appendChild(stickyRow);
+        }
         const planList = document.createElement("div");
         planList.className = "cell-content-list";
         planTasks.forEach((t) => {
+          if (t.sticky) return; // 便利贴已上方贴纸展示
           const item = document.createElement("div");
           item.className = "cell-content-item task-bar" + (t.done ? " task-done" : "");
           const cb = document.createElement("span");
@@ -4101,6 +4221,7 @@ const SW_VER = "20260821b";
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
         <button id="recAskAi" style="padding:8px 14px;border-radius:6px;background:rgba(124,92,255,0.15);color:#9d85ff;font-size:12px;border:1px solid rgba(124,92,255,0.3);">🤖 AI 追问</button>
+        <button id="recFillPeriod" title="把本条记录重复写入本时辰的全部格子（整时辰重复记录）" style="padding:8px 14px;border-radius:6px;background:rgba(250,204,21,0.15);color:#facc15;font-size:12px;border:1px solid rgba(250,204,21,0.35);">▦ 填满整时辰</button>
         <button id="recDel" style="padding:8px 14px;border-radius:6px;background:var(--bg-tertiary);color:var(--danger);font-size:12px;">删除</button>
         <button id="recCancel" style="padding:8px 14px;border-radius:6px;background:var(--bg-tertiary);color:var(--text-secondary);font-size:12px;">取消 <span style="font-size:10px;opacity:0.6;">(Esc)</span></button>
         <button id="recSave" style="padding:8px 16px;border-radius:6px;background:linear-gradient(135deg,#ef4444,#f87171);color:#fff;font-weight:600;font-size:12px;">保存</button>
@@ -4120,6 +4241,27 @@ const SW_VER = "20260821b";
       toast("记录已保存", "success");
       overlay.remove();
     };
+    // ▦ 填满整时辰：把当前编辑内容重复写入本时辰全部格子（覆盖已有记录前确认）
+    dialog.querySelector("#recFillPeriod").addEventListener("click", () => {
+      const rec = {
+        spent: dialog.querySelector("#recSpent").value.trim(),
+        actual: dialog.querySelector("#recActual").value.trim(),
+        note: dialog.querySelector("#recNote").value.trim(),
+      };
+      if (!rec.actual && !rec.spent) { toast("先填写内容再填满整时辰", "info"); return; }
+      const others = [];
+      for (let c = 0; c < CELLS_PER_PERIOD; c++) {
+        if (c === cell) continue;
+        const r = getCellRecord(period, c);
+        if (r && (r.actual || r.spent)) others.push(c);
+      }
+      if (others.length && !confirm(`本时辰还有 ${others.length} 格已有记录，填满将覆盖它们（${PERIOD_NAMES[period]} 整时辰同一条记录）。继续？`)) return;
+      for (let c = 0; c < CELLS_PER_PERIOD; c++) setCellRecord(period, c, { ...rec });
+      renderRecord();
+      haptic(25);
+      toast(`▦ 已用同一条记录填满${PERIOD_NAMES[period]}整时辰（${CELLS_PER_PERIOD} 格）`, "success");
+      overlay.remove();
+    });
     const close = () => overlay.remove();
     dialog.querySelector("#recCancel").addEventListener("click", close);
     overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
@@ -5057,14 +5199,28 @@ ${noteSection}
 
   function closeTaskDialog() { el.taskDialog.close(); state.editingCell = null; }
 
-  // ---------- 便利贴（sticky task）：贴上/移除/切换完成 ----------
+  // ---------- 便利贴（sticky task）：贴上/移除/切换完成/编辑/换色 ----------
+  // 任务弹窗内便利贴选色状态（默认黄）
+  let taskStickyColor = "y";
+  function renderStickyColorPicker(container, current, onPick) {
+    if (!container) return;
+    container.innerHTML = STICKY_COLORS.map((c) => `<button type="button" class="sticky-color-dot${c.key === current ? " on" : ""}" data-ck="${c.key}" title="${c.name}色便利贴" style="--dot:${c.dot};"></button>`).join("");
+    container.querySelectorAll(".sticky-color-dot").forEach((b) => {
+      b.addEventListener("click", () => {
+        container.querySelectorAll(".sticky-color-dot").forEach((x) => x.classList.remove("on"));
+        b.classList.add("on");
+        onPick(b.dataset.ck);
+        haptic(8);
+      });
+    });
+  }
   function renderTaskStickyList(period, cell) {
     if (!el.taskStickyList) return;
     const tasks = getCellTasks(period, cell);
     const stickies = tasks.map((t, i) => ({ t, i })).filter((x) => x.t.sticky);
     el.taskStickyList.innerHTML = stickies.length
-      ? stickies.map(({ t, i }) => `<div class="sticky-chip dlg${t.done ? " done" : ""}" data-idx="${i}"><span class="sticky-pin">📌</span><span class="sticky-text">${escapeHtml((t.text || "").slice(0, 30))}</span><button class="sticky-del" title="移除便利贴">✕</button></div>`).join("")
-      : '<small style="color:var(--text-muted);">本格还没有便利贴——写一句贴上，格子会显示黄色贴纸，随时可拖到其他时间格子。</small>';
+      ? stickies.map(({ t, i }) => `<div class="sticky-chip dlg${stickyColorCss(t.stickyColor)}${t.done ? " done" : ""}" data-idx="${i}"><span class="sticky-pin">📌</span><span class="sticky-text">${escapeHtml((t.text || "").slice(0, 30))}</span><button class="sticky-edit" title="编辑文字/颜色">✎</button><button class="sticky-del" title="移除便利贴">✕</button></div>`).join("")
+      : '<small style="color:var(--text-muted);">本格还没有便利贴——写一句贴上，格子会显示贴纸，随时可拖到其他时间格子。</small>';
   }
   if (el.taskStickyList) {
     el.taskStickyList.addEventListener("click", (e) => {
@@ -5079,6 +5235,9 @@ ${noteSection}
         setCellTasks(period, cell, arr);
         haptic(15);
         toast("已移除便利贴", "info");
+      } else if (e.target.closest(".sticky-edit")) {
+        openStickyEditDialog(period, cell, idx);
+        return;
       } else {
         if (!arr[idx]) return;
         arr[idx].done = !arr[idx].done;
@@ -5090,13 +5249,14 @@ ${noteSection}
     });
   }
   if (el.taskStickyAdd) {
+    if (el.taskStickyColors) renderStickyColorPicker(el.taskStickyColors, taskStickyColor, (ck) => { taskStickyColor = ck; });
     el.taskStickyAdd.addEventListener("click", () => {
       if (!state.editingCell) return;
       const text = (el.taskStickyInput.value || "").trim();
       if (!text) { toast("先写一句要贴的内容", "info"); el.taskStickyInput.focus(); return; }
       const { period, cell } = state.editingCell;
       const arr = getCellTasks(period, cell).slice();
-      arr.push(normalizeTask({ text, priority: "low", sticky: true }));
+      arr.push(normalizeTask({ text, priority: "low", sticky: true, stickyColor: taskStickyColor }));
       setCellTasks(period, cell, arr);
       el.taskStickyInput.value = "";
       renderTaskStickyList(period, cell);
@@ -5107,6 +5267,177 @@ ${noteSection}
     el.taskStickyInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") { e.preventDefault(); el.taskStickyAdd.click(); }
     });
+  }
+
+  // ---------- 便利贴编辑弹窗：改文字 / 换色 / 移动到其他格子 ----------
+  // 把全屏 overlay 挂载到当前活跃的原生 <dialog> 内（showModal 弹窗在 top layer，普通 z-index 会被盖住）
+  function mountOverlayInActiveDialog(overlay) {
+    const openDialogs = [...document.querySelectorAll("dialog[open]")];
+    if (!openDialogs.length) { document.body.appendChild(overlay); return; }
+    let host = null;
+    let node = document.activeElement;
+    while (node && node !== document.body) {
+      if (node instanceof HTMLDialogElement && node.open) { host = node; break; }
+      node = node.parentElement;
+    }
+    if (!host) host = openDialogs[openDialogs.length - 1];
+    host.appendChild(overlay);
+  }
+  function openStickyEditDialog(period, cell, idx) {
+    const arr = getCellTasks(period, cell);
+    const st = arr[idx];
+    if (!st || !st.sticky) return;
+    let color = st.stickyColor || "y";
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.style.cssText = "position:fixed;inset:0;background:var(--overlay);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;";
+    const dlg = document.createElement("div");
+    dlg.style.cssText = "background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:18px;max-width:380px;width:100%;";
+    dlg.innerHTML = `
+      <h3 style="font-size:15px;margin-bottom:12px;">📌 编辑便利贴</h3>
+      <input type="text" id="seText" maxlength="60" value="${escapeHtml(st.text || "")}" placeholder="便利贴内容" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);margin-bottom:10px;" />
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:12px;">
+        <span style="font-size:12px;color:var(--text-secondary);">颜色</span>
+        <span id="seColors" style="display:flex;gap:6px;"></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px;">
+        <span style="font-size:12px;color:var(--text-secondary);">移动到</span>
+        <select id="sePeriod" style="flex:1;padding:6px;border-radius:6px;border:1px solid var(--border);font-size:12px;"></select>
+        <select id="seCell" style="flex:1;padding:6px;border-radius:6px;border:1px solid var(--border);font-size:12px;"></select>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button id="seCancel" style="padding:8px 14px;border-radius:6px;background:var(--bg-tertiary);color:var(--text-secondary);font-size:12px;">取消</button>
+        <button id="seSave" style="padding:8px 16px;border-radius:6px;background:linear-gradient(135deg,#f59e0b,#fbbf24);color:#1a1a2e;font-weight:600;font-size:12px;">保存</button>
+      </div>`;
+    overlay.appendChild(dlg);
+    mountOverlayInActiveDialog(overlay);
+    const textInput = dlg.querySelector("#seText");
+    const periodSel = dlg.querySelector("#sePeriod");
+    const cellSel = dlg.querySelector("#seCell");
+    // 填充时辰/格子下拉（默认当前便利贴所在格）
+    const fillCells = (p, sel) => {
+      cellSel.innerHTML = Array.from({ length: CELLS_PER_PERIOD }, (_, i) => {
+        const r = getCellRange(p, i);
+        return `<option value="${i}" ${i === sel ? "selected" : ""}>第 ${i + 1} 格 ${secondsToHHMM(r.start)}</option>`;
+      }).join("");
+    };
+    periodSel.innerHTML = PERIOD_NAMES.map((n, i) => {
+      const r = getPeriodRange(i);
+      return `<option value="${i}" ${i === period ? "selected" : ""}>${n} ${secondsToHHMM(r.start)}</option>`;
+    }).join("");
+    fillCells(period, cell);
+    periodSel.addEventListener("change", () => fillCells(Number(periodSel.value) || 0, 0));
+    renderStickyColorPicker(dlg.querySelector("#seColors"), color, (ck) => { color = ck; });
+    const close = () => overlay.remove();
+    dlg.querySelector("#seCancel").addEventListener("click", close);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    dlg.querySelector("#seSave").addEventListener("click", () => {
+      const text = textInput.value.trim();
+      if (!text) { toast("便利贴内容不能为空", "warn"); return; }
+      const srcArr = getCellTasks(period, cell).slice();
+      const moved = srcArr.splice(idx, 1)[0];
+      if (!moved) { close(); return; }
+      moved.text = text;
+      moved.stickyColor = color;
+      const tPeriod = Number(periodSel.value) || 0;
+      const tCell = Number(cellSel.value) || 0;
+      setCellTasks(period, cell, srcArr);
+      const dstArr = getCellTasks(tPeriod, tCell).slice();
+      dstArr.push(moved);
+      setCellTasks(tPeriod, tCell, dstArr);
+      close();
+      if (state.editingCell) renderTaskStickyList(state.editingCell.period, state.editingCell.cell);
+      renderAll();
+      haptic(20);
+      toast(tPeriod === period && tCell === cell ? "便利贴已更新" : `便利贴已移动到 ${PERIOD_NAMES[tPeriod]} 第 ${tCell + 1} 格`, "success");
+    });
+    setTimeout(() => textInput.focus(), 50);
+  }
+
+  // ---------- 便利贴快捷投放弹窗：从待办/看板一键贴到任意时间格子 ----------
+  function openStickyPicker(prefillText) {
+    let color = "y";
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.style.cssText = "position:fixed;inset:0;background:var(--overlay);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;";
+    const dlg = document.createElement("div");
+    dlg.style.cssText = "background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:18px;max-width:400px;width:100%;max-height:90vh;overflow:auto;";
+    dlg.innerHTML = `
+      <h3 style="font-size:15px;margin-bottom:4px;">📌 贴便利贴到时间格子</h3>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px;">快捷提醒贴——不占任务位，格子显示彩色贴纸，随时拖动</div>
+      <input type="text" id="spText" maxlength="60" value="${escapeHtml(prefillText || "")}" placeholder="便利贴内容，如：回电话 / 带伞" style="width:100%;padding:8px;border-radius:6px;border:1px solid var(--border);margin-bottom:10px;" />
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">
+        <span style="font-size:12px;color:var(--text-secondary);">颜色</span>
+        <span id="spColors" style="display:flex;gap:6px;"></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+        <span style="font-size:12px;color:var(--text-secondary);white-space:nowrap;">贴到</span>
+        <button id="spNow" type="button" title="当前时间所在格子" style="padding:6px 10px;border-radius:6px;background:var(--bg-tertiary);color:var(--text-secondary);font-size:11px;border:1px solid var(--border);cursor:pointer;white-space:nowrap;">⏰ 现在</button>
+        <select id="spPeriod" style="flex:1;padding:6px;border-radius:6px;border:1px solid var(--border);font-size:12px;min-width:0;"></select>
+        <select id="spCell" style="flex:1;padding:6px;border-radius:6px;border:1px solid var(--border);font-size:12px;min-width:0;"></select>
+      </div>
+      <div id="spPreview" style="font-size:11px;color:var(--text-muted);margin-bottom:14px;padding:6px 8px;background:var(--bg-tertiary);border-radius:6px;"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button id="spCancel" style="padding:8px 14px;border-radius:6px;background:var(--bg-tertiary);color:var(--text-secondary);font-size:12px;">取消</button>
+        <button id="spSave" style="padding:8px 16px;border-radius:6px;background:linear-gradient(135deg,#f59e0b,#fbbf24);color:#1a1a2e;font-weight:600;font-size:12px;">📌 贴上</button>
+      </div>`;
+    overlay.appendChild(dlg);
+    mountOverlayInActiveDialog(overlay);
+    const textInput = dlg.querySelector("#spText");
+    const periodSel = dlg.querySelector("#spPeriod");
+    const cellSel = dlg.querySelector("#spCell");
+    const preview = dlg.querySelector("#spPreview");
+    // 默认：当前时间格（不在范围内则用当前查看的时辰第 1 格）
+    const gc = getCurrentGlobalCell();
+    let p = state.activePeriod, c = 0;
+    if (gc >= 0 && isToday(state.currentDate)) { p = Math.floor(gc / CELLS_PER_PERIOD); c = gc % CELLS_PER_PERIOD; }
+    const fillCells = (pp, sel) => {
+      cellSel.innerHTML = Array.from({ length: CELLS_PER_PERIOD }, (_, i) => {
+        const r = getCellRange(pp, i);
+        return `<option value="${i}" ${i === sel ? "selected" : ""}>第 ${i + 1} 格 ${secondsToHHMM(r.start)}</option>`;
+      }).join("");
+    };
+    const refreshPreview = () => {
+      const pp = Number(periodSel.value) || 0;
+      const cc = Number(cellSel.value) || 0;
+      const existing = getCellTasks(pp, cc).filter((t) => !t.sticky).map((t) => taskText(t)).slice(0, 2);
+      preview.textContent = `${PERIOD_NAMES[pp]} 第 ${cc + 1} 格（${secondsToHHMM(getCellRange(pp, cc).start)}）${existing.length ? " · 已有：" + existing.join("；") : " · 空格子"}`;
+    };
+    periodSel.innerHTML = PERIOD_NAMES.map((n, i) => {
+      const r = getPeriodRange(i);
+      return `<option value="${i}" ${i === p ? "selected" : ""}>${n} ${secondsToHHMM(r.start)}</option>`;
+    }).join("");
+    fillCells(p, c);
+    refreshPreview();
+    periodSel.addEventListener("change", () => { fillCells(Number(periodSel.value) || 0, 0); refreshPreview(); });
+    cellSel.addEventListener("change", refreshPreview);
+    dlg.querySelector("#spNow").addEventListener("click", () => {
+      const g = getCurrentGlobalCell();
+      if (g < 0) { toast("当前时间不在今日时辰范围内", "warn"); return; }
+      periodSel.value = String(Math.floor(g / CELLS_PER_PERIOD));
+      fillCells(Math.floor(g / CELLS_PER_PERIOD), g % CELLS_PER_PERIOD);
+      refreshPreview();
+    });
+    renderStickyColorPicker(dlg.querySelector("#spColors"), color, (ck) => { color = ck; });
+    const close = () => overlay.remove();
+    dlg.querySelector("#spCancel").addEventListener("click", close);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    const doSave = () => {
+      const text = textInput.value.trim();
+      if (!text) { toast("先写一句要贴的内容", "warn"); textInput.focus(); return; }
+      const pp = Number(periodSel.value) || 0;
+      const cc = Number(cellSel.value) || 0;
+      const arr = getCellTasks(pp, cc).slice();
+      arr.push(normalizeTask({ text, priority: "low", sticky: true, stickyColor: color }));
+      setCellTasks(pp, cc, arr);
+      close();
+      renderAll();
+      haptic(20);
+      toast(`已贴到 ${PERIOD_NAMES[pp]} 第 ${cc + 1} 格（可随时拖动）`, "success");
+    };
+    dlg.querySelector("#spSave").addEventListener("click", doSave);
+    textInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); doSave(); } });
+    setTimeout(() => { textInput.focus(); textInput.select(); }, 50);
   }
 
   el.saveTask.addEventListener("click", () => {
@@ -13885,6 +14216,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     const noteBadge = item.note ? `<span class="ikb-note-badge" title="有备注，点击 ✎ 查看/编辑">📝</span>` : "";
     const noteBlock = item.note ? `<div class="ikb-note ${inboxCollapsedNotes.has(item.id) ? "collapsed" : ""}" data-idx="${idx}">${escapeHtml(item.note)}</div>` : "";
     return `<div class="inbox-kanban-card ${item.done ? "done" : ""}" data-idx="${idx}" title="${item.done ? "点击切换回未完成 · 长按编辑 · 拖拽可移动分类" : "点击切换完成 · 长按编辑 · 拖拽可安排到九宫格或移动分类"}" draggable="true">
+      <button type="button" class="ikb-sticky" data-idx="${idx}" title="📌 贴到时间格子（便利贴提醒，不占任务位）">📌</button>
       <button type="button" class="ikb-edit" data-idx="${idx}" title="编辑：优先级星标 / 归属主线支线 / 收纳到任务 / 备注">✎</button>
       <div class="ikb-card-main"><span class="ikb-card-cb">${item.done ? "✓" : "○"}</span><span class="ikb-card-text">${escapeHtml(item.text || "")}</span></div>
       <div class="ikb-card-meta">${prio}${groupBadge}${childBadge}${noteBadge}${extraTags}${dueStr}</div>
@@ -14037,6 +14369,15 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     // 长按看板卡片 → 拖拽模式（移动端）；双击 → 编辑
     let kbDblTimer = null, kbSingleTimer = null, kbLongPressed = false;
     el.inboxList.addEventListener("click", (e) => {
+      // 📌 便利贴按钮：贴到时间格子（便利贴提醒）
+      const stickyBtn = e.target.closest(".ikb-sticky");
+      if (stickyBtn) {
+        e.stopPropagation();
+        const idx = parseInt(stickyBtn.dataset.idx);
+        const it = inboxItems[idx];
+        if (it) openStickyPicker(it.text);
+        return;
+      }
       // ✎ 编辑按钮：打开卡片编辑弹窗（优先级星标 / 归属主线支线 / 收纳到任务 / 备注）
       const editBtn = e.target.closest(".ikb-edit");
       if (editBtn) {
@@ -14088,7 +14429,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     el.inboxList.addEventListener("touchstart", (e) => {
       if (inboxView !== "kanban") return;
       const card = e.target.closest(".inbox-kanban-card");
-      if (!card || e.target.closest(".ikb-edit, .ikb-note")) return;
+      if (!card || e.target.closest(".ikb-edit, .ikb-note, .ikb-sticky")) return;
       const t = e.touches[0];
       kbTouch = { card, idx: parseInt(card.dataset.idx, 10) || 0, startX: t.clientX, startY: t.clientY, holdTimer: null, ghost: null };
       kbTouch.holdTimer = setTimeout(() => {
@@ -14394,6 +14735,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     const ops = `<span class="it-ops">
       ${!isChild ? `<button class="it-op" data-act="up" data-idx="${idx}" title="上移（手动调整顺序）">↑</button>
       <button class="it-op" data-act="down" data-idx="${idx}" title="下移（手动调整顺序）">↓</button>` : ""}
+      <button class="it-op" data-act="sticky" data-idx="${idx}" title="📌 贴到时间格子（便利贴提醒，不占任务位）">📌</button>
       <button class="it-op" data-act="hatch" data-idx="${idx}" title="🥚 AI 孵化拆解">🥚</button>
       <button class="it-op" data-act="edit" data-idx="${idx}" title="编辑：优先级/归属/收纳/备注">✎</button>
       <button class="it-op" data-act="assign" data-idx="${idx}" title="归属主线/支线">📂</button>
@@ -14501,6 +14843,10 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         if (act === "hatch") {
           if (el.inboxDialog && el.inboxDialog.open) el.inboxDialog.close();
           openHatchDialog({ text: it.text, sourceLabel: "收集箱待办" });
+          return;
+        }
+        if (act === "sticky") {
+          openStickyPicker(it.text);
           return;
         }
         if (act === "edit") {

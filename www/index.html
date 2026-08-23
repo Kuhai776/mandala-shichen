@@ -996,7 +996,8 @@
           <label>📌 便利贴（贴在本格的小提醒，可拖到其他格子）</label>
           <div class="task-sticky-row">
             <input type="text" id="taskStickyInput" placeholder="快速贴一句：回电话 / 带伞 / 别忘了…" maxlength="60" />
-            <button type="button" class="tool-btn" id="taskStickyAdd" title="贴到本格（黄色贴纸，可拖动）">📌 贴上</button>
+            <span class="sticky-colors" id="taskStickyColors" title="便利贴颜色"></span>
+            <button type="button" class="tool-btn" id="taskStickyAdd" title="贴到本格（彩色贴纸，可拖动）">📌 贴上</button>
           </div>
           <div class="task-sticky-list" id="taskStickyList"></div>
         </div>
@@ -1361,7 +1362,11 @@
         </div>
       </div>
       <div class="qr-field">
-        <label class="qr-label">🎯 记录到哪个格子</label>
+        <label class="qr-label">🎯 记录范围</label>
+        <div class="qr-scope-row" id="qrScopeRow">
+          <span class="qr-scope-chip on" data-scope="cell" title="只记录到下方选中的一个格子">▸ 单格</span>
+          <span class="qr-scope-chip" data-scope="period" title="一次把该事项重复写入所选时辰的全部格子（同名已记录的格子自动跳过）">▦ 整个时辰 · 重复记录</span>
+        </div>
         <div class="qr-cell-row">
           <button class="qr-now-btn" id="qrNowBtn" title="自动记录到当前时间所在格子">⏰ 现在</button>
           <select class="qr-period" id="qrPeriodSel" title="时辰"></select>
