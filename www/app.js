@@ -128,9 +128,18 @@ const SW_VER = "20260821b";
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.7.15";
+  const APP_VERSION = "2.7.16";
   const APP_VERSION_DATE = "2026-08-23";
   const APP_CHANGELOG = [
+    { v: "2.7.16", date: "2026-08-23", items: [
+      "新增：❓ 提问解析库——底部「天地人」切换条改为快捷条（提问/收集箱/孵化），新增提问按钮直达全屏提问解析界面",
+      "新增：问题库导入解析——粘贴七大标准提问库等文本（支持制表符表格粘贴 / 纯文本问句格式），自动解析成「编号·子维度·导向型·解析型·实验型」结构化表格",
+      "新增：表格视图——按节（清晰度/完整性/边界感…）分组可折叠，问题自动换行，A－/A＋ 五档字号调节，一眼直观读题",
+      "新增：看板视图——按 未答/思考中/已答 三列看板，卡片可点击换列，桌面支持拖拽改状态",
+      "新增：逐问作答——点击行展开三问详情与回答输入框，答案自动保存；已答问题行淡化标记",
+      "新增：多维筛选——关键词搜索（编号/子维度/问题/标签/回答）、状态筛选、标签 chips 多选过滤，自动聚合节名+子维度标签",
+      "新增：多库管理——可导入多个问题库切换浏览，删除库有确认；空态一键示例格式体验",
+    ]},
     { v: "2.7.15", date: "2026-08-23", items: [
       "新增：整时辰重复记录——持续事项卡片「▦ 整时辰」按钮一键把该事项写入本时辰全部格子（同名已记录的格子自动跳过），整时辰都在做同一件事不用逐格记",
       "新增：快速记录弹窗记录范围——「▸ 单格 / ▦ 整个时辰·重复记录」chips 一键切换，选整时辰保存即写入该时辰全部格子",
@@ -409,6 +418,8 @@ const SW_VER = "20260821b";
   const NOTE_KEY = "mandala-record-notes-v1";
   const AUTO_RECORD_KEY = "mandala-autorecord-v1";
   const ONGOING_KEY = "mandala-ongoing-v1";
+  // ❓ 提问解析库：导入的问题库 + 逐问作答进度
+  const QA_KEY = "mandala-qabank-v1";
   // 截图/图片附件（用 IndexedDB，localStorage 装不下大图）
   const ATTACH_DB_NAME = "mandala-attachments";
   const ATTACH_DB_VERSION = 1;
@@ -862,6 +873,8 @@ const SW_VER = "20260821b";
     autoRecord: load(AUTO_RECORD_KEY, {}),
     // 持续事项（记录侧自定义）：[{id, icon, name, createdAt}]
     ongoing: load(ONGOING_KEY, []),
+    // ❓ 提问解析库：{ decks: [{id, title, goal, createdAt, cards: [{id, code, subDim, section, orient, analyze, test, tags, status, answer, answeredAt}]}] }
+    qaBank: load(QA_KEY, { decks: [] }),
     // 复盘页数据：{ "2026-07-29": { summary, insights, stats, userNotes, aiGeneratedAt } }
     reviews: load(REVIEW_KEY, {}),
     // 时辰切换检测：记录上次检测到的时辰（用于触发"该记录了"提示+闪烁）
@@ -1759,6 +1772,26 @@ const SW_VER = "20260821b";
     qrSaveBtn: document.getElementById("qrSaveBtn"),
     recordAutoRecordList: document.getElementById("recordAutoRecordList"),
     realmFab: document.getElementById("realmFab"),
+    // ❓ 提问解析库
+    qaDialog: document.getElementById("qaDialog"),
+    qaCloseBtn: document.getElementById("closeQaDialog"),
+    qaImportBtn: document.getElementById("qaImportBtn"),
+    qaEmptyImportBtn: document.getElementById("qaEmptyImportBtn"),
+    qaFontMinus: document.getElementById("qaFontMinus"),
+    qaFontPlus: document.getElementById("qaFontPlus"),
+    qaFontSizeLabel: document.getElementById("qaFontSizeLabel"),
+    qaDeckSelect: document.getElementById("qaDeckSelect"),
+    qaDeckStats: document.getElementById("qaDeckStats"),
+    qaDeleteDeckBtn: document.getElementById("qaDeleteDeckBtn"),
+    qaToolbar: document.getElementById("qaToolbar"),
+    qaSearch: document.getElementById("qaSearch"),
+    qaStatusFilter: document.getElementById("qaStatusFilter"),
+    qaViewSwitch: document.getElementById("qaViewSwitch"),
+    qaTagFilter: document.getElementById("qaTagFilter"),
+    qaEmpty: document.getElementById("qaEmpty"),
+    qaTableWrap: document.getElementById("qaTableWrap"),
+    qaKanbanWrap: document.getElementById("qaKanbanWrap"),
+    qaBody: document.getElementById("qaBody"),
     overviewGrid: document.getElementById("overviewGrid"),
     chatMessages: document.getElementById("chatMessages"),
     chatInput: document.getElementById("chatInput"),
@@ -5440,6 +5473,629 @@ ${noteSection}
     setTimeout(() => { textInput.focus(); textInput.select(); }, 50);
   }
 
+  // ============================================================
+  // ❓ 提问解析库：问题库文本导入 → 结构化表格/看板 → 逐问作答
+  // ============================================================
+  const QA_FONT_KEY = "mandala-qa-font-v1";
+  const QA_FONT_SIZES = [12, 13, 14, 15, 16, 17];
+  const QA_STATUS_META = {
+    todo: { icon: "◌", label: "未答", cls: "st-todo" },
+    doing: { icon: "◔", label: "思考中", cls: "st-doing" },
+    done: { icon: "✓", label: "已答", cls: "st-done" },
+  };
+  let qaFontSize = (() => {
+    const s = Number(localStorage.getItem(QA_FONT_KEY));
+    return QA_FONT_SIZES.includes(s) ? s : 14;
+  })();
+  const qaView = { deckId: null, view: "table", status: "all", tags: new Set(), search: "", collapsed: new Set() };
+
+  function saveQABank() { save(QA_KEY, state.qaBank); }
+  function qaCurrentDeck() {
+    const d = state.qaBank.decks.find((x) => x.id === qaView.deckId);
+    return d || state.qaBank.decks[0] || null;
+  }
+  // 卡片的自动标签（节名 + 子维度），与用户自定义 tags 合并
+  function qaCardTags(card) {
+    const set = new Set();
+    if (card.section) set.add(card.section);
+    if (card.subDim) set.add(card.subDim);
+    (card.tags || []).forEach((t) => t && set.add(t));
+    return [...set];
+  }
+
+  // ---------- 问题库文本解析 ----------
+  // 按「句末标点+空格」切分问题：问题之间的分隔是"？ /。 "，问题内部的连续问号后紧跟文字不切分
+  function qaSplitQuestions(text) {
+    const t = String(text || "").replace(/\s+/g, " ").trim();
+    if (!t) return [];
+    const parts = [];
+    let buf = "";
+    for (let i = 0; i < t.length; i++) {
+      const ch = t[i];
+      buf += ch;
+      if ("？！?。".includes(ch)) {
+        let j = i + 1;
+        while (j < t.length && t[j] === " ") j++;
+        if (j > i + 1 && j < t.length) { parts.push(buf.trim()); buf = ""; i = j - 1; }
+      }
+    }
+    if (buf.trim()) parts.push(buf.trim());
+    return parts.filter(Boolean);
+  }
+
+  // 行内子维度识别：编号后第一个词若是 2-6 个纯中文字（不含疑问字）则视为子维度列
+  const QA_SUB_FORBIDDEN = /[我怎什么哪为吗呢谁何如可是这那就还再又并且或者如果]+/;
+  function qaPickInlineSub(rest) {
+    const m = rest.match(/^([\u4e00-\u9fa5·]{2,6})\s+(.+)$/);
+    if (m && !QA_SUB_FORBIDDEN.test(m[1])) return { sub: m[1], rest: m[2] };
+    return { sub: "", rest };
+  }
+
+  // 主解析器：支持 ①制表符表格粘贴（Excel/文档表格复制）②纯文本行格式（编号 子维度 问句×3）
+  function parseQABankText(raw) {
+    const lines = String(raw || "").split(/\r?\n/);
+    let title = "", goal = "", section = "";
+    const subByCode = {}; // 编号→子维度（来自小节标题声明）
+    const cards = [];
+    const codeRe = /^([A-Za-z]{1,4})-(\d{1,3})(?![A-Za-z\d])/;
+    for (const rawLine of lines) {
+      const line = rawLine.replace(/\u3000/g, " ").replace(/\s+$/, "");
+      if (!line.trim()) continue;
+      const trimmed = line.trim();
+      // 标题 / 核心目标
+      let m = trimmed.match(/^场景\s*[:：]\s*(.+)$/);
+      if (m) { title = m[1].trim(); continue; }
+      m = trimmed.match(/^核心目标\s*[:：]\s*(.+)$/);
+      if (m) { goal = m[1].trim(); continue; }
+      // 节标题：一、清晰度诊断（…）
+      if (/^[一二三四五六七八九十百]+[、.．]/.test(trimmed)) {
+        section = trimmed.replace(/（[^）]*）|\([^)]*\)/g, "").replace(/^[一二三四五六七八九十百]+[、.．]\s*/, "").trim();
+        continue;
+      }
+      // 小节标题：1.1 定义清晰度（Cl-01 ~ Cl-06）→ 登记编号段的子维度名
+      m = trimmed.match(/^\d+(?:\.\d+)?\s+[\u4e00-\u9fa5A-Za-z·\w]{2,16}?\s*[（(]\s*([A-Za-z]{1,4}-\d{1,3})\s*[~～]\s*([A-Za-z]{1,4}-\d{1,3})\s*[）)]/);
+      if (m) {
+        const subName = trimmed.replace(/[（(].*$/, "").replace(/^\d+(?:\.\d+)?\s+/, "").trim();
+        const re = /^([A-Za-z]{1,4})-(\d{1,3})$/;
+        const a = m[1].match(re), b = m[2].match(re);
+        if (a && b && a[1] === b[1]) {
+          for (let n = Number(a[2]); n <= Number(b[2]); n++) subByCode[`${a[1]}-${String(n).padStart(2, "0")}`] = subName;
+        }
+        continue;
+      }
+      // 表头行跳过（含「编号」且含「导向型/解析型/子维度」）
+      if (/编号/.test(trimmed) && /导向型|解析型|实验型|子维度/.test(trimmed)) continue;
+      // 数据行：编号开头
+      const cm = trimmed.match(codeRe);
+      if (!cm) continue;
+      const code = `${cm[1]}-${String(Number(cm[2])).padStart(2, "0")}`;
+      let sub = "", qs = [];
+      if (line.includes("\t")) {
+        // ① 制表符表格：[编号, 子维度, 导向, 解析, 实验] 或 [编号, 导向, 解析, 实验]
+        const cols = line.split("\t").map((s) => s.trim());
+        const rest = cols.slice(1);
+        if (rest.length >= 4) { sub = rest[0]; qs = rest.slice(1); }
+        else if (rest.length === 3) {
+          // 第二列含问号 → 是问题；否则是子维度
+          if (/[？?]/.test(rest[0]) || !/^[\u4e00-\u9fa5·]{2,6}$/.test(rest[0])) qs = rest;
+          else { sub = rest[0]; qs = rest.slice(1); }
+        } else qs = rest;
+      } else {
+        // ② 纯文本：编号 子维度? 问句×3（问句间以「？ 」分隔）
+        let rest = trimmed.slice(cm[0].length).trim();
+        const picked = qaPickInlineSub(rest);
+        sub = picked.sub; rest = picked.rest;
+        const sentences = qaSplitQuestions(rest);
+        if (sentences.length > 3) {
+          // 超过 3 句：前 3 句为三问，剩余并入第三问（信息不丢失）
+          const extra = sentences.slice(3).join(" ");
+          sentences.length = 3; sentences[2] = sentences[2] + " " + extra;
+        }
+        qs = sentences;
+      }
+      if (!sub) sub = subByCode[code] || "";
+      const card = {
+        id: "q_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7),
+        code, subDim: sub, section: section || "",
+        orient: qs[0] || "", analyze: qs[1] || "", test: qs[2] || "",
+        tags: [], status: "todo", answer: "", answeredAt: null,
+      };
+      if (card.orient || card.analyze || card.test) cards.push(card);
+    }
+    if (!title) title = "未命名问题库 " + new Date().toLocaleDateString("zh-CN");
+    return { title, goal, cards };
+  }
+
+  // ---------- 渲染 ----------
+  function qaApplyFont() {
+    if (el.qaBody) el.qaBody.style.setProperty("--qa-fs", qaFontSize + "px");
+    if (el.qaFontSizeLabel) el.qaFontSizeLabel.textContent = qaFontSize + "px";
+  }
+
+  // 筛选：状态 + 标签(OR) + 关键词
+  function qaFilteredCards(deck) {
+    const kw = qaView.search.trim().toLowerCase();
+    return (deck.cards || []).filter((c) => {
+      if (qaView.status !== "all" && c.status !== qaView.status) return false;
+      if (qaView.tags.size) {
+        const tags = qaCardTags(c);
+        if (!tags.some((t) => qaView.tags.has(t))) return false;
+      }
+      if (kw) {
+        const hay = [c.code, c.subDim, c.orient, c.analyze, c.test, c.answer, ...(c.tags || [])].join(" ").toLowerCase();
+        if (!hay.includes(kw)) return false;
+      }
+      return true;
+    });
+  }
+
+  function renderQADeck() {
+    const deck = qaCurrentDeck();
+    const has = !!(deck && deck.cards && deck.cards.length);
+    // 库下拉
+    if (el.qaDeckSelect) {
+      el.qaDeckSelect.innerHTML = state.qaBank.decks.map((d) =>
+        `<option value="${d.id}" ${deck && d.id === deck.id ? "selected" : ""}>${escapeHtml(d.title)}（${(d.cards || []).length}问）</option>`
+      ).join("");
+    }
+    if (el.qaDeleteDeckBtn) el.qaDeleteDeckBtn.hidden = !has;
+    if (el.qaToolbar) el.qaToolbar.hidden = !has;
+    if (el.qaTagFilter) el.qaTagFilter.hidden = !has;
+    if (el.qaEmpty) el.qaEmpty.hidden = has;
+    if (el.qaTableWrap) el.qaTableWrap.hidden = !has || qaView.view !== "table";
+    if (el.qaKanbanWrap) el.qaKanbanWrap.hidden = !has || qaView.view !== "kanban";
+    if (!has) {
+      if (el.qaDeckStats) el.qaDeckStats.textContent = "尚未导入问题库";
+      return;
+    }
+    qaApplyFont();
+    // 统计
+    const total = deck.cards.length;
+    const done = deck.cards.filter((c) => c.status === "done").length;
+    const doing = deck.cards.filter((c) => c.status === "doing").length;
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    if (el.qaDeckStats) el.qaDeckStats.innerHTML = `共 <b>${total}</b> 问 · ◌ 未答 <b>${total - done - doing}</b> · ◔ 思考中 <b>${doing}</b> · ✓ 已答 <b>${done}</b> · 完成率 <b>${pct}%</b>${deck.goal ? `<span class="qa-goal" title="${escapeHtml(deck.goal)}">🎯 ${escapeHtml(deck.goal.length > 42 ? deck.goal.slice(0, 42) + "…" : deck.goal)}</span>` : ""}`;
+    // 标签筛选 chips（自动聚合）
+    const tagCount = new Map();
+    deck.cards.forEach((c) => qaCardTags(c).forEach((t) => tagCount.set(t, (tagCount.get(t) || 0) + 1)));
+    if (el.qaTagFilter) {
+      const tags = [...tagCount.entries()].sort((a, b) => b[1] - a[1]);
+      el.qaTagFilter.innerHTML = `<span class="qa-tag-filter-label">🏷 标签：</span>` + tags.map(([t, n]) =>
+        `<button class="qa-tag-chip ${qaView.tags.has(t) ? "on" : ""}" data-tag="${escapeHtml(t)}">${escapeHtml(t)} <i>${n}</i></button>`
+      ).join("") + (qaView.tags.size ? `<button class="qa-tag-clear" title="清除标签筛选">✕ 清除</button>` : "");
+    }
+    if (qaView.view === "table") renderQATable(deck);
+    else renderQAKanban(deck);
+  }
+
+  function qaStatusBtnHtml(c) {
+    const m = QA_STATUS_META[c.status] || QA_STATUS_META.todo;
+    return `<button class="qa-st-btn ${m.cls}" data-act="cycle" data-id="${c.id}" title="${m.label}（点击切换 未答→思考中→已答）">${m.icon}</button>`;
+  }
+
+  // 表格视图：按节分组可折叠
+  function renderQATable(deck) {
+    const cards = qaFilteredCards(deck);
+    const sections = [];
+    const secMap = new Map();
+    cards.forEach((c) => {
+      const name = c.section || "未分组";
+      if (!secMap.has(name)) { secMap.set(name, []); sections.push(name); }
+      secMap.get(name).push(c);
+    });
+    let html = `<table class="qa-table"><colgroup>
+      <col style="width:70px"><col style="width:86px"><col style="width:22%"><col style="width:22%"><col style="width:22%"><col style="width:34px">
+    </colgroup><thead><tr>
+      <th>编号</th><th>子维度</th><th>导向型<span class="qa-th-sub">现象定位</span></th><th>解析型<span class="qa-th-sub">内部拆解</span></th><th>实验型<span class="qa-th-sub">验证修复</span></th><th>答</th>
+    </tr></thead>`;
+    if (!sections.length) {
+      html += `<tbody><tr class="qa-nohit"><td colspan="6">没有匹配的问题（试试清除搜索/标签/状态筛选）</td></tr></tbody></table>`;
+    } else {
+      sections.forEach((name) => {
+        const list = secMap.get(name);
+        const collapsed = qaView.collapsed.has(name);
+        const done = list.filter((c) => c.status === "done").length;
+        html += `<tbody class="qa-sec ${collapsed ? "collapsed" : ""}" data-sec="${escapeHtml(name)}">
+          <tr class="qa-sec-row"><td colspan="6"><span class="qa-sec-arrow">${collapsed ? "▸" : "▾"}</span>${escapeHtml(name)} <span class="qa-sec-count">${done}/${list.length}</span></td></tr>`;
+        if (!collapsed) list.forEach((c) => {
+          html += `<tr class="qa-row ${c.status === "done" ? "qa-row-done" : ""}" data-id="${c.id}">
+            <td class="qa-code">${escapeHtml(c.code)}</td>
+            <td class="qa-sub">${escapeHtml(c.subDim || "—")}</td>
+            <td class="qa-q qa-q-orient">${escapeHtml(c.orient)}</td>
+            <td class="qa-q qa-q-analyze">${escapeHtml(c.analyze)}</td>
+            <td class="qa-q qa-q-test">${escapeHtml(c.test)}</td>
+            <td class="qa-st-cell">${qaStatusBtnHtml(c)}</td>
+          </tr>`;
+        });
+        html += `</tbody>`;
+      });
+      html += `</table>`;
+    }
+    el.qaTableWrap.innerHTML = html;
+  }
+
+  // 看板视图：未答/思考中/已答 三列，卡片可拖拽换列（桌面）或点按钮移动
+  function renderQAKanban(deck) {
+    const cards = qaFilteredCards(deck);
+    const cols = ["todo", "doing", "done"];
+    let html = `<div class="qa-kanban">`;
+    cols.forEach((st) => {
+      const list = cards.filter((c) => c.status === st);
+      const m = QA_STATUS_META[st];
+      html += `<div class="qa-kb-col" data-st="${st}">
+        <div class="qa-kb-col-head ${m.cls}">${m.icon} ${m.label} <span class="qa-kb-count">${list.length}</span></div>
+        <div class="qa-kb-list">`;
+      if (!list.length) html += `<div class="qa-kb-empty">暂无</div>`;
+      list.forEach((c) => {
+        html += `<div class="qa-card ${m.cls}" draggable="true" data-id="${c.id}">
+          <div class="qa-card-top"><span class="qa-code">${escapeHtml(c.code)}</span>${c.subDim ? `<span class="qa-card-sub">${escapeHtml(c.subDim)}</span>` : ""}
+            <span class="qa-card-move">
+              ${st !== "todo" ? `<button data-act="prev" data-id="${c.id}" title="退回上一状态">‹</button>` : ""}
+              ${st !== "done" ? `<button data-act="next" data-id="${c.id}" title="进入下一状态">›</button>` : ""}
+            </span>
+          </div>
+          <div class="qa-card-q">${escapeHtml(c.orient || c.analyze || c.test || "（空）")}</div>
+          ${c.answer ? `<div class="qa-card-ans" title="${escapeHtml(c.answer)}">✍ ${escapeHtml(c.answer.length > 60 ? c.answer.slice(0, 60) + "…" : c.answer)}</div>` : ""}
+        </div>`;
+      });
+      html += `</div></div>`;
+    });
+    html += `</div>`;
+    el.qaKanbanWrap.innerHTML = html;
+  }
+
+  // ---------- 问题详情弹窗（三问完整 + 作答 + 状态 + 标签） ----------
+  function openQADetail(cardId) {
+    const deck = qaCurrentDeck();
+    const card = deck && deck.cards.find((c) => c.id === cardId);
+    if (!card) return;
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.style.cssText = "position:fixed;inset:0;background:var(--overlay);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;";
+    const dlg = document.createElement("div");
+    dlg.className = "qa-detail-dialog";
+    dlg.innerHTML = `
+      <div class="qa-detail-head">
+        <span class="qa-detail-code">${escapeHtml(card.code)}</span>
+        ${card.subDim ? `<span class="qa-detail-sub">${escapeHtml(card.subDim)}</span>` : ""}
+        ${card.section ? `<span class="qa-detail-sec">${escapeHtml(card.section)}</span>` : ""}
+        <button class="icon-btn qa-detail-close" title="关闭">✕</button>
+      </div>
+      <div class="qa-detail-body">
+        ${card.orient ? `<div class="qa-detail-q qa-q-orient"><span class="qa-detail-qtag">导向 · 现象定位</span><p>${escapeHtml(card.orient)}</p></div>` : ""}
+        ${card.analyze ? `<div class="qa-detail-q qa-q-analyze"><span class="qa-detail-qtag">解析 · 内部拆解</span><p>${escapeHtml(card.analyze)}</p></div>` : ""}
+        ${card.test ? `<div class="qa-detail-q qa-q-test"><span class="qa-detail-qtag">实验 · 验证修复</span><p>${escapeHtml(card.test)}</p></div>` : ""}
+        <div class="qa-detail-answer">
+          <span class="qa-detail-qtag">✍ 我的回答（自动保存）</span>
+          <textarea id="qaDetailAnswer" rows="4" placeholder="写下你的思考、答案或行动实验结果…">${escapeHtml(card.answer || "")}</textarea>
+        </div>
+        <div class="qa-detail-status">
+          <span class="qa-detail-qtag">状态</span>
+          <div class="qa-detail-st-chips" id="qaDetailSt">
+            ${Object.entries(QA_STATUS_META).map(([k, m]) => `<button class="qa-st-chip ${card.status === k ? "on" : ""} ${m.cls}" data-st="${k}">${m.icon} ${m.label}</button>`).join("")}
+          </div>
+        </div>
+        <div class="qa-detail-tags">
+          <span class="qa-detail-qtag">🏷 标签</span>
+          <div class="qa-detail-tag-row" id="qaDetailTags">
+            ${(card.tags || []).map((t) => `<span class="qa-tag-edit">${escapeHtml(t)}<i data-act="rmtag" data-t="${escapeHtml(t)}">✕</i></span>`).join("")}
+            <input type="text" id="qaDetailTagInput" placeholder="回车添加标签" maxlength="12" />
+          </div>
+        </div>
+      </div>
+      <div class="qa-detail-foot">
+        ${deck.cards.findIndex((c) => c.id === card.id) > 0 ? `<button class="tool-btn" id="qaDetailPrev" title="上一问">‹ 上一问</button>` : ""}
+        <button class="tool-btn qa-detail-save" id="qaDetailSave">💾 保存</button>
+        ${deck.cards.findIndex((c) => c.id === card.id) < deck.cards.length - 1 ? `<button class="tool-btn" id="qaDetailNext" title="下一问">下一问 ›</button>` : ""}
+      </div>`;
+    overlay.appendChild(dlg);
+    mountOverlayInActiveDialog(overlay);
+    const close = () => { doSave(true); overlay.remove(); renderQADeck(); };
+    const answerEl = dlg.querySelector("#qaDetailAnswer");
+    let status = card.status;
+    const doSave = (silent) => {
+      const ans = answerEl.value.trim();
+      card.answer = ans;
+      card.status = status;
+      card.answeredAt = ans && status === "done" ? Date.now() : card.answeredAt;
+      saveQABank();
+      if (!silent) { toast("已保存", "success"); renderQADeck(); }
+    };
+    dlg.querySelector(".qa-detail-close").addEventListener("click", close);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    dlg.querySelector("#qaDetailSave").addEventListener("click", () => doSave(false));
+    dlg.querySelector("#qaDetailSt").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-st]");
+      if (!btn) return;
+      status = btn.dataset.st;
+      dlg.querySelectorAll("#qaDetailSt .qa-st-chip").forEach((b) => b.classList.toggle("on", b === btn));
+      haptic(15);
+    });
+    // 标签添加/移除
+    const tagInput = dlg.querySelector("#qaDetailTagInput");
+    tagInput.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const t = tagInput.value.trim().replace(/^#/, "");
+      if (!t) return;
+      card.tags = card.tags || [];
+      if (!card.tags.includes(t)) card.tags.push(t);
+      saveQABank();
+      const span = document.createElement("span");
+      span.className = "qa-tag-edit";
+      span.innerHTML = `${escapeHtml(t)}<i data-act="rmtag" data-t="${escapeHtml(t)}">✕</i>`;
+      tagInput.before(span);
+      tagInput.value = "";
+    });
+    dlg.querySelector("#qaDetailTags").addEventListener("click", (e) => {
+      const rm = e.target.closest("[data-act='rmtag']");
+      if (!rm) return;
+      card.tags = (card.tags || []).filter((t) => t !== rm.dataset.t);
+      saveQABank();
+      rm.parentElement.remove();
+    });
+    // 上一问 / 下一问
+    const jump = (dir) => {
+      const idx = deck.cards.findIndex((c) => c.id === card.id);
+      const next = deck.cards[idx + dir];
+      if (!next) return;
+      doSave(true);
+      overlay.remove();
+      openQADetail(next.id);
+    };
+    const prevBtn = dlg.querySelector("#qaDetailPrev");
+    const nextBtn = dlg.querySelector("#qaDetailNext");
+    if (prevBtn) prevBtn.addEventListener("click", () => jump(-1));
+    if (nextBtn) nextBtn.addEventListener("click", () => jump(1));
+    setTimeout(() => answerEl.focus(), 60);
+  }
+
+  // ---------- 导入解析弹窗 ----------
+  const QA_SAMPLE = `场景：情绪稳定——巩固与自动化诊断（七大标准·完整提问库）
+
+核心目标：诊断情绪稳定的能力瓶颈，追溯情绪波动的根源，通过实验性提问将"稳定"从模糊的愿望转化为可训练、可内化的认知与行为习惯。
+
+一、清晰度诊断（3子维度，编号前缀 Cl-，共18问）
+
+1.1 定义清晰度（Cl-01 ~ Cl-06）
+
+编号	子维度	导向型（现象定位）	解析型（内部拆解）	实验型（验证修复）
+Cl-01 定义清晰度 "情绪稳定"对我来说具体意味着什么？是很少生气、不焦虑、还是即使情绪波动也能快速恢复？ 如果我说不清它的具体表现，是因为我从未区分过"没有情绪"和"有情绪但能调节"这两种完全不同的状态吗？ 如果我给"情绪稳定"下一个精确的操作性定义，比如"在意外发生时，能在规定时间内恢复到能继续工作的状态"，会是什么？
+Cl-02  我能区分"情绪稳定"和"情绪压抑"吗？我是在健康地调节情绪，还是在强行压制它直到某一天爆发？ 如果我把压抑当成稳定，是不是因为我没有觉察到那些被压抑的情绪正在以焦虑、失眠或疲惫的形式泄露出来？ 如果我每天睡前花一点时间问自己"今天我有什么感受是没被允许表达出来的？"，我能发现被压抑的情绪吗？
+
+1.2 边界清晰度（Cl-07 ~ Cl-12）
+
+Cl-07 边界清晰度 我知道什么时候"情绪稳定"会变成"过度控制"吗？它的边界在哪里？ 如果边界不清晰，我可能会在需要表达愤怒来保护自己边界的时刻，却错误地选择了"稳定"。 如果我回顾一次"我本应该生气却没有生气"的经历，那次"稳定"是保护了我，还是伤害了我？
+
+二、边界感诊断（3子维度，编号前缀 B-，共18问）
+
+3.3 极限测试（B-13 ~ B-18）
+
+B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一道我完全不会做的难题，我会如何应对？我还能找到一丝稳定的力量吗？ 这个测试能帮我衡量自己在"最差条件"下的心理韧性底线。 如果我提前为自己设计一个"最差状态下的应急预案"，我能在崩溃前启动它吗？`;
+
+  function openQAImportDialog() {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.style.cssText = "position:fixed;inset:0;background:var(--overlay);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;";
+    const dlg = document.createElement("div");
+    dlg.className = "qa-import-dialog";
+    dlg.innerHTML = `
+      <h3>📥 导入解析问题库</h3>
+      <div class="qa-import-hint">粘贴七大标准提问库等文本，自动解析成表格。<br/>支持 ①<b>制表符表格</b>（从 Excel/文档表格直接复制）②<b>纯文本行</b>（编号 子维度 问句…，问句间以「？ 」分隔）。<br/>识别结构：场景标题、核心目标、「一、节」（分组）、「1.1 小节」（子维度）、Cl-01 式编号行。</div>
+      <textarea id="qaImportText" rows="10" placeholder="在此粘贴问题库文本…&#10;&#10;场景：情绪稳定——巩固与自动化诊断&#10;一、清晰度诊断&#10;Cl-01 定义清晰度 “情绪稳定”对我来说意味着什么？ 如果我说不清…？ 如果我…？"></textarea>
+      <div class="qa-import-preview" id="qaImportPreview"></div>
+      <div class="qa-import-actions">
+        <button class="tool-btn" id="qaImportSample">📄 插入示例格式</button>
+        <span style="flex:1"></span>
+        <button class="tool-btn" id="qaImportCancel">取消</button>
+        <button class="tool-btn qa-import-go" id="qaImportGo">🔍 解析并导入</button>
+      </div>`;
+    overlay.appendChild(dlg);
+    mountOverlayInActiveDialog(overlay);
+    const ta = dlg.querySelector("#qaImportText");
+    const preview = dlg.querySelector("#qaImportPreview");
+    const close = () => overlay.remove();
+    const refreshPreview = () => {
+      const txt = ta.value.trim();
+      if (!txt) { preview.textContent = ""; preview.classList.remove("on"); return; }
+      const r = parseQABankText(txt);
+      const secs = new Set(r.cards.map((c) => c.section).filter(Boolean));
+      preview.classList.add("on");
+      preview.innerHTML = `✓ 预览：将解析出 <b>${r.cards.length}</b> 问 · <b>${secs.size}</b> 节${r.title ? ` · 标题「${escapeHtml(r.title)}」` : ""}${r.cards.length ? `<br/>首问：<span class="qa-pv-code">${escapeHtml(r.cards[0].code)}</span> ${escapeHtml((r.cards[0].orient || "").slice(0, 30))}…` : ` <b style="color:var(--danger,#f87171)">未识别到编号行（需 Cl-01 式编号开头）</b>`}`;
+    };
+    let pvTimer = null;
+    ta.addEventListener("input", () => { clearTimeout(pvTimer); pvTimer = setTimeout(refreshPreview, 300); });
+    dlg.querySelector("#qaImportSample").addEventListener("click", () => { ta.value = QA_SAMPLE; refreshPreview(); });
+    dlg.querySelector("#qaImportCancel").addEventListener("click", close);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    dlg.querySelector("#qaImportGo").addEventListener("click", () => {
+      const txt = ta.value.trim();
+      if (!txt) { toast("先粘贴问题库文本", "warn"); ta.focus(); return; }
+      const parsed = parseQABankText(txt);
+      if (!parsed.cards.length) { toast("未识别到问题（需要 Cl-01 式编号开头的行）", "warn"); return; }
+      const deck = {
+        id: "d_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 6),
+        title: parsed.title, goal: parsed.goal, createdAt: Date.now(), cards: parsed.cards,
+      };
+      state.qaBank.decks.push(deck);
+      qaView.deckId = deck.id;
+      saveQABank();
+      close();
+      renderQADeck();
+      haptic(30);
+      toast(`✓ 已导入「${deck.title}」：${deck.cards.length} 问`, "success");
+    });
+    setTimeout(() => ta.focus(), 60);
+  }
+
+  // ---------- 打开提问解析库 ----------
+  function openQADialog() {
+    if (!el.qaDialog) return;
+    if (!qaView.deckId && state.qaBank.decks.length) qaView.deckId = state.qaBank.decks[0].id;
+    el.qaDialog.showModal();
+    qaApplyFont();
+    renderQADeck();
+    haptic(15);
+  }
+
+  // ---------- 事件绑定 ----------
+  function initQABank() {
+    if (el.qaCloseBtn) el.qaCloseBtn.addEventListener("click", () => el.qaDialog.close());
+    if (el.qaImportBtn) el.qaImportBtn.addEventListener("click", openQAImportDialog);
+    if (el.qaEmptyImportBtn) el.qaEmptyImportBtn.addEventListener("click", openQAImportDialog);
+    // 字号调节
+    const setFont = (v) => {
+      qaFontSize = Math.min(QA_FONT_SIZES[QA_FONT_SIZES.length - 1], Math.max(QA_FONT_SIZES[0], v));
+      localStorage.setItem(QA_FONT_KEY, String(qaFontSize));
+      qaApplyFont();
+      haptic(10);
+    };
+    if (el.qaFontMinus) el.qaFontMinus.addEventListener("click", () => setFont(qaFontSize - 1));
+    if (el.qaFontPlus) el.qaFontPlus.addEventListener("click", () => setFont(qaFontSize + 1));
+    // 库切换 / 删除
+    if (el.qaDeckSelect) el.qaDeckSelect.addEventListener("change", () => {
+      qaView.deckId = el.qaDeckSelect.value;
+      qaView.collapsed.clear();
+      renderQADeck();
+    });
+    if (el.qaDeleteDeckBtn) el.qaDeleteDeckBtn.addEventListener("click", () => {
+      const deck = qaCurrentDeck();
+      if (!deck) return;
+      if (!confirm(`删除问题库「${deck.title}」（${deck.cards.length} 问，含作答进度）？`)) return;
+      state.qaBank.decks = state.qaBank.decks.filter((d) => d.id !== deck.id);
+      qaView.deckId = state.qaBank.decks[0] ? state.qaBank.decks[0].id : null;
+      saveQABank();
+      renderQADeck();
+      toast("已删除问题库", "info");
+    });
+    // 搜索（防抖）
+    if (el.qaSearch) {
+      let sTimer = null;
+      el.qaSearch.addEventListener("input", () => {
+        clearTimeout(sTimer);
+        sTimer = setTimeout(() => { qaView.search = el.qaSearch.value; renderQADeck(); }, 250);
+      });
+    }
+    // 状态筛选
+    if (el.qaStatusFilter) el.qaStatusFilter.addEventListener("click", (e) => {
+      const chip = e.target.closest("[data-st]");
+      if (!chip) return;
+      qaView.status = chip.dataset.st;
+      el.qaStatusFilter.querySelectorAll(".qa-st-chip").forEach((c) => c.classList.toggle("on", c === chip));
+      renderQADeck();
+      haptic(10);
+    });
+    // 视图切换
+    if (el.qaViewSwitch) el.qaViewSwitch.addEventListener("click", (e) => {
+      const tab = e.target.closest("[data-view]");
+      if (!tab) return;
+      qaView.view = tab.dataset.view;
+      el.qaViewSwitch.querySelectorAll(".qa-vs-tab").forEach((t) => t.classList.toggle("active", t === tab));
+      renderQADeck();
+      haptic(10);
+    });
+    // 标签筛选
+    if (el.qaTagFilter) el.qaTagFilter.addEventListener("click", (e) => {
+      const clear = e.target.closest(".qa-tag-clear");
+      if (clear) { qaView.tags.clear(); renderQADeck(); return; }
+      const chip = e.target.closest("[data-tag]");
+      if (!chip) return;
+      const t = chip.dataset.tag;
+      if (qaView.tags.has(t)) qaView.tags.delete(t); else qaView.tags.add(t);
+      renderQADeck();
+      haptic(10);
+    });
+    // 表格交互：节折叠 + 行点击详情 + 状态快捷切换（事件委托）
+    if (el.qaTableWrap) el.qaTableWrap.addEventListener("click", (e) => {
+      const stBtn = e.target.closest("[data-act='cycle']");
+      if (stBtn) {
+        e.stopPropagation();
+        const deck = qaCurrentDeck();
+        const card = deck && deck.cards.find((c) => c.id === stBtn.dataset.id);
+        if (!card) return;
+        const order = ["todo", "doing", "done"];
+        card.status = order[(order.indexOf(card.status) + 1) % 3];
+        if (card.status === "done" && card.answer) card.answeredAt = Date.now();
+        saveQABank();
+        renderQADeck();
+        haptic(15);
+        return;
+      }
+      const secRow = e.target.closest(".qa-sec-row");
+      if (secRow) {
+        const sec = secRow.parentElement.dataset.sec;
+        if (qaView.collapsed.has(sec)) qaView.collapsed.delete(sec); else qaView.collapsed.add(sec);
+        renderQADeck();
+        haptic(10);
+        return;
+      }
+      const row = e.target.closest(".qa-row");
+      if (row) { openQADetail(row.dataset.id); haptic(10); }
+    });
+    // 看板交互：卡片按钮换列 + 点击详情 + 桌面拖拽换列
+    if (el.qaKanbanWrap) {
+      el.qaKanbanWrap.addEventListener("click", (e) => {
+        const mv = e.target.closest("[data-act]");
+        if (mv && (mv.dataset.act === "prev" || mv.dataset.act === "next")) {
+          e.stopPropagation();
+          const deck = qaCurrentDeck();
+          const card = deck && deck.cards.find((c) => c.id === mv.dataset.id);
+          if (!card) return;
+          const order = ["todo", "doing", "done"];
+          const idx = order.indexOf(card.status);
+          card.status = order[Math.min(2, Math.max(0, idx + (mv.dataset.act === "next" ? 1 : -1)))];
+          if (card.status === "done" && card.answer) card.answeredAt = Date.now();
+          saveQABank();
+          renderQADeck();
+          haptic(15);
+          return;
+        }
+        const cardEl = e.target.closest(".qa-card");
+        if (cardEl) openQADetail(cardEl.dataset.id);
+      });
+      // 桌面拖拽：卡片 → 状态列
+      let dragCard = null;
+      el.qaKanbanWrap.addEventListener("dragstart", (e) => {
+        const cardEl = e.target.closest(".qa-card");
+        if (!cardEl) return;
+        dragCard = cardEl.dataset.id;
+        e.dataTransfer.effectAllowed = "move";
+        cardEl.classList.add("dragging");
+      });
+      el.qaKanbanWrap.addEventListener("dragend", (e) => {
+        const cardEl = e.target.closest(".qa-card");
+        if (cardEl) cardEl.classList.remove("dragging");
+        el.qaKanbanWrap.querySelectorAll(".qa-kb-col.over").forEach((c) => c.classList.remove("over"));
+        dragCard = null;
+      });
+      el.qaKanbanWrap.addEventListener("dragover", (e) => {
+        const col = e.target.closest(".qa-kb-col");
+        if (!col || !dragCard) return;
+        e.preventDefault();
+        el.qaKanbanWrap.querySelectorAll(".qa-kb-col.over").forEach((c) => c.classList.remove("over"));
+        col.classList.add("over");
+      });
+      el.qaKanbanWrap.addEventListener("drop", (e) => {
+        const col = e.target.closest(".qa-kb-col");
+        if (!col || !dragCard) return;
+        e.preventDefault();
+        const deck = qaCurrentDeck();
+        const card = deck && deck.cards.find((c) => c.id === dragCard);
+        if (card && card.status !== col.dataset.st) {
+          card.status = col.dataset.st;
+          if (card.status === "done" && card.answer) card.answeredAt = Date.now();
+          saveQABank();
+          renderQADeck();
+          haptic(20);
+          toast(`${card.code} → ${QA_STATUS_META[card.status].label}`, "success");
+        }
+      });
+    }
+    // 底部快捷条 ❓提问入口
+    const qaFab = document.getElementById("realmFabQA");
+    if (qaFab) qaFab.addEventListener("click", openQADialog);
+  }
+
   el.saveTask.addEventListener("click", () => {
     if (!state.editingCell) return;
     const { period, cell } = state.editingCell;
@@ -8701,19 +9357,11 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   setupOngoingEvents();
   if (el.goRecordFromPlan) el.goRecordFromPlan.addEventListener("click", () => setRealm("record"));
   if (el.goReviewFromPlan) el.goReviewFromPlan.addEventListener("click", () => setRealm("review"));
-  // 底部浮动三才切换条
+  // ❓ 提问解析库（底部快捷条入口 + 弹窗交互 + 解析/渲染）
+  initQABank();
+  // 底部浮动快捷条（提问/收集箱/孵化）
   if (el.realmFab) {
-    el.realmFab.dataset.active = "plan";
-    el.realmFab.querySelectorAll(".realm-fab-btn").forEach((btn) => {
-      const target = btn.dataset.realm;
-      if (!target) return; // 收集箱按钮无 data-realm，跳过三才切换逻辑
-      btn.addEventListener("click", () => {
-        const order = ["plan", "record", "review"];
-        const reverse = order.indexOf(target) < order.indexOf(state.realm);
-        setRealm(target, reverse);
-      });
-    });
-    // 收集箱入口（天地人右边）：点击跳转到收集箱弹窗
+    // 收集箱入口：点击跳转到收集箱弹窗
     const fabInbox = document.getElementById("realmFabInbox");
     if (fabInbox) fabInbox.addEventListener("click", openInbox);
   }
@@ -12210,6 +12858,9 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       // 助记快捷键：H=Hatch 孵化实验室
       case "h": case "H":
         e.preventDefault(); showKeyHint("H", "🥚 孵化"); openHatchDialog({}); break;
+      // 助记快捷键：Q=Question 提问解析库
+      case "q": case "Q":
+        e.preventDefault(); showKeyHint("Q", "❓ 提问解析库"); openQADialog(); break;
     }
   });
 
