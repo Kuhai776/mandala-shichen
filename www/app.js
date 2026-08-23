@@ -119,9 +119,15 @@ const SW_VER = "20260821b";
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.7.13";
-  const APP_VERSION_DATE = "2026-08-22";
+  const APP_VERSION = "2.7.14";
+  const APP_VERSION_DATE = "2026-08-23";
   const APP_CHANGELOG = [
+    { v: "2.7.14", date: "2026-08-23", items: [
+      "修复：孵化历史看板维度列匹配 bug——带维度标签的卡片因 target_dim 含子维度（如 Cl.def）匹配不到列 key（Cl）而整卡消失；现按维度级编码正确归列",
+      "新增：孵化历史看板列头子维度分布——每列下方显示该维度内各子维度的计数 chip（悬停显示核心追问），子维度一目了然",
+      "优化：子维度全面中文化——孵化步骤徽章、历史卡片标签、展开详情的问答维度 chip 与步骤维度标记，从英文编码（Cl.def）升级为「编码·子维度名」（Cl·定义清晰度），带维度色，悬停显示核心追问",
+      "优化：内置 7 维度问询模板子维度轮换——每次重新生成换一组子维度，多次生成覆盖全部 20 个子维度（轮换计数持久化）；为全部 20 个子维度配齐作答引导 hint",
+    ]},
     { v: "2.7.13", date: "2026-08-22", items: [
       "新增：任务互链 ↔——待办任务可平级关联其他任务（相关/依赖/参考），表格操作列 ↔ 按钮 + 看板编辑弹窗「管理关联」入口，多选关联、显示被谁关联（反向链接）并支持一键移除",
       "新增：互链徽标 ↔N（青绿色，含正反向计数，点击直达互链管理），与收纳 ↳N 明确区分",
@@ -5984,14 +5990,14 @@ ${noteSection}
       const branchTag = isSide
         ? `<span class="hatch-tag hatch-tag-branch-side" title="支线步骤：辅助/并行">支线</span>`
         : `<span class="hatch-tag hatch-tag-branch-main" title="主线步骤：任务核心推进">主线</span>`;
-      // 维度徽章（带颜色）
+      // 维度徽章（带颜色 + 子维度中文名，title 含编码与核心追问）
       let dimTag = "";
       if (step.target_dim) {
-        const [dc, sk] = step.target_dim.split(".");
+        const [dc, sk] = String(step.target_dim).split(".");
         const meta = lookupDim(dc, sk);
         if (meta) {
           const goalTxt = step.dim_goal ? `→${step.dim_goal}` : "";
-          dimTag = `<span class="hatch-tag hatch-tag-dim" style="background:${meta.dimColor}22;color:${meta.dimColor};" title="${meta.dimName}·${meta.subName}：${meta.question}">${step.target_dim}${goalTxt}</span>`;
+          dimTag = `<span class="hatch-tag hatch-tag-dim" style="background:${meta.dimColor}22;color:${meta.dimColor};" title="${meta.dimName}${dc} · ${meta.subName}：${meta.question}（编码 ${step.target_dim}）">${dc}·${meta.subName}${goalTxt}</span>`;
         }
       }
       const hasKids = Array.isArray(step.children) && step.children.length;
@@ -6759,6 +6765,31 @@ ${noteSection}
   }
 
   // 内置 7 维度+子维度引导问题模板（0 token，无 AI 也能按 7 维度提问）
+  // 子维度轮换：每轮生成换一组子维度，多次「重新问询」可覆盖全部 20 个子维度（持久化计数）
+  let tmplSubRotate = parseInt(load("mandala-tmpl-sub-rotate", "0"), 10) || 0;
+  // 全部 20 个子维度的作答引导 hint
+  const SUB_HINTS = {
+    "Cl.def": "把模糊词换成具体对象：什么、给谁、做到什么程度。",
+    "Cl.boundary": "说清它和相似概念的区别，划出「不是什么」的边界。",
+    "Cl.repr": "试着用比喻、图形或口诀换一种方式表达它。",
+    "Cp.structure": "列全组成部分，检查有没有漏掉的关键环节。",
+    "Cp.steps": "闭卷走一遍操作链，看哪一步会卡壳。",
+    "B.condition": "写出适用条件，每条配一个真实场景。",
+    "B.fail": "想想什么情况下会出错、为什么会错。",
+    "B.limit": "推到极端情况，看它还成不成立。",
+    "L.upstream": "它依赖什么上游、又能支撑什么下游，别孤立地做。",
+    "L.isomorphic": "找一个和它共享相同底层骨架的知识，对比结构。",
+    "L.crossdomain": "它能迁移到别的领域或日常生活里吗？举一例。",
+    "Ev.version": "对比过去/现在的理解，看深化在哪个点。",
+    "Ev.iteration": "第一版 60 分就够，想好下一步怎么迭代升级。",
+    "P.chunk": "把大目标切成 30 分钟能完成的小块和短口诀。",
+    "P.fluency": "区分哪些已自动化、哪些还需要刻意回忆。",
+    "Rh.cycle": "固定检索周期：多久回顾一次才不会忘？",
+    "Rh.freq": "练习频率够不够支撑巩固？",
+    "Rh.predict": "预判自己会在哪卡住，提前想好对策。",
+    "Rh.duration": "单次训练时长是否在专注力范围内？",
+    "Rh.timing": "什么状态下练效果最好（精力/场景/时段）？",
+  };
   function buildTemplateOnboardQuestions(taskText) {
     const t = (taskText || "").trim();
     const dims = KNOWLEDGE_DIMENSIONS;
@@ -6778,27 +6809,26 @@ ${noteSection}
       { label: "第一性原理", question: `「${t}」最底层的原理/不可再分的要素是什么？`, hint: "抛开现有做法，回到最根本的规律：这件事本质依赖什么？", dim: "", sub: "" },
       { label: "成功标准", question: `怎样算「${t}」成功完成？可量化的标准是什么？`, hint: "想想完成后谁能验收、用什么指标证明做到了。", dim: "", sub: "" },
     ];
-    // 7 维度：每个维度挑最有代表性的 1 个子维度（共 7 题）
-    const dimPicks = [
-      { code: "Cl", sub: "def", label: "清晰度Cl", hint: "把模糊词换成具体对象：什么、给谁、做到什么程度。" },
-      { code: "Cp", sub: "structure", label: "完整性Cp", hint: "列一下这件事的全部组成部分，看看有没有漏掉的关键环节。" },
-      { code: "B", sub: "condition", label: "边界感B", hint: "明确做与不做的界限：哪些绝对不做、做到哪算完。" },
-      { code: "L", sub: "upstream", label: "关联度L", hint: "想想它依赖什么上游、又能支撑什么下游，别孤立地做。" },
-      { code: "Ev", sub: "iteration", label: "进化感Ev", hint: "第一版做到 60 分就够了，之后怎么迭代升级？" },
-      { code: "P", sub: "chunk", label: "精炼度P", hint: "把大目标切成 30 分钟能完成的小块，拆到多细才顺手？" },
-      { code: "Rh", sub: "cycle", label: "节奏感Rh", hint: "安排在什么时段、什么频率推进，才能持续不中断？" },
-    ];
-    dimPicks.forEach((dp) => {
-      const tmplFn = tmpl[`${dp.code}.${dp.sub}`];
-      const fallback = subQ(dp.code, dp.sub);
+    // 7 维度：每维度按轮换索引挑子维度（多次重新生成 → 覆盖全部 20 个子维度）
+    const dimCodes = ["Cl", "Cp", "B", "L", "Ev", "P", "Rh"];
+    dimCodes.forEach((code, i) => {
+      const d = dims.find((x) => x.code === code);
+      if (!d || !d.subs.length) return;
+      const sub = d.subs[(tmplSubRotate + i) % d.subs.length];
+      const key = `${code}.${sub.key}`;
+      const tmplFn = tmpl[key];
+      const fallback = subQ(code, sub.key);
       questions.push({
-        label: dp.label,
-        question: tmplFn ? tmplFn(t) : (fallback ? fallback.replace(/知识/g, `「${t}」`) : `关于「${t}」的 ${dp.code} 子维度：${dp.sub}`),
-        hint: dp.hint,
-        dim: dp.code,
-        sub: dp.sub,
+        label: `${d.name}${code}`,
+        question: tmplFn ? tmplFn(t) : (fallback ? fallback.replace(/知识/g, `「${t}」`) : `关于「${t}」的 ${d.name}·${sub.name}`),
+        hint: SUB_HINTS[key] || sub.q,
+        dim: code,
+        sub: sub.key,
       });
     });
+    // 轮换推进（下一次生成覆盖新的子维度组合）
+    tmplSubRotate = (tmplSubRotate + 1) % 60; // 60 > 最大子维度数，保证完整循环
+    save("mandala-tmpl-sub-rotate", String(tmplSubRotate));
     return questions;
   }
 
@@ -7377,15 +7407,42 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       const s = new Set((h.steps || []).map((x) => x.target_dim).filter(Boolean));
       return [...s];
     };
+    // 列归属取维度级编码（target_dim 形如 "Cl.def"，列 key 是 "Cl"）
+    // 修复：此前直接用 tags[0]（含子维度）匹配列 key，导致带维度标签的卡片永远落不进任何列而整卡消失
     const colOf = (h) => {
       const tags = tagsOf(h);
-      return tags.length ? tags[0] : "__none__";
+      return tags.length ? String(tags[0]).split(".")[0] : "__none__";
+    };
+    // 子维度徽章：编码 → 中文（带维度色 + 核心追问 title）
+    const dimTagHtml = (t) => {
+      const [dc, sk] = String(t).split(".");
+      const meta = lookupDim(dc, sk);
+      if (meta) {
+        return `<span class="hh-dim-tag" style="background:${meta.dimColor}22;color:${meta.dimColor};border-color:${meta.dimColor}55;" title="${meta.dimName}${dc} · ${meta.subName}：${meta.question}">${dc}·${meta.subName}</span>`;
+      }
+      return `<span class="hh-dim-tag">${escapeHtml(t)}</span>`;
+    };
+    // 列内子维度分布（列头下方小徽章，体现子维度而非只看维度）
+    const colSubStats = (items, colKey) => {
+      if (colKey === "__none__") return "";
+      const dim = KNOWLEDGE_DIMENSIONS.find((d) => d.code === colKey);
+      if (!dim) return "";
+      const counts = {};
+      items.forEach((h) => tagsOf(h).forEach((t) => {
+        const [dc, sk] = String(t).split(".");
+        if (dc === colKey && sk) counts[sk] = (counts[sk] || 0) + 1;
+      }));
+      const subs = dim.subs.filter((s) => counts[s.key]);
+      if (!subs.length) return "";
+      return `<div class="hh-kb-subs">${subs.map((s) =>
+        `<span class="hh-kb-sub-chip" title="${escapeHtml(s.q)}">${s.name}·${counts[s.key]}</span>`
+      ).join("")}</div>`;
     };
 
     // ---- 单张卡片（摘要 + 可展开详情）----
     const cardHtml = (h) => {
       const tags = tagsOf(h);
-      const dimTags = tags.map((t) => `<span class="hh-dim-tag">${t}</span>`).join("");
+      const dimTags = tags.map((t) => dimTagHtml(t)).join("");
       const shortcutMark = h.shortcut ? `<div class="hh-shortcut">⚡ ${escapeHtml(h.shortcut)}</div>` : "";
       // 完成度闭环：实际完成进度条（收集箱 done 状态）
       let progressHtml = "";
@@ -7445,6 +7502,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       </div>`;
       return `<div class="hh-kb-col" data-col="${col.key}">
         <div class="hh-kb-col-head"><span class="hh-kb-col-dot" style="background:${col.color}"></span><span class="hh-kb-col-name">${col.name}</span><span class="hh-kb-col-count">${items.length}</span></div>
+        ${colSubStats(items, col.key)}
         <div class="hh-kb-col-body">${items.map(cardHtml).join("")}</div>
       </div>`;
     }).join("")}</div>`;
@@ -7532,7 +7590,14 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     if (rec.qa_pairs && rec.qa_pairs.length) {
       html += `<div class="hh-section-label">🧠 引导问答</div>`;
       html += rec.qa_pairs.map((qa) => {
-        const dimChip = qa.dim ? `<span class="hh-qa-dim">${qa.dim}${qa.sub ? `·${qa.sub}` : ""}</span>` : "";
+        // 维度 chip 中文化：qa.dim=编码 qa.sub=子维度 key → 中文名 + 维度色 + 核心追问 title
+        let dimChip = "";
+        if (qa.dim) {
+          const dimObj = KNOWLEDGE_DIMENSIONS.find((d) => d.code === qa.dim);
+          const color = dimObj ? dimObj.color : "#7c5cff";
+          const subObj = dimObj && qa.sub ? dimObj.subs.find((s) => s.key === qa.sub) : null;
+          dimChip = `<span class="hh-qa-dim" style="background:${color}22;color:${color};border-color:${color}55;" title="${dimObj ? dimObj.name : ""}${subObj ? " · " + subObj.name + "：" + subObj.q : ""}">${qa.dim}${subObj ? "·" + subObj.name : ""}</span>`;
+        }
         const ansText = qa.answer
           ? `<span class="hh-qa-ans">${escapeHtml(qa.answer)}</span>`
           : `<span class="hh-qa-ans hh-qa-empty">（未填写）</span>`;
@@ -7542,7 +7607,17 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     if (rec.steps && rec.steps.length) {
       html += `<div class="hh-section-label">📋 拆解步骤</div>`;
       html += rec.steps.map((s, i) => {
-        const dimMark = s.target_dim ? `<span class="hh-step-dim">${s.target_dim}${s.dim_goal ? `→${s.dim_goal}` : ""}</span>` : "";
+        // 步骤维度标记中文化（编码 → 维度·子维度名，title 含核心追问）
+        let dimMark = "";
+        if (s.target_dim) {
+          const [dc, sk] = String(s.target_dim).split(".");
+          const meta = lookupDim(dc, sk);
+          if (meta) {
+            dimMark = `<span class="hh-step-dim" style="background:${meta.dimColor}22;color:${meta.dimColor};border-color:${meta.dimColor}55;" title="${meta.dimName}${dc} · ${meta.subName}：${meta.question}（编码 ${s.target_dim}）">${dc}·${meta.subName}${s.dim_goal ? `→${s.dim_goal}` : ""}</span>`;
+          } else {
+            dimMark = `<span class="hh-step-dim">${escapeHtml(s.target_dim)}</span>`;
+          }
+        }
         const estMark = s.est_min ? `<span class="hh-step-est">${s.est_min}min</span>` : "";
         const riskMark = s.risk ? `<span class="hh-step-risk" title="风险">⚠</span>` : "";
         return `<div class="hh-step"><span class="hh-step-idx">${i + 1}</span><span class="hh-step-text">${escapeHtml(s.text || "")}${dimMark}</span>${estMark}${riskMark}</div>`;
