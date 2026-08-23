@@ -8785,6 +8785,29 @@ dialog.inbox-dialog-fullscreen::backdrop {
 .it-child-mark { color:var(--text-secondary); margin-right:2px; }
 .it-parent-mark { display:block; font-size:10px; color:var(--text-secondary); margin-top:2px; word-break:break-word; }
 .it-child-count { font-size:10px; color:var(--text-secondary); margin-left:4px; }
+/* 互链徽标：↔N（青绿色，区别于收纳 ↳N） */
+.it-rel-count {
+  font-size: 10px;
+  color: #22d3aa;
+  margin-left: 4px;
+  cursor: pointer;
+  border: 1px solid rgba(34, 211, 170, 0.35);
+  border-radius: 8px;
+  padding: 0 5px;
+  background: rgba(34, 211, 170, 0.08);
+}
+.it-rel-count:hover { background: rgba(34, 211, 170, 0.18); }
+/* 互链弹窗：反向链接 chip（点击移除对方的关联） */
+.tl-rev {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: rgba(34, 211, 170, 0.1);
+  border: 1px solid rgba(34, 211, 170, 0.3);
+  border-radius: 10px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.tl-rev:hover { color: var(--danger, #ff6b6b); border-color: var(--danger, #ff6b6b); }
 .it-tag { display:inline-block; font-size:9px; padding:1px 5px; border-radius:6px; margin:1px 2px 1px 0; }
 .it-prio { font-size:11px; }
 .it-prio.urgent { color:#ff6b6b; }

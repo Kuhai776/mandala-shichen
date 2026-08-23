@@ -119,9 +119,15 @@ const SW_VER = "20260821b";
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.7.12";
+  const APP_VERSION = "2.7.13";
   const APP_VERSION_DATE = "2026-08-22";
   const APP_CHANGELOG = [
+    { v: "2.7.13", date: "2026-08-22", items: [
+      "新增：任务互链 ↔——待办任务可平级关联其他任务（相关/依赖/参考），表格操作列 ↔ 按钮 + 看板编辑弹窗「管理关联」入口，多选关联、显示被谁关联（反向链接）并支持一键移除",
+      "新增：互链徽标 ↔N（青绿色，含正反向计数，点击直达互链管理），与收纳 ↳N 明确区分",
+      "优化：归属关系图全面升级——任务互链以 🤝 青绿色虚线边呈现（linkStyle 染色），只参与互链的孤立任务也会入图；图例补互链说明、统计条加互链数、空态引导加入 ↔ 关联入口",
+      "优化：删除任务时自动清理其他任务对它的互链引用（撤销删除时一并恢复），避免悬挂引用",
+    ]},
     { v: "2.7.12", date: "2026-08-22", items: [
       "新增：格子便利贴 📌——任务弹窗写一句贴上，格子内显示黄色小贴纸；点击切换完成、✕ 移除，桌面可拖到其他时间格子，移动端长按 260ms 拖起跟手移动",
       "新增：看板卡片双击编辑（优先级/主线支线/收纳/备注），单击延迟切换完成，长按拖拽改分类/安排到九宫格格子",
@@ -12727,6 +12733,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     if (it.mainline === undefined) it.mainline = null;
     if (it.sideline === undefined) it.sideline = null;
     if (it.parentId === undefined) it.parentId = null;
+    if (!Array.isArray(it.links)) it.links = []; // 平级互链：关联的其他任务 id（区别于收纳的 parentId 父子层级）
     if (it.priority === undefined) it.priority = 0;
     if (it.start === undefined) it.start = null;
     if (it.due === undefined) it.due = null;
@@ -13344,9 +13351,11 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       return nodeIds.get(key);
     };
     let edgeCount = 0;
+    const emittedIds = new Set(); // 已发射节点的任务 id（互链阶段补漏用）
     // 发射一个任务节点及其任务级子树（parentId 收纳链，虚线）
     const emitTaskTree = (it) => {
       const my = nid(it.id, "T");
+      emittedIds.add(it.id);
       const doneMark = it.done ? "✅ " : "";
       const prioMark = it.priority === 2 ? "⚡ " : it.priority === 1 ? "★ " : "";
       const cls = it.done ? ":::done" : ":::task";
@@ -13386,7 +13395,26 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     // ② 独立的任务级父子树（未挂主线的根任务，有子树才画）
     const hasRelRoot = (r) => (byParent.get(r.id) || []).length > 0;
     (byParent.get("__root__") || []).filter((r) => !r.mainline && hasRelRoot(r)).forEach((r) => emitTaskTree(r));
-    // ③ 统计 + 图例
+    // ③ 任务互链（平级 🤝 边）：A.links 含 B 时画一条；参与互链但未入图的节点先补发射
+    const idSet = new Set(items.map((i) => i.id));
+    const rawLinkPairs = [];
+    items.forEach((a) => {
+      (a.links || []).forEach((bid) => {
+        if (bid !== a.id && idSet.has(bid)) rawLinkPairs.push([a, items.find((x) => x.id === bid)]);
+      });
+    });
+    const linkEdgeIdxs = []; // 互链边的全局索引（linkStyle 染色用）
+    if (rawLinkPairs.length) {
+      // 先补发射只参与互链的孤立节点（没主线、没收纳、没被画过）
+      rawLinkPairs.forEach(([a, b]) => {
+        [a, b].forEach((t) => { if (!emittedIds.has(t.id)) emitTaskTree(t); });
+      });
+      rawLinkPairs.forEach(([a, b]) => {
+        lines.push(`${nid(a.id, "T")} -.🤝.- ${nid(b.id, "T")}`);
+        linkEdgeIdxs.push(edgeCount++);
+      });
+    }
+    // ④ 统计 + 图例
     const mlCount = inboxMainlines.length;
     const slCount = inboxMainlines.reduce((a, m) => a + (m.sidelines || []).length, 0);
     const groupedCount = items.filter((i) => i.mainline).length;
@@ -13395,19 +13423,21 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       // 没有任何归属关系：给出引导而非空白
       el.mermaidLightboxBody.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-secondary);font-size:13px;line-height:2;">
         <div style="font-size:32px;margin-bottom:8px;">🕸️</div>
-        当前收集箱还没有任何归属关系。<br>
-        可通过表格视图的 <b>📂 归属主线/支线</b> 或 <b>🔗 收纳到任务</b> 建立双链，<br>
+        当前收集箱还没有任何归属/关联关系。<br>
+        可通过表格视图的 <b>📂 归属主线/支线</b>、<b>🔗 收纳到任务</b> 或 <b>↔ 关联任务</b> 建立双链，<br>
         再回到此图查看全景。
       </div>`;
       if (el.mermaidLightbox.showModal) el.mermaidLightbox.showModal();
       else el.mermaidLightbox.setAttribute("open", "");
-      toast(`共 ${items.length} 个任务，暂无归属关系`, "info");
+      toast(`共 ${items.length} 个任务，暂无归属/关联关系`, "info");
       return;
     }
     lines.push("classDef ml fill:#241f4a,stroke:#7c5cff,color:#c9bfff,stroke-width:2px;");
     lines.push("classDef sl fill:#102a3a,stroke:#4dc3ff,color:#b8e8ff;");
     lines.push("classDef task fill:#1e2a32,stroke:#5a7a8a,color:#dce8ee;");
     lines.push("classDef done fill:#0e3a24,stroke:#3ddc84,color:#a8f0c8;");
+    // 互链边染青绿色（linkStyle 按边全局索引）
+    if (linkEdgeIdxs.length) lines.push(`linkStyle ${linkEdgeIdxs.join(",")} stroke:#22d3aa,stroke-width:2px;`);
     mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "loose", fontFamily: "inherit", flowchart: { curve: "basis", nodeSpacing: 20, rankSpacing: 42, htmlLabels: true } });
     const id = "relg" + Math.random().toString(36).slice(2, 8);
     const { svg } = await mermaid.render(id, lines.join("\n"));
@@ -13418,14 +13448,82 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       <span class="rl-item"><i class="rl-dot" style="background:#5a7a8a;"></i>任务（✅已完成 · ★重要 · ⚡紧急）</span>
       <span class="rl-item">=== 主线/支线归属</span>
       <span class="rl-item">-.收纳.- 任务级父子（双链）</span>
+      <span class="rl-item"><i class="rl-dot" style="background:#22d3aa;"></i>-.🤝.- 任务互链（平级关联）</span>
     </div>
-    <div class="relg-stats">任务 ${items.length} · 主线 ${mlCount} · 支线 ${slCount} · 已归属 ${groupedCount} · 收纳关系 ${nestedCount}</div>`;
+    <div class="relg-stats">任务 ${items.length} · 主线 ${mlCount} · 支线 ${slCount} · 已归属 ${groupedCount} · 收纳关系 ${nestedCount} · 互链 ${rawLinkPairs.length}</div>`;
     el.mermaidLightboxBody.innerHTML = `${legend}<div class="hh-mm-svg">${svg}</div>`;
     const svgEl = el.mermaidLightboxBody.querySelector("svg");
     if (svgEl) { svgEl.removeAttribute("width"); svgEl.style.maxWidth = "100%"; svgEl.style.height = "auto"; }
     if (el.mermaidLightbox.showModal) el.mermaidLightbox.showModal();
     else el.mermaidLightbox.setAttribute("open", "");
-    toast(`已生成归属全景图：${items.length} 任务 · ${mlCount} 主线 · ${slCount} 支线 · ${nestedCount} 条收纳链`, "success");
+    toast(`已生成归属全景图：${items.length} 任务 · ${mlCount} 主线 · ${slCount} 支线 · ${nestedCount} 收纳 · ${rawLinkPairs.length} 互链`, "success");
+  }
+
+  // ---------- 任务互链（平级关联）----------
+  // 与「收纳 parentId」的区别：互链是平级引用（相关/依赖/参考），不改变层级、可多选、可反向
+  // 反向链接：谁关联了我（对方 links 里含我）——展示 + 一键移除对方引用
+  function taskLinkCount(taskId) {
+    const it = inboxItems.find((i) => i.id === taskId);
+    if (!it) return 0;
+    const fwd = (it.links || []).filter((id) => inboxItems.some((x) => x.id === id)).length;
+    const rev = inboxItems.filter((x) => (x.links || []).includes(taskId)).length;
+    return fwd + rev;
+  }
+
+  function openTaskLinksDialog(taskId) {
+    const it = inboxItems.find((i) => i.id === taskId);
+    if (!it) return;
+    const others = inboxItems.filter((x) => x.id !== taskId && x.text);
+    if (!others.length) { toast("收集箱中暂无其他任务可关联", "info"); return; }
+    const myLinks = new Set((it.links || []).filter((id) => inboxItems.some((x) => x.id === id)));
+    const revLinks = inboxItems.filter((x) => (x.links || []).includes(taskId)); // 谁关联了我
+    const prioMark = (t) => t.done ? "✅ " : (t.priority === 2 ? "⚡ " : t.priority === 1 ? "★ " : "");
+    el.assignBody.innerHTML = `
+      <p style="margin:0 0 6px;color:var(--text-secondary);font-size:13px;">↔ 关联任务：<b style="color:var(--accent);">${escapeHtml(it.text.slice(0, 30))}</b></p>
+      <p style="margin:0 0 10px;color:var(--text-muted);font-size:12px;">平级互链（相关/依赖/参考），不影响主线归属与收纳层级；关联后可在关系图中看到 <b style="color:#22d3aa;">🤝 互链边</b></p>
+      <div class="assign-form" style="flex-direction:column;max-height:200px;overflow-y:auto;border:1px solid var(--input-border);border-radius:8px;padding:8px;">
+        ${others.map((o) => `
+          <label style="display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:13px;cursor:pointer;">
+            <input type="checkbox" class="tl-check" data-id="${o.id}" ${myLinks.has(o.id) ? "checked" : ""} />
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${prioMark(o)}${escapeHtml(o.text.slice(0, 36))}</span>
+          </label>`).join("")}
+      </div>
+      ${revLinks.length ? `
+      <p style="margin:10px 0 4px;color:var(--text-secondary);font-size:12px;">🔗 被关联（以下任务关联了本任务）：</p>
+      <div style="display:flex;flex-wrap:wrap;gap:5px;">
+        ${revLinks.map((r) => `<span class="tl-rev" data-id="${r.id}" title="点击移除对方的关联">${escapeHtml(r.text.slice(0, 16))} ✕</span>`).join("")}
+      </div>` : ""}
+      <div class="assign-actions">
+        <button class="tool-btn" id="assignCancel">取消</button>
+        <button class="tool-btn" id="assignOk" style="background:var(--accent);color:#fff;">保存关联</button>
+      </div>
+    `;
+    el.assignDialog.showModal();
+    // 反向链接：点击移除对方的引用
+    el.assignBody.querySelectorAll(".tl-rev").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        const r = inboxItems.find((x) => x.id === chip.dataset.id);
+        if (!r) return;
+        r.links = (r.links || []).filter((id) => id !== taskId);
+        saveInbox();
+        el.assignDialog.close();
+        renderInboxList();
+        renderInboxStats();
+        haptic(15);
+        toast(`已移除「${r.text.slice(0, 16)}」对本任务的关联`, "info");
+      });
+    });
+    document.getElementById("assignCancel").addEventListener("click", () => el.assignDialog.close());
+    document.getElementById("assignOk").addEventListener("click", () => {
+      const checked = new Set(Array.from(el.assignBody.querySelectorAll(".tl-check:checked")).map((c) => c.dataset.id));
+      it.links = Array.from(checked);
+      saveInbox();
+      el.assignDialog.close();
+      renderInboxList();
+      renderInboxStats();
+      haptic(20);
+      toast(it.links.length ? `已关联 ${it.links.length} 个任务` : "已清空关联", "success");
+    });
   }
 
   // 任务级主线/支线收纳弹窗（把任务收纳到另一个任务下，如「嵌入式」收纳「STM32」）
@@ -13524,7 +13622,11 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         <label>备注</label>
         <textarea id="kceNote" rows="3" placeholder="组块备注：补充说明、上下文、检查清单…（看板卡片下方展示，点击可折叠）" style="flex:1;">${escapeHtml(it.note || "")}</textarea>
       </div>
-      <p style="margin:2px 0 12px;color:var(--text-muted);font-size:11px;">提示：「归属主线/支线」与「收纳到任务」两套归属互斥——选了父任务则以任务级收纳为准（主线/支线会被清空），反之亦然。</p>
+      <div class="assign-form">
+        <label>↔ 关联任务（平级互链）</label>
+        <button type="button" class="tool-btn" id="kceRelate" style="flex:1;">↔ 管理关联（${taskLinkCount(it.id)} 个）</button>
+      </div>
+      <p style="margin:2px 0 12px;color:var(--text-muted);font-size:11px;">提示：「归属主线/支线」与「收纳到任务」两套归属互斥——选了父任务则以任务级收纳为准（主线/支线会被清空），反之亦然。「关联」为平级互链，不影响两套归属。</p>
       <div class="assign-actions">
         <button class="tool-btn" id="kceDelete" style="color:var(--danger, #ff6b6b);" title="删除该任务（5 秒内可撤销）">删除</button>
         <button class="tool-btn" id="assignCancel">取消</button>
@@ -13532,6 +13634,11 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       </div>
     `;
     el.assignDialog.showModal();
+    // ↔ 关联：跳转互链管理弹窗（同一 dialog 复用，先关再开）
+    document.getElementById("kceRelate").addEventListener("click", () => {
+      el.assignDialog.close();
+      openTaskLinksDialog(it.id);
+    });
     // 优先级按钮组（单选）
     let prioVal = it.priority || 0;
     el.assignBody.querySelectorAll(".kce-prio").forEach((b) => {
@@ -14173,6 +14280,9 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     const childCount = isChild ? 0 : inboxItems.filter((c) => c.parentId === item.id).length;
     const childBadge = childCount ? `<span class="it-child-count" title="${childCount} 个子任务">↳${childCount}</span>` : "";
     const parentMark = parent ? `<span class="it-parent-mark" title="收纳于父任务">📎 ${escapeHtml(parent.text)}</span>` : "";
+    // 互链徽标：正向 + 反向关联数（点击可打开互链管理）
+    const relCount = taskLinkCount(item.id);
+    const relBadge = relCount ? `<span class="it-rel-count" data-act="relate" data-idx="${idx}" title="${relCount} 个关联任务（点击管理）">↔${relCount}</span>` : "";
     const tags = (item.tags || []).map((t) => `<span class="it-tag" style="background:${tagColor(t)}20;color:${tagColor(t)};">${escapeHtml(t)}</span>`).join("");
     const prio = item.priority === 2 ? '<span class="it-prio urgent" title="紧急">⚡</span>'
       : item.priority === 1 ? '<span class="it-prio imp" title="重要">★</span>' : "";
@@ -14213,6 +14323,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       <button class="it-op" data-act="edit" data-idx="${idx}" title="编辑：优先级/归属/收纳/备注">✎</button>
       <button class="it-op" data-act="assign" data-idx="${idx}" title="归属主线/支线">📂</button>
       <button class="it-op" data-act="link" data-idx="${idx}" title="🔗 任务级主线/支线：收纳到另一个任务下">🔗</button>
+      <button class="it-op" data-act="relate" data-idx="${idx}" title="↔ 关联其他任务（平级互链，不改层级）">↔</button>
       <button class="it-op" data-act="due" data-idx="${idx}" title="设置开始/截止">📅</button>
       <button class="it-op danger" data-act="del" data-idx="${idx}" title="删除">✕</button>
     </span>`;
@@ -14220,7 +14331,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     const { cols } = inboxOptions;
     return `<tr class="it-row ${item.done ? "done" : ""} ${isChild ? "is-child" : ""}" data-idx="${idx}"${dragAttr}>
       <td class="it-col-done">${cb}</td>
-      <td class="it-col-text">${isChild ? '<span class="it-child-mark">↳</span>' : ""}<span class="it-text" data-idx="${idx}" title="单击发给AI，双击编辑">${text}</span>${sub}${noteBlock}${link}${parentMark}${childBadge}</td>
+      <td class="it-col-text">${isChild ? '<span class="it-child-mark">↳</span>' : ""}<span class="it-text" data-idx="${idx}" title="单击发给AI，双击编辑">${text}</span>${sub}${noteBlock}${link}${parentMark}${childBadge}${relBadge}</td>
       ${cols.tags ? `<td class="it-col-tags">${tags}</td>` : ""}
       ${cols.prio ? `<td class="it-col-prio">${prio}</td>` : ""}
       ${cols.date ? `<td class="it-col-date">${dateHtml}</td>` : ""}
@@ -14256,6 +14367,13 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         renderInboxList();
         return;
       }
+      // 互链徽标：点击打开互链管理
+      const rel = e.target.closest(".it-rel-count");
+      if (rel) {
+        const it = inboxItems[parseInt(rel.dataset.idx)];
+        if (it) openTaskLinksDialog(it.id);
+        return;
+      }
       const op = e.target.closest(".it-op");
       if (op) {
         const idx = parseInt(op.dataset.idx);
@@ -14269,6 +14387,14 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         if (act === "del") {
           const removedId = it.id;
           const removedChildren = inboxItems.filter((c) => c.parentId === removedId);
+          // 记录被删除任务在其他任务 links 里的引用，撤销时恢复
+          const removedLinkRefs = [];
+          inboxItems.forEach((c) => {
+            if (c.id !== removedId && (c.links || []).includes(removedId)) {
+              removedLinkRefs.push({ item: c });
+              c.links = c.links.filter((id) => id !== removedId);
+            }
+          });
           inboxItems.splice(idx, 1);
           if (removedId) {
             inboxItems.forEach((c) => { if (c.parentId === removedId) c.parentId = null; });
@@ -14286,6 +14412,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
             onClick: () => {
               inboxItems.splice(Math.min(idx, inboxItems.length), 0, it);
               removedChildren.forEach((c) => { c.parentId = removedId; });
+              removedLinkRefs.forEach(({ item }) => { if (!item.links) item.links = []; item.links.push(removedId); });
               saveInbox();
               updateInboxTagDatalist();
               renderInboxFilter();
@@ -14311,6 +14438,10 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         }
         if (act === "link") {
           openLinkParentDialog(it.id);
+          return;
+        }
+        if (act === "relate") {
+          openTaskLinksDialog(it.id);
           return;
         }
         if (act === "due") {
