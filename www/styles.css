@@ -7184,6 +7184,20 @@ dialog.inbox-dialog-fullscreen::backdrop {
   letter-spacing: 0.3px;
 }
 
+/* 三问式徽章（导向/解析/实验） */
+.hoq-mode-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  margin: 0 2px;
+  border-radius: 4px;
+  border: 1px solid;
+  vertical-align: middle;
+  letter-spacing: 0.3px;
+  cursor: help;
+}
+
 /* 问询作答：可上下滑动的多行输入 + 引导提示 */
 .hatch-onboard-qs {
   display: flex;
@@ -8514,6 +8528,18 @@ dialog.inbox-dialog-fullscreen::backdrop {
   border-color: var(--accent, #7c5cff);
   color: var(--accent, #7c5cff);
   background: rgba(124, 92, 255, 0.1);
+}
+/* 三问式深挖 chips：高亮区分普通调整类指令 */
+.hatch-chip.hatch-chip-deep {
+  border-color: rgba(45, 212, 191, 0.45);
+  color: #2dd4bf;
+  background: rgba(45, 212, 191, 0.08);
+  font-weight: 600;
+}
+.hatch-chip.hatch-chip-deep:hover {
+  border-color: #2dd4bf;
+  color: #5eead4;
+  background: rgba(45, 212, 191, 0.16);
 }
 .hatch-chat-input {
   flex: 1;

@@ -128,9 +128,17 @@ const SW_VER = "20260821b";
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.7.17";
-  const APP_VERSION_DATE = "2026-08-23";
+  const APP_VERSION = "2.7.18";
+  const APP_VERSION_DATE = "2026-08-24";
   const APP_CHANGELOG = [
+    { v: "2.7.18", date: "2026-08-24", items: [
+      "新增：AI 对话三问式深挖——结果页对话新增「🔬 七维深挖 / 🎯 极限测试 / 🧪 实验设计」高亮指令，AI 按七大标准逐维诊断方案，每维按 导向型(现象定位)→解析型(根源拆解)→实验型(验证修复) 三层分析，输出诊断总览表并点名最薄弱 2 个维度",
+      "新增：AI 对话内置诊断方法论——连续对话的 system prompt 注入七大标准体系（7 维度×20 子维度）与三问式分析法，问「哪里最容易失败」等即触发深度诊断而非表面调整",
+      "新增：AI 问询三问式升级——生成引导问题时每问标注问式（导向/解析/实验），至少 2 问为实验型；实验型 hint 必须含「做什么实验+看什么指标+成败判据」",
+      "新增：本地模板三问式轮换——无 AI 路径同样升级：20 个子维度新增实验型问题模板与判据 hint，奇偶轮换交替「解析型核心问 ↔ 实验型验证问」，多次重新生成覆盖全部问式",
+      "新增：问式徽章——问询面板每问显示彩色问式徽章（导向紫/解析金/实验青），悬停看完整方法论说明",
+      "优化：孵化上下文织入问式标签——「实验型」回答优先落实为具体拆解步骤",
+    ]},
     { v: "2.7.17", date: "2026-08-23", items: [
       "新增：⚡ 内置七大标准·完整提问库生成器——导入解析弹窗输入任意目标（情绪稳定/学好数学/健身…），一键生成覆盖全部 7 维度 × 20 子维度 × 40 问的三段式题库（导向型·现象定位 / 解析型·内部拆解 / 实验型·验证修复），七大标准子维度诊断全覆盖、精细化穷尽",
       "优化：导入弹窗改版——内置生成器置顶突出，Enter 快捷生成，主题自动替换到全部 120 问句中",
@@ -6674,6 +6682,55 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
     "Rh.timing": (task) => `找出你训练「${task}」状态最好的时段（如清晨/夜深），固定下来`,
   };
 
+  // 三问式·实验型问题模板（验证修复导向：做小实验、看指标、有判据）
+  // 与 HATCH_DIM_TEMPLATES 配对使用：轮换奇偶交替「解析型核心问」与「实验型验证问」
+  const HATCH_DIM_TEST_TEMPLATES = {
+    "Cl.def": (task) => `今天用 3 分钟向一个外行解释「${task}」，卡壳的词就是定义不清的地方——把它记下来`,
+    "Cl.boundary": (task) => `找 2 个看起来像「${task}」但实际不算的场景，各用一句话说清为什么不算`,
+    "Cl.repr": (task) => `明天复述「${task}」时只用比喻不用术语，看对方能否听懂；听不懂=表征不足`,
+    "Cp.structure": (task) => `闭卷画「${task}」的结构树，再对照资料补漏——漏得最多的那层就是突破口`,
+    "Cp.steps": (task) => `限时 5 分钟闭卷写「${task}」的完整操作链，卡住的那一步标记出来重点练`,
+    "B.condition": (task) => `本周找一个真实场景验证「${task}」的一条适用条件，验证一条记录一条`,
+    "B.fail": (task) => `故意在最不利的条件下试一次「${task}」，记录它开始失效的临界点`,
+    "B.limit": (task) => `用一半时间或双倍目标做一次「${task}」的简化版，看核心还能不能保住`,
+    "L.upstream": (task) => `本周补上「${task}」的一个前置知识，做完看后续进展是否明显变顺`,
+    "L.isomorphic": (task) => `把「${task}」和你擅长领域的骨架列成对照表，明天用旧经验解一次新问题`,
+    "L.crossdomain": (task) => `这周把「${task}」的方法用到一件不相关的小事上，记录迁移效果`,
+    "Ev.version": (task) => `写下今天对「${task}」的理解并标 v1，三天后追加 v2，对比深化点`,
+    "Ev.iteration": (task) => `给「${task}」当前做法打分并列出淘汰清单，周末执行一次删减`,
+    "P.chunk": (task) => `把「${task}」压缩成 7 字以内口诀，明早闭卷默写——写不出=还没内化`,
+    "P.fluency": (task) => `连续 3 天固定时间执行「${task}」最耗神的一步，记录耗时变化`,
+    "Rh.cycle": (task) => `给「${task}」设 3 天后的第一次检索复习并加提醒，到点验证留存率`,
+    "Rh.freq": (task) => `记录本周「${task}」实际练习次数，对比目标频率，差多少下周补多少`,
+    "Rh.predict": (task) => `执行前写下「${task}」的预测卡点，执行后核对——命中率就是你的预判力`,
+    "Rh.duration": (task) => `下次把「${task}」单次时长切到专注上限的八成，对比产出与感受`,
+    "Rh.timing": (task) => `把「${task}」移到你的精力峰值时段试 3 天，记录效率差异`,
+  };
+
+  // 实验型 hint：三件套（做什么实验 + 看什么指标 + 成败判据）
+  const SUB_TEST_HINTS = {
+    "Cl.def": "判据：3 分钟内能否讲完且对方不复追问；卡壳处即模糊点。",
+    "Cl.boundary": "判据：能给出「为什么不算」的一句话理由，边界就清晰了。",
+    "Cl.repr": "判据：对方听懂比喻 = 表征有效；听不懂 = 换一个比喻再试。",
+    "Cp.structure": "判据：对照资料后漏掉的分支数，就是结构完整度的缺口。",
+    "Cp.steps": "判据：5 分钟内闭卷写完整条链 = 已自动化；卡壳步 = 重点练习对象。",
+    "B.condition": "判据：真实场景里成立与否，比书上写的更有说服力。",
+    "B.fail": "判据：记录下失效临界点，以后提前避开而不是硬闯。",
+    "B.limit": "判据：简化版保住的核心，才是真正不可删的骨架。",
+    "L.upstream": "判据：补完后进展明显变顺 = 前置判断正确；没变化 = 换一个前置。",
+    "L.isomorphic": "判据：旧经验能直接平移解决新问题 = 同构成立。",
+    "L.crossdomain": "判据：迁移后那件事有可感知的进步，复利才算发生。",
+    "Ev.version": "判据：v2 比 v1 至少修正一个错误，否则只是重复不是迭代。",
+    "Ev.iteration": "判据：删减后效率不降反升 = 减法有效。",
+    "P.chunk": "判据：明早能闭卷默写 = 已压缩内化；写不出 = 继续压缩。",
+    "P.fluency": "判据：第 3 天耗时应比第 1 天明显下降，否则该步需专项练。",
+    "Rh.cycle": "判据：3 天后能复述 8 成 = 周期合适；低于 5 成 = 缩短周期。",
+    "Rh.freq": "判据：实际次数 vs 目标次数的差距，就是下周要补的量。",
+    "Rh.predict": "判据：预测命中的卡点比例，衡量你的自我预判准确度。",
+    "Rh.duration": "判据：八成时长下产出不降、感受更好 = 原来在超限硬撑。",
+    "Rh.timing": "判据：峰值时段效率应有可感知的提升，否则换时段再试。",
+  };
+
   // 自动选档（基于任务文本长度 + 关键词）
   function autoHatchMode(taskText) {
     const len = taskText.length;
@@ -6906,6 +6963,7 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
       `档位：${mode}（目标 ${cfg.min}-${cfg.max} 步）`,
       `场景：${scene}（${sc.label}）`,
       "",
+      "背景中若含 [导向]/[解析]/[实验] 标签，分别代表用户对任务的「现象定位 / 根源拆解 / 验证修复」三层回答：实验型回答是用户已设计的验证行动，拆解时优先落实为具体步骤。",
       "请按 schema 输出。",
     ].filter(Boolean).join("\n");
 
@@ -7456,9 +7514,13 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
     const recent = hatchState.chatLog.slice(-6)
       .map((m) => `${m.role === "user" ? "用户" : "AI"}：${m.content}`)
       .join("\n") || "（无）";
+    const dimList = KNOWLEDGE_DIMENSIONS.map((d) =>
+      `   - ${d.code} ${d.name}：${d.subs.map((s) => s.name).join(" / ")}`
+    ).join("\n");
     const system = [
       "你是任务拆解专家，正在与用户就同一个任务的拆解方案进行连续对话。请保持上下文，基于当前方案与对话历史回答。",
-      "只输出 JSON，不要解释、不要 markdown 围栏。",
+      "你掌握一套「七大标准 × 三问式」诊断方法论，在用户需要深度分析时使用它，而不是停留在表面调整。",
+      "只输出 JSON，不要解释、不要 markdown 围栏。（仅规则 5 的诊断/深挖场景输出中文分析文字）",
       "",
       `【任务】${hatchState.taskText}`,
       "【当前方案】",
@@ -7467,11 +7529,16 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
       "【对话历史】",
       recent,
       "",
+      "【七大标准诊断体系】",
+      dimList,
+      "【三问式分析法】每个维度按三层递进深挖：导向型（现象定位：现在是什么表现）→ 解析型（内部拆解：薄弱的根源是什么）→ 实验型（验证修复：用什么小实验验证并修复）",
+      "",
       "【规则】",
       '1. 用户要求调整方案（细化某步/增删/合并/精简步数/换场景或档位重拆等）时：输出完整的新版方案 JSON，schema：{"complexity":"simple|standard|complex","est_total_min":数字,"first_blocker":"最可能卡住的点","shortcut":"可选捷径","steps":[{"text":"具体动作","est_min":15,"depends_on":null,"risk":"low","risk_note":"","why":"为什么必要","branch":"main","parent_step":null}]}',
       "2. 步数按用户要求控制；用户未指定时默认 3-8 步，单步 15-30 分钟，按执行顺序排列。",
       '3. 主线/支线：主干步骤 branch="main" 串联；辅助/并行步骤 branch="side" 并给 parent_step 填依附的主线步骤 index（从 0 起）；至少 1 个 main。',
       '4. 用户只是提问/闲聊（如“为什么这么拆”“有没有更快的办法”）时：用简短中文直接回答，不要输出 JSON。',
+      "5. 用户要求诊断/深挖/找薄弱点/极限测试/实验设计（如“七维深挖”“哪里最容易失败”）时：用七大标准逐维分析，每维按三问式（导向→解析→实验）展开；先给「诊断总览表」（维度｜现象｜根源｜修复），再点名最薄弱的 2 个维度并各给 1 条可执行的修复建议；分析要具体到方案的某一步，不许空谈理论；用中文回答，不要输出 JSON。",
     ].join("\n");
     return { systemPrompt: system, userPrompt: userText };
   }
@@ -7942,30 +8009,34 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
     // 用 HATCH_DIM_TEMPLATES 作为子维度问题模板（已针对任务填空）
     const tmpl = HATCH_DIM_TEMPLATES;
     // 基础 4 问（本质/必要前提/第一性原理/成功标准）+ 7 维度各挑核心子维度
+    // mode 标注三问式：orient 导向型·现象定位 / analyze 解析型·内部拆解 / test 实验型·验证修复
     const questions = [
-      { label: "本质", question: `用一句话说清「${t}」的核心本质是什么？`, hint: "别急着写做法，先想清楚这件事到底要解决谁的什么问题。", dim: "", sub: "" },
-      { label: "必要前提", question: `完成「${t}」需要哪些前置条件或基础？`, hint: "盘点手上已有的资源/信息/工具，以及还缺什么才能开始。", dim: "", sub: "" },
-      { label: "第一性原理", question: `「${t}」最底层的原理/不可再分的要素是什么？`, hint: "抛开现有做法，回到最根本的规律：这件事本质依赖什么？", dim: "", sub: "" },
-      { label: "成功标准", question: `怎样算「${t}」成功完成？可量化的标准是什么？`, hint: "想想完成后谁能验收、用什么指标证明做到了。", dim: "", sub: "" },
+      { label: "本质", question: `用一句话说清「${t}」的核心本质是什么？`, hint: "别急着写做法，先想清楚这件事到底要解决谁的什么问题。", dim: "", sub: "", mode: "analyze" },
+      { label: "必要前提", question: `完成「${t}」需要哪些前置条件或基础？现在缺什么？`, hint: "盘点手上已有的资源/信息/工具，以及还缺什么才能开始。", dim: "", sub: "", mode: "orient" },
+      { label: "第一性原理", question: `「${t}」最底层的原理/不可再分的要素是什么？`, hint: "抛开现有做法，回到最根本的规律：这件事本质依赖什么？", dim: "", sub: "", mode: "analyze" },
+      { label: "成功标准", question: `怎样算「${t}」成功完成？可量化的标准是什么？`, hint: "想想完成后谁能验收、用什么指标证明做到了。", dim: "", sub: "", mode: "test" },
     ];
     // 7 维度：每维度按轮换索引挑子维度（多次重新生成 → 覆盖全部 20 个子维度）
+    // 轮换奇偶交替问式：偶数轮出「解析型核心问」，奇数轮出「实验型验证问」（带判据）
     const dimCodes = ["Cl", "Cp", "B", "L", "Ev", "P", "Rh"];
+    const useTest = tmplSubRotate % 2 === 1;
     dimCodes.forEach((code, i) => {
       const d = dims.find((x) => x.code === code);
       if (!d || !d.subs.length) return;
       const sub = d.subs[(tmplSubRotate + i) % d.subs.length];
       const key = `${code}.${sub.key}`;
-      const tmplFn = tmpl[key];
+      const tmplFn = useTest ? (HATCH_DIM_TEST_TEMPLATES[key] || tmpl[key]) : tmpl[key];
       const fallback = subQ(code, sub.key);
       questions.push({
         label: `${d.name}${code}`,
         question: tmplFn ? tmplFn(t) : (fallback ? fallback.replace(/知识/g, `「${t}」`) : `关于「${t}」的 ${d.name}·${sub.name}`),
-        hint: SUB_HINTS[key] || sub.q,
+        hint: useTest ? (SUB_TEST_HINTS[key] || SUB_HINTS[key] || sub.q) : (SUB_HINTS[key] || sub.q),
         dim: code,
         sub: sub.key,
+        mode: useTest ? "test" : "analyze",
       });
     });
-    // 轮换推进（下一次生成覆盖新的子维度组合）
+    // 轮换推进（下一次生成覆盖新的子维度组合 + 问式交替）
     tmplSubRotate = (tmplSubRotate + 1) % 60; // 60 > 最大子维度数，保证完整循环
     save("mandala-tmpl-sub-rotate", String(tmplSubRotate));
     return questions;
@@ -8010,10 +8081,17 @@ ${dimList}
 ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s.name + "：「" + s.q + "」").join("；")).join("\n")}
 6. 问题要直击要害，但给足思考引导；用户能用 1-3 句话答完，不用写作文
 7. 不要问"你想做什么"这种废话；直接切入具体细节，帮用户发现没想过的盲点
+8. 【三问式深度】每个问题标注 mode 字段，问法按三层递进：
+   - mode="orient"（导向型·现象定位）：问现状与表现——「现在实际是什么样？具体在哪发生？」
+   - mode="analyze"（解析型·内部拆解）：问根源与机制——「为什么会这样？背后真正的障碍是什么？」
+   - mode="test"（实验型·验证修复）：问验证与行动——「如果试一下 X，看 Y 指标，能否证明/修复？」
+   基础 4 问以 orient/analyze 为主；7 维度问题中至少 2 个必须是 test 实验型（把「想明白」转成「做出来验证」），且 hint 里给出可观察的判据（看什么信号、多久见效）
+9. test 实验型问题的 hint 必须包含：做什么小实验 + 看什么指标 + 成败判据（例如 hint: "今天用 25 分钟只做第 1 步，若能顺利启动就算验证通过"）
 
-返回 JSON 数组，格式：[{"label":"本质","question":"问题文本","hint":"引导提示","dim":"Cl","sub":"def"},...]
+返回 JSON 数组，格式：[{"label":"本质","question":"问题文本","hint":"引导提示","dim":"Cl","sub":"def","mode":"orient"},...]
 - label 从这 12 个里选：本质、必要前提、第一性原理、成功标准、约束、清晰度Cl、完整性Cp、边界感B、关联度L、进化感Ev、精炼度P、节奏感Rh
 - 若选 7 维度问题，label 用「清晰度Cl」这种格式，dim 填对应代码（Cl/Cp/B/L/Ev/P/Rh），sub 填对应子维度 key（如 def/boundary/repr/structure/steps/condition/fail/limit/upstream/isomorphic/crossdomain/version/iteration/chunk/fluency/cycle/freq/predict/duration/timing），否则 dim 与 sub 都留空
+- mode 必填：orient / analyze / test 三选一
 - hint 必须具体、有引导性，不能是空话
 - 只返回 JSON，不要任何解释`;
 
@@ -8114,10 +8192,20 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         const subLabel = subObj ? subObj.name : (q.sub || "");
         dimBadge = `<span class="hoq-dim-badge" style="background:${color}22;color:${color};border-color:${color}44;" title="${subObj ? subObj.q : ""}">${q.dim}${subLabel ? "·" + subLabel : ""}</span>`;
       }
+      // 三问式徽章（导向型·现象定位 / 解析型·内部拆解 / 实验型·验证修复）
+      let modeBadge = "";
+      if (q.mode) {
+        const modeMeta = {
+          orient: { txt: "导向", full: "导向型·现象定位：问现状与表现", color: "#9d85ff" },
+          analyze: { txt: "解析", full: "解析型·内部拆解：问根源与机制", color: "#fbbf24" },
+          test: { txt: "实验", full: "实验型·验证修复：用小实验验证并修复", color: "#2dd4bf" },
+        }[String(q.mode).toLowerCase()] || null;
+        if (modeMeta) modeBadge = `<span class="hoq-mode-badge" style="background:${modeMeta.color}22;color:${modeMeta.color};border-color:${modeMeta.color}44;" title="${modeMeta.full}">${modeMeta.txt}</span>`;
+      }
       const hint = q.hint
         ? `<div class="hoq-hint">💬 ${escapeHtml(q.hint)}</div>`
         : "";
-      div.innerHTML = `<label><span class="hoq-num">${num}</span> <span class="hoq-pos">${i + 1}/${questions.length}</span>${q.label || ""}：${dimBadge}<span class="hoq-q">${q.question || ""}</span></label>${hint}
+      div.innerHTML = `<label><span class="hoq-num">${num}</span> <span class="hoq-pos">${i + 1}/${questions.length}</span>${q.label || ""}：${dimBadge}${modeBadge}<span class="hoq-q">${q.question || ""}</span></label>${hint}
         <textarea data-hoq-idx="${i}" rows="2" placeholder="在这里写下你的思考…"></textarea>`;
       el.hatchOnboardQs.appendChild(div);
       // 自适应高度：输入时随内容增长，方便长作答
@@ -8144,7 +8232,9 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         const dimObj = q.dim ? KNOWLEDGE_DIMENSIONS.find((d) => d.code === q.dim) : null;
         const subObj = dimObj && q.sub ? dimObj.subs.find((s) => s.key === q.sub) : null;
         const dimTag = q.dim ? `[${q.dim}${subObj ? "/" + subObj.name : ""}] ` : "";
-        parts.push(`${dimTag}【${q.label || "问" + (idx + 1)}】${q.question} → ${ans}`);
+        const modeName = { orient: "导向", analyze: "解析", test: "实验" }[String(q.mode || "").toLowerCase()] || "";
+        const modeTag = modeName ? `[${modeName}] ` : "";
+        parts.push(`${dimTag}${modeTag}【${q.label || "问" + (idx + 1)}】${q.question} → ${ans}`);
       }
     });
     return parts.join("\n");
