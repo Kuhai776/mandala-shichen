@@ -9599,6 +9599,29 @@ dialog.qa-dialog-fullscreen::backdrop { background: rgba(0, 0, 0, 0.5); }
 .qa-import-preview b { color: #34d399; }
 .qa-pv-code { font-family: var(--font-mono, monospace); color: var(--accent-light); font-weight: 700; }
 .qa-import-actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+/* 内置七大标准库生成器 */
+.qa-preset-box {
+  background: linear-gradient(135deg, rgba(124, 92, 255, 0.10), rgba(6, 182, 212, 0.08));
+  border: 1px solid rgba(124, 92, 255, 0.35);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+.qa-preset-title { font-size: 13px; font-weight: 700; color: var(--accent-light); margin-bottom: 4px; }
+.qa-preset-desc { font-size: 11px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 8px; }
+.qa-preset-row { display: flex; gap: 8px; align-items: center; }
+.qa-preset-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.qa-preset-row input:focus { outline: none; border-color: var(--accent); }
+.qa-preset-go { background: linear-gradient(135deg, #7c5cff, #06b6d4); color: #fff; font-weight: 600; white-space: nowrap; }
 .qa-import-go { background: var(--accent); color: #fff; font-weight: 600; }
 /* ---------- 底部快捷条：提问按钮 ---------- */
 .realm-fab-btn.realm-fab-qa .rf-icon {
