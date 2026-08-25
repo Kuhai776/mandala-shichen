@@ -128,9 +128,16 @@ const SW_VER = "20260821b";
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.7.19";
-  const APP_VERSION_DATE = "2026-08-25";
+  const APP_VERSION = "2.7.20";
+  const APP_VERSION_DATE = "2026-08-26";
   const APP_CHANGELOG = [
+    { v: "2.7.20", date: "2026-08-26", items: [
+      "新增：⚡ 基本孵化独立按钮——底部快捷条新增「⚡ 基本孵化」一键入口（快捷键 B）：无任务时打开弹窗并预切基本孵化模式，有任务时直接按 7 维×子维度穷尽拆解；孵化弹窗内也新增同款快捷按钮",
+      "优化：❓ 提问库头部精简——工具栏收敛为「📥 导入解析 + 🎲 抽一题 + ⋯」，字号调整/导出回答/全部重置/删除库归入 ⋯ 更多菜单，界面更清爽",
+      "新增：🎲 抽一题——从当前筛选结果随机抽一题，自动切表格视图、清筛选并展开该题聚焦作答，适合碎片时间逐个击破",
+      "新增：表格内联作答——点击行直接展开三问+回答区（取代详情弹窗），textarea 防抖自动保存，答后自动从未答→思考中，状态实时同步统计",
+      "新增：进度可视化——库统计升级为分段进度条（◌未答/◔思考中/✓已答）+ 每个分节标题栏进度条，一眼看清整体与分节进度",
+    ]},
     { v: "2.7.19", date: "2026-08-25", items: [
       "新增：🥚 基本孵化模式——孵化模式新增「基本孵化 · 7维×子维度」：AI 按七大知识维度（清晰度Cl/完整性Cp/边界感B/关联度L/进化感Ev/精炼度P/节奏感Rh）× 20 子维度穷尽拆解任务，主线为执行链、支线按 7 维度全覆盖（每步带 target_dim 维度编码 + verify 自检标准），理解/执行不留死角",
       "新增：7 维覆盖统计——孵化结果摘要新增「7维覆盖 X/7」彩色维度圆点进度条，一眼看出哪些维度已拆到位、哪些缺失",
@@ -1805,12 +1812,12 @@ const SW_VER = "20260821b";
     qaCloseBtn: document.getElementById("closeQaDialog"),
     qaImportBtn: document.getElementById("qaImportBtn"),
     qaEmptyImportBtn: document.getElementById("qaEmptyImportBtn"),
-    qaFontMinus: document.getElementById("qaFontMinus"),
-    qaFontPlus: document.getElementById("qaFontPlus"),
+    qaShuffleBtn: document.getElementById("qaShuffleBtn"),
+    qaMoreBtn: document.getElementById("qaMoreBtn"),
+    qaMoreMenu: document.getElementById("qaMoreMenu"),
     qaFontSizeLabel: document.getElementById("qaFontSizeLabel"),
     qaDeckSelect: document.getElementById("qaDeckSelect"),
     qaDeckStats: document.getElementById("qaDeckStats"),
-    qaDeleteDeckBtn: document.getElementById("qaDeleteDeckBtn"),
     qaToolbar: document.getElementById("qaToolbar"),
     qaSearch: document.getElementById("qaSearch"),
     qaStatusFilter: document.getElementById("qaStatusFilter"),
@@ -2116,6 +2123,8 @@ const SW_VER = "20260821b";
     hatchGenBtn: document.getElementById("hatchGenBtn"),
     hatchGenTip: document.getElementById("hatchGenTip"),
     realmFabHatch: document.getElementById("realmFabHatch"),
+    realmFabBasic: document.getElementById("realmFabBasic"),
+    hatchBasicBtn: document.getElementById("hatchBasicBtn"),
     hatchMode: document.getElementById("hatchMode"),
     hatchScene: document.getElementById("hatchScene"),
     hatchHistoryHint: document.getElementById("hatchHistoryHint"),
@@ -5515,7 +5524,7 @@ ${noteSection}
     const s = Number(localStorage.getItem(QA_FONT_KEY));
     return QA_FONT_SIZES.includes(s) ? s : 14;
   })();
-  const qaView = { deckId: null, view: "table", status: "all", tags: new Set(), search: "", collapsed: new Set() };
+  const qaView = { deckId: null, view: "table", status: "all", tags: new Set(), search: "", collapsed: new Set(), _inline: null };
 
   function saveQABank() { save(QA_KEY, state.qaBank); }
   function qaCurrentDeck() {
@@ -5666,7 +5675,6 @@ ${noteSection}
         `<option value="${d.id}" ${deck && d.id === deck.id ? "selected" : ""}>${escapeHtml(d.title)}（${(d.cards || []).length}问）</option>`
       ).join("");
     }
-    if (el.qaDeleteDeckBtn) el.qaDeleteDeckBtn.hidden = !has;
     if (el.qaToolbar) el.qaToolbar.hidden = !has;
     if (el.qaTagFilter) el.qaTagFilter.hidden = !has;
     if (el.qaEmpty) el.qaEmpty.hidden = has;
@@ -5677,12 +5685,22 @@ ${noteSection}
       return;
     }
     qaApplyFont();
-    // 统计
+    // 统计（分段进度条：未答/思考中/已答）
     const total = deck.cards.length;
     const done = deck.cards.filter((c) => c.status === "done").length;
     const doing = deck.cards.filter((c) => c.status === "doing").length;
+    const todo = total - done - doing;
     const pct = total ? Math.round((done / total) * 100) : 0;
-    if (el.qaDeckStats) el.qaDeckStats.innerHTML = `共 <b>${total}</b> 问 · ◌ 未答 <b>${total - done - doing}</b> · ◔ 思考中 <b>${doing}</b> · ✓ 已答 <b>${done}</b> · 完成率 <b>${pct}%</b>${deck.goal ? `<span class="qa-goal" title="${escapeHtml(deck.goal)}">🎯 ${escapeHtml(deck.goal.length > 42 ? deck.goal.slice(0, 42) + "…" : deck.goal)}</span>` : ""}`;
+    const barW = (n) => (total ? (n / total) * 100 : 0);
+    if (el.qaDeckStats) {
+      el.qaDeckStats.innerHTML =
+        `<span class="qa-stats-txt">共 <b>${total}</b> 问 · 完成率 <b>${pct}%</b></span>` +
+        `<div class="qa-stats-bar" title="◌ 未答 ${todo} · ◔ 思考中 ${doing} · ✓ 已答 ${done}">
+          <i class="qa-stb-todo" style="width:${barW(todo)}%"></i><i class="qa-stb-doing" style="width:${barW(doing)}%"></i><i class="qa-stb-done" style="width:${barW(done)}%"></i>
+        </div>` +
+        `<span class="qa-stats-txt-sm">◌${todo} · ◔${doing} · ✓${done}</span>` +
+        (deck.goal ? `<span class="qa-goal" title="${escapeHtml(deck.goal)}">🎯 ${escapeHtml(deck.goal.length > 34 ? deck.goal.slice(0, 34) + "…" : deck.goal)}</span>` : "");
+    }
     // 标签筛选 chips（自动聚合）
     const tagCount = new Map();
     deck.cards.forEach((c) => qaCardTags(c).forEach((t) => tagCount.set(t, (tagCount.get(t) || 0) + 1)));
@@ -5723,23 +5741,76 @@ ${noteSection}
         const list = secMap.get(name);
         const collapsed = qaView.collapsed.has(name);
         const done = list.filter((c) => c.status === "done").length;
+        const secPct = list.length ? Math.round((done / list.length) * 100) : 0;
         html += `<tbody class="qa-sec ${collapsed ? "collapsed" : ""}" data-sec="${escapeHtml(name)}">
-          <tr class="qa-sec-row"><td colspan="6"><span class="qa-sec-arrow">${collapsed ? "▸" : "▾"}</span>${escapeHtml(name)} <span class="qa-sec-count">${done}/${list.length}</span></td></tr>`;
+          <tr class="qa-sec-row"><td colspan="6"><span class="qa-sec-arrow">${collapsed ? "▸" : "▾"}</span>${escapeHtml(name)}
+            <span class="qa-sec-prog"><i style="width:${secPct}%"></i></span>
+            <span class="qa-sec-count">${done}/${list.length}</span></td></tr>`;
         if (!collapsed) list.forEach((c) => {
-          html += `<tr class="qa-row ${c.status === "done" ? "qa-row-done" : ""}" data-id="${c.id}">
+          html += `<tr class="qa-row ${c.status === "done" ? "qa-row-done" : ""}" data-id="${c.id}" title="点击展开作答">
             <td class="qa-code">${escapeHtml(c.code)}</td>
             <td class="qa-sub">${escapeHtml(c.subDim || "—")}</td>
             <td class="qa-q qa-q-orient">${escapeHtml(c.orient)}</td>
             <td class="qa-q qa-q-analyze">${escapeHtml(c.analyze)}</td>
             <td class="qa-q qa-q-test">${escapeHtml(c.test)}</td>
             <td class="qa-st-cell">${qaStatusBtnHtml(c)}</td>
-          </tr>`;
+          </tr>
+          <tr class="qa-inline-row" data-inline="${c.id}" hidden><td colspan="6"></td></tr>`;
         });
         html += `</tbody>`;
       });
       html += `</table>`;
     }
     el.qaTableWrap.innerHTML = html;
+  }
+
+  // 表格内联作答：把三问+回答+状态渲染进展开行（取代详情弹窗，作答更快）
+  function qaRenderInline(cardId, td) {
+    const deck = qaCurrentDeck();
+    const card = deck && deck.cards.find((c) => c.id === cardId);
+    if (!card || !td) return;
+    td.innerHTML = `
+      <div class="qa-inline">
+        <div class="qa-inline-qs">
+          ${card.orient ? `<div class="qa-detail-q qa-q-orient"><span class="qa-detail-qtag">导向 · 现象定位</span><p>${escapeHtml(card.orient)}</p></div>` : ""}
+          ${card.analyze ? `<div class="qa-detail-q qa-q-analyze"><span class="qa-detail-qtag">解析 · 内部拆解</span><p>${escapeHtml(card.analyze)}</p></div>` : ""}
+          ${card.test ? `<div class="qa-detail-q qa-q-test"><span class="qa-detail-qtag">实验 · 验证修复</span><p>${escapeHtml(card.test)}</p></div>` : ""}
+        </div>
+        <div class="qa-inline-answer">
+          <textarea rows="3" placeholder="写下你的思考、答案或行动实验结果…（自动保存）">${escapeHtml(card.answer || "")}</textarea>
+        </div>
+        <div class="qa-inline-foot">
+          <div class="qa-detail-st-chips">
+            ${Object.entries(QA_STATUS_META).map(([k, m]) => `<button class="qa-st-chip ${card.status === k ? "on" : ""} ${m.cls}" data-ist="${k}">${m.icon} ${m.label}</button>`).join("")}
+          </div>
+          <button class="tool-btn qa-inline-close">收起 ✕</button>
+        </div>
+      </div>`;
+    const ta = td.querySelector("textarea");
+    // 自动保存（防抖 500ms + 失焦即存）
+    let t = null;
+    const save = () => {
+      const v = ta.value;
+      if (v !== card.answer) {
+        card.answer = v;
+        if (v && card.status === "todo") card.status = "doing";
+        if (v) card.answeredAt = Date.now();
+        saveQABank();
+      }
+    };
+    ta.addEventListener("input", () => { clearTimeout(t); t = setTimeout(save, 500); });
+    ta.addEventListener("blur", save);
+    ta.focus();
+    td.querySelector(".qa-inline-close").addEventListener("click", () => { save(); qaView._inline = null; renderQADeck(); });
+    // 状态 chips
+    td.querySelectorAll("[data-ist]").forEach((b) => b.addEventListener("click", () => {
+      card.status = b.dataset.ist;
+      if (card.status === "done" && !card.answer) { toast("标记已答前先写下回答", "warn"); return; }
+      if (card.status === "done" && card.answer) card.answeredAt = Date.now();
+      saveQABank();
+      renderQADeck();
+      haptic(12);
+    }));
   }
 
   // 看板视图：未答/思考中/已答 三列，卡片可拖拽换列（桌面）或点按钮移动
@@ -6118,31 +6189,113 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
     if (el.qaCloseBtn) el.qaCloseBtn.addEventListener("click", () => el.qaDialog.close());
     if (el.qaImportBtn) el.qaImportBtn.addEventListener("click", openQAImportDialog);
     if (el.qaEmptyImportBtn) el.qaEmptyImportBtn.addEventListener("click", openQAImportDialog);
-    // 字号调节
+    // 字号调节（⋯ 菜单内）
     const setFont = (v) => {
       qaFontSize = Math.min(QA_FONT_SIZES[QA_FONT_SIZES.length - 1], Math.max(QA_FONT_SIZES[0], v));
       localStorage.setItem(QA_FONT_KEY, String(qaFontSize));
       qaApplyFont();
       haptic(10);
     };
-    if (el.qaFontMinus) el.qaFontMinus.addEventListener("click", () => setFont(qaFontSize - 1));
-    if (el.qaFontPlus) el.qaFontPlus.addEventListener("click", () => setFont(qaFontSize + 1));
-    // 库切换 / 删除
+    // ⋯ 更多菜单：字号 / 导出回答 / 全部重置 / 删除库
+    if (el.qaMoreBtn) el.qaMoreBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (el.qaMoreMenu) el.qaMoreMenu.hidden = !el.qaMoreMenu.hidden;
+    });
+    if (el.qaMoreMenu) {
+      el.qaMoreMenu.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-m]");
+        if (!btn) return;
+        const act = btn.dataset.m;
+        el.qaMoreMenu.hidden = true;
+        if (act === "font-minus") setFont(qaFontSize - 1);
+        else if (act === "font-plus") setFont(qaFontSize + 1);
+        else if (act === "export") qaExportAnswers();
+        else if (act === "reset") qaResetDeck();
+        else if (act === "deldeck") qaDeleteDeck();
+      });
+    }
+    // 点击其它区域关闭菜单
+    if (el.qaDialog) el.qaDialog.addEventListener("click", (e) => {
+      if (el.qaMoreMenu && !el.qaMoreMenu.hidden && !e.target.closest(".qa-more-wrap")) el.qaMoreMenu.hidden = true;
+    });
+    // 🎲 随机抽一题：从当前筛选结果随机挑一题，自动展开内联作答
+    if (el.qaShuffleBtn) el.qaShuffleBtn.addEventListener("click", () => {
+      const deck = qaCurrentDeck();
+      const pool = deck ? qaFilteredCards(deck) : [];
+      if (!pool.length) { toast("当前没有可抽的问题（先导入或调整筛选）", "warn"); return; }
+      const card = pool[Math.floor(Math.random() * pool.length)];
+      // 确保表格视图可见并展开该行
+      qaView.view = "table";
+      if (el.qaViewSwitch) el.qaViewSwitch.querySelectorAll(".qa-vs-tab").forEach((t) => t.classList.toggle("active", t.dataset.view === "table"));
+      qaView.search = ""; if (el.qaSearch) el.qaSearch.value = "";
+      qaView.status = "all";
+      if (el.qaStatusFilter) el.qaStatusFilter.querySelectorAll(".qa-st-chip").forEach((c) => c.classList.toggle("on", c.dataset.st === "all"));
+      qaView.tags.clear();
+      qaView.collapsed.clear();
+      renderQADeck();
+      // 展开目标行内联
+      const row = el.qaTableWrap && el.qaTableWrap.querySelector(`.qa-row[data-id="${card.id}"]`);
+      if (row) {
+        row.scrollIntoView({ block: "center", behavior: "smooth" });
+        row.click();
+      }
+      toast(`🎲 抽中 ${card.code}（${card.subDim || "未分组"}），聚焦作答`, "success");
+      haptic(20);
+    });
+    // 库切换
     if (el.qaDeckSelect) el.qaDeckSelect.addEventListener("change", () => {
       qaView.deckId = el.qaDeckSelect.value;
       qaView.collapsed.clear();
+      qaView._inline = null;
       renderQADeck();
     });
-    if (el.qaDeleteDeckBtn) el.qaDeleteDeckBtn.addEventListener("click", () => {
+    const qaDeleteDeck = () => {
       const deck = qaCurrentDeck();
       if (!deck) return;
       if (!confirm(`删除问题库「${deck.title}」（${deck.cards.length} 问，含作答进度）？`)) return;
       state.qaBank.decks = state.qaBank.decks.filter((d) => d.id !== deck.id);
       qaView.deckId = state.qaBank.decks[0] ? state.qaBank.decks[0].id : null;
+      qaView._inline = null;
       saveQABank();
       renderQADeck();
       toast("已删除问题库", "info");
-    });
+    };
+    // ⤓ 导出回答：当前库全部回答为文本
+    const qaExportAnswers = () => {
+      const deck = qaCurrentDeck();
+      if (!deck || !deck.cards.length) { toast("没有可导出的库", "warn"); return; }
+      const lines = [`问题库：${deck.title}`, deck.goal ? `核心目标：${deck.goal}` : "", ""];
+      const bySec = new Map();
+      deck.cards.forEach((c) => {
+        const k = c.section || "未分组";
+        if (!bySec.has(k)) bySec.set(k, []);
+        bySec.get(k).push(c);
+      });
+      bySec.forEach((cards, sec) => {
+        lines.push(`【${sec}】`);
+        cards.forEach((c) => {
+          const st = QA_STATUS_META[c.status] ? QA_STATUS_META[c.status].icon : "◌";
+          lines.push(`${st} ${c.code} ${c.subDim || ""} ${c.status === "done" ? (c.answer || "(已答)") : "（未答）"}`);
+        });
+        lines.push("");
+      });
+      const text = lines.join("\n");
+      (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject())
+        .then(() => toast(`已复制 ${deck.cards.length} 问回答汇总`, "success"))
+        .catch(() => { prompt("手动复制回答汇总：", text); });
+      haptic(15);
+    };
+    // ⟲ 全部重置为未答
+    const qaResetDeck = () => {
+      const deck = qaCurrentDeck();
+      if (!deck || !deck.cards.length) { toast("没有可重置的库", "warn"); return; }
+      if (!confirm(`把「${deck.title}」全部 ${deck.cards.length} 问重置为未答？（回答会保留）`)) return;
+      deck.cards.forEach((c) => { c.status = "todo"; });
+      qaView._inline = null;
+      saveQABank();
+      renderQADeck();
+      toast("已全部重置为未答", "success");
+    };
     // 搜索（防抖）
     if (el.qaSearch) {
       let sTimer = null;
@@ -6205,7 +6358,24 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
         return;
       }
       const row = e.target.closest(".qa-row");
-      if (row) { openQADetail(row.dataset.id); haptic(10); }
+      if (row) {
+        // 内联作答：点击行展开/收起（同一时间只展开一行）
+        const id = row.dataset.id;
+        const inlineTr = el.qaTableWrap.querySelector(`.qa-inline-row[data-inline="${id}"]`);
+        const cur = qaView._inline;
+        if (cur === id) { qaView._inline = null; inlineTr.hidden = true; inlineTr.firstElementChild.innerHTML = ""; }
+        else {
+          // 收起其它展开行
+          if (cur) {
+            const prevTr = el.qaTableWrap.querySelector(`.qa-inline-row[data-inline="${cur}"]`);
+            if (prevTr) { prevTr.hidden = true; prevTr.firstElementChild.innerHTML = ""; }
+          }
+          qaView._inline = id;
+          inlineTr.hidden = false;
+          qaRenderInline(id, inlineTr.firstElementChild);
+        }
+        haptic(10);
+      }
     });
     // 看板交互：卡片按钮换列 + 点击详情 + 桌面拖拽换列
     if (el.qaKanbanWrap) {
@@ -9250,6 +9420,24 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
   el.hatchBtn.addEventListener("click", openHatchDialog);
   if (el.hatchToolBtn) el.hatchToolBtn.addEventListener("click", () => openHatchDialog({}));
   if (el.realmFabHatch) el.realmFabHatch.addEventListener("click", () => openHatchDialog({}));
+  // 基本孵化独立入口：一键切到 basic 模式（7 维度×子维度穷尽拆解）
+  const startBasicHatch = () => {
+    if (hatchState.running) { toast("AI 处理中，稍候…", "info"); return; }
+    const text = (el.hatchTaskInput ? el.hatchTaskInput.value : "").trim() || hatchState.taskText || "";
+    if (!text) {
+      // 无任务：打开弹窗并预设 basic，等用户填任务
+      openHatchDialog({});
+      if (el.hatchMode) el.hatchMode.value = "basic";
+      if (el.hatchTaskInput) el.hatchTaskInput.focus();
+      toast("填入任务后点「开始孵化」（已切到基本孵化模式）", "info");
+      return;
+    }
+    if (!el.hatchDialog || !el.hatchDialog.open) openHatchDialog({ text });
+    if (el.hatchMode) el.hatchMode.value = "basic";
+    startHatchFromForm();
+  };
+  if (el.realmFabBasic) el.realmFabBasic.addEventListener("click", startBasicHatch);
+  if (el.hatchBasicBtn) el.hatchBasicBtn.addEventListener("click", startBasicHatch);
   if (el.hatchGenBtn) el.hatchGenBtn.addEventListener("click", generateOnboardQuestions);
   if (el.hatchStartBtn) el.hatchStartBtn.addEventListener("click", startHatchFromForm);
   // 重新问询：清空当前问题，回到生成初始态（保留任务描述）

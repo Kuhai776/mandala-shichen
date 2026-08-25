@@ -86,7 +86,7 @@
       } catch (e) { console.warn("[polyfill] dialog 降级失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260825a" />
+  <link rel="stylesheet" href="styles.css?v=20260826a" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
   <script src="lib/mermaid.min.js"></script>
@@ -422,6 +422,9 @@
     </button>
     <button class="realm-fab-btn realm-fab-hatch" id="realmFabHatch" title="🥚 孵化 (H)">
       <span class="rf-icon">🥚</span><span class="rf-name">孵化</span>
+    </button>
+    <button class="realm-fab-btn realm-fab-basic" id="realmFabBasic" title="⚡ 基本孵化 · 7维×子维度 (B)">
+      <span class="rf-icon">⚡</span><span class="rf-name">基本孵化</span>
     </button>
   </div>
 
@@ -1117,6 +1120,7 @@
               <option value="zen">zen · 8-12 步</option>
               <option value="basic">基本孵化 · 7维×子维度</option>
             </select>
+            <button type="button" class="tool-btn hatch-basic-btn" id="hatchBasicBtn" title="一键切到基本孵化（7维度×子维度穷尽拆解）并开始">⚡ 基本孵化</button>
           </div>
           <div class="hatch-meta-row">
             <span class="hatch-meta-label">场景</span>
@@ -1318,9 +1322,20 @@
         <h3>❓ 提问解析库</h3>
         <div class="qa-fs-header-actions">
           <button class="tool-btn" id="qaImportBtn" title="粘贴问题库文本，自动解析成表格">📥 导入解析</button>
-          <button class="icon-btn" id="qaFontMinus" title="缩小字号">A－</button>
-          <span class="qa-font-size-label" id="qaFontSizeLabel">14px</span>
-          <button class="icon-btn" id="qaFontPlus" title="放大字号">A＋</button>
+          <button class="tool-btn" id="qaShuffleBtn" title="从当前筛选结果中随机抽一题聚焦作答">🎲 抽一题</button>
+          <div class="qa-more-wrap">
+            <button class="tool-btn qa-more-btn" id="qaMoreBtn" title="更多工具">⋯</button>
+            <div class="qa-more-menu" id="qaMoreMenu" hidden>
+              <div class="qa-more-font">
+                <button data-m="font-minus" title="缩小字号">A－</button>
+                <span class="qa-font-size-label" id="qaFontSizeLabel">14px</span>
+                <button data-m="font-plus" title="放大字号">A＋</button>
+              </div>
+              <button data-m="export" title="导出当前库全部回答为文本">⤓ 导出回答</button>
+              <button data-m="reset" title="把当前库所有问题重置为未答">⟲ 全部重置</button>
+              <button data-m="deldeck" class="qa-more-danger" title="删除当前问题库">🗑 删除库</button>
+            </div>
+          </div>
           <button class="icon-btn" id="closeQaDialog" aria-label="关闭">✕</button>
         </div>
       </div>
@@ -1328,7 +1343,6 @@
       <div class="qa-deck-bar">
         <select id="qaDeckSelect" title="切换问题库"></select>
         <div class="qa-deck-stats" id="qaDeckStats">尚未导入问题库</div>
-        <button class="tool-btn" id="qaDeleteDeckBtn" title="删除当前问题库" hidden>🗑 删除库</button>
       </div>
       <!-- 筛选工具行 -->
       <div class="qa-toolbar" id="qaToolbar" hidden>
@@ -1722,6 +1736,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=20260825a" defer></script>
+  <script src="app.js?v=20260826a" defer></script>
 </body>
 </html>
