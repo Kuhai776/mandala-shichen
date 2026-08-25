@@ -23,7 +23,7 @@
           await Promise.all(keys.map(function (k) { return caches.delete(k); }));
         }
         // 检测当前 app.js 版本，若仍是旧的则强制带时间戳 reload
-        var APP_VERSION = "20260816d";
+        var APP_VERSION = "20260823a";
         if (sessionStorage.getItem("mandala-app-ver") !== APP_VERSION) {
           sessionStorage.setItem("mandala-app-ver", APP_VERSION);
           if (!location.search || location.search.indexOf("t=") === -1) {
@@ -86,7 +86,7 @@
       } catch (e) { console.warn("[polyfill] dialog 降级失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260816d" />
+  <link rel="stylesheet" href="styles.css?v=20260825a" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
   <script src="lib/mermaid.min.js"></script>
@@ -95,7 +95,7 @@
   <!-- 顶部状态栏 -->
   <header class="app-header">
     <div class="header-left">
-      <h1 class="app-title">曼陀罗时辰 <span class="version-badge" id="versionBadge" title="点击查看更新日志">v2.7.1</span></h1>
+      <h1 class="app-title">曼陀罗时辰 <span class="version-badge" id="versionBadge" title="点击查看更新日志">v2.7.11</span></h1>
       <p class="app-subtitle" id="dateLabel">AI 对话式日程规划</p>
     </div>
     <div class="header-right">
@@ -107,9 +107,10 @@
     <button class="icon-btn settings-btn" id="settingsBtn" aria-label="设置">⚙</button>
   </header>
 
-  <!-- 长期任务时间地图（顶部甘特条） -->
+  <!-- 长期任务时间地图（顶部甘特条，可折叠） -->
   <div class="longtask-bar" id="longtaskBar">
-    <div class="longtask-bar-header">
+    <div class="longtask-bar-header" id="ltbHeader" title="点击展开/收起">
+      <span class="ltb-toggle-btn" id="ltbToggleBtn" aria-hidden="true">▾</span>
       <span class="ltb-title">🗺️ 长期事项时间地图</span>
       <span class="ltb-hint" id="ltbHint">跨日/周/月的长线任务</span>
       <button class="ltb-add-btn" id="ltbAddBtn" title="新建长期任务">＋ 新建</button>
@@ -411,16 +412,10 @@
   <!-- 浮动添加按钮 -->
   <button class="fab" id="fabAdd" title="快速添加到下一空格 (+)">+</button>
 
-  <!-- 底部浮动三才快速切换条 + 收集箱入口 -->
+  <!-- 底部浮动快捷条：提问解析库 + 收集箱入口 -->
   <div class="realm-fab" id="realmFab">
-    <button class="realm-fab-btn" data-realm="plan" title="天 · 计划 (P)">
-      <span class="rf-icon">天</span><span class="rf-name">计划</span>
-    </button>
-    <button class="realm-fab-btn" data-realm="record" title="地 · 记录 (L)">
-      <span class="rf-icon">地</span><span class="rf-name">记录</span>
-    </button>
-    <button class="realm-fab-btn" data-realm="review" title="人 · 复盘 (R)">
-      <span class="rf-icon">人</span><span class="rf-name">复盘</span>
+    <button class="realm-fab-btn realm-fab-qa" id="realmFabQA" title="❓ 提问解析库 (Q)">
+      <span class="rf-icon">❓</span><span class="rf-name">提问</span>
     </button>
     <button class="realm-fab-btn realm-fab-inbox" id="realmFabInbox" title="收集箱 (I)">
       <span class="rf-icon">📥</span><span class="rf-name">收集箱</span>
@@ -467,6 +462,9 @@
           <div class="shortcut-row"><kbd>?</kbd><span>打开快捷键说明</span></div>
           <div class="shortcut-row"><kbd>1</kbd> / <kbd>2</kbd> / <kbd>3</kbd><span>切换天地人三才（计划/记录/复盘）</span></div>
           <div class="shortcut-row"><kbd>P</kbd> / <kbd>L</kbd> / <kbd>R</kbd><span>切换三才（Plan计划/记录/Review复盘）</span></div>
+          <div class="shortcut-row"><kbd>I</kbd><span>打开收集箱</span></div>
+          <div class="shortcut-row"><kbd>Q</kbd><span>打开提问解析库</span></div>
+          <div class="shortcut-row"><kbd>H</kbd><span>打开孵化实验室</span></div>
           <div class="shortcut-row"><kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd><span>正向/反向循环切换三才</span></div>
           <div class="shortcut-row"><kbd>Esc</kbd><span>关闭弹窗</span></div>
         </div>
@@ -992,6 +990,15 @@
           <small>保存后可在格子上看到完成进度，点击进度徽章可快速勾选</small>
         </div>
         <div class="form-group">
+          <label>📌 便利贴（贴在本格的小提醒，可拖到其他格子）</label>
+          <div class="task-sticky-row">
+            <input type="text" id="taskStickyInput" placeholder="快速贴一句：回电话 / 带伞 / 别忘了…" maxlength="60" />
+            <span class="sticky-colors" id="taskStickyColors" title="便利贴颜色"></span>
+            <button type="button" class="tool-btn" id="taskStickyAdd" title="贴到本格（彩色贴纸，可拖动）">📌 贴上</button>
+          </div>
+          <div class="task-sticky-list" id="taskStickyList"></div>
+        </div>
+        <div class="form-group">
           <label>重复规则（可选）</label>
           <div class="repeat-row">
             <select id="taskRepeat">
@@ -1108,6 +1115,7 @@
               <option value="lite">lite · 3-5 步</option>
               <option value="medium">medium · 5-8 步</option>
               <option value="zen">zen · 8-12 步</option>
+              <option value="basic">基本孵化 · 7维×子维度</option>
             </select>
           </div>
           <div class="hatch-meta-row">
@@ -1248,6 +1256,9 @@
             </div>
             <div class="hatch-chat-log" id="hatchChatLog"></div>
             <div class="hatch-chat-chips" id="hatchChatChips">
+              <button type="button" class="hatch-chip hatch-chip-deep" data-chip="请用七大标准逐一诊断当前方案：清晰度Cl、完整性Cp、边界感B、关联度L、进化感Ev、精炼度P、节奏感Rh。每个维度按三问式分析——导向型（方案现在什么现象）→ 解析型（薄弱的根源是什么）→ 实验型（怎么验证修复）。最后指出最薄弱的 2 个维度，各给 1 条具体修复建议。">🔬 七维深挖</button>
+              <button type="button" class="hatch-chip hatch-chip-deep" data-chip="对当前方案做极限测试：把条件推到极端——时间减半、状态最差（深夜/疲惫/被干扰）、目标翻倍，逐步推演哪一步会最先崩溃、为什么崩，然后给出加固后的调整方案。">🎯 极限测试</button>
+              <button type="button" class="hatch-chip hatch-chip-deep" data-chip="为当前方案的关键步骤各设计一个 15 分钟内可完成、可验证成败的小实验（写清：做什么、看什么指标、成败判据），让我先低成本试错再全量执行。">🧪 实验设计</button>
               <button type="button" class="hatch-chip" data-chip="把方案精简到 3-4 步，删掉可以合并的步骤">✂️ 精简</button>
               <button type="button" class="hatch-chip" data-chip="把方案细化：总步数提到 8-10 步，每步更具体">🔬 更细</button>
               <button type="button" class="hatch-chip" data-chip="改成主线优先：只保留主干 3 步主线，其余并入支线">🧭 主线优先</button>
@@ -1298,6 +1309,58 @@
       <button class="icon-btn" id="closeMermaidLightbox" aria-label="关闭">✕</button>
     </div>
     <div class="mlb-body" id="mermaidLightboxBody"></div>
+  </dialog>
+
+  <!-- ❓ 提问解析库：问题库导入解析 → 表格/看板展示 → 逐问作答 -->
+  <dialog class="qa-dialog-fullscreen" id="qaDialog">
+    <div class="qa-fs-content">
+      <div class="qa-fs-header">
+        <h3>❓ 提问解析库</h3>
+        <div class="qa-fs-header-actions">
+          <button class="tool-btn" id="qaImportBtn" title="粘贴问题库文本，自动解析成表格">📥 导入解析</button>
+          <button class="icon-btn" id="qaFontMinus" title="缩小字号">A－</button>
+          <span class="qa-font-size-label" id="qaFontSizeLabel">14px</span>
+          <button class="icon-btn" id="qaFontPlus" title="放大字号">A＋</button>
+          <button class="icon-btn" id="closeQaDialog" aria-label="关闭">✕</button>
+        </div>
+      </div>
+      <!-- 库选择 + 统计 -->
+      <div class="qa-deck-bar">
+        <select id="qaDeckSelect" title="切换问题库"></select>
+        <div class="qa-deck-stats" id="qaDeckStats">尚未导入问题库</div>
+        <button class="tool-btn" id="qaDeleteDeckBtn" title="删除当前问题库" hidden>🗑 删除库</button>
+      </div>
+      <!-- 筛选工具行 -->
+      <div class="qa-toolbar" id="qaToolbar" hidden>
+        <input type="search" class="qa-search" id="qaSearch" placeholder="搜索编号/子维度/问题/标签…" />
+        <div class="qa-status-filter" id="qaStatusFilter">
+          <button class="qa-st-chip on" data-st="all">全部</button>
+          <button class="qa-st-chip" data-st="todo">◌ 未答</button>
+          <button class="qa-st-chip" data-st="doing">◔ 思考中</button>
+          <button class="qa-st-chip" data-st="done">✓ 已答</button>
+        </div>
+        <div class="qa-view-switch" id="qaViewSwitch" title="表格 / 看板">
+          <button class="qa-vs-tab active" data-view="table">📋 表格</button>
+          <button class="qa-vs-tab" data-view="kanban">🗂 看板</button>
+        </div>
+      </div>
+      <!-- 标签筛选 chips -->
+      <div class="qa-tag-filter" id="qaTagFilter" hidden></div>
+      <!-- 主体 -->
+      <div class="qa-fs-body" id="qaBody">
+        <!-- 空态引导 -->
+        <div class="qa-empty" id="qaEmpty">
+          <div class="qa-empty-icon">❓</div>
+          <div class="qa-empty-title">还没有问题库</div>
+          <div class="qa-empty-desc">导入解析里可输入任意目标，⚡ 一键生成内置七大标准题库<br/>（7 维度 × 20 子维度 × 40 问三段式），或粘贴自备文本解析成表格</div>
+          <button class="qa-empty-btn" id="qaEmptyImportBtn">📥 立即导入解析</button>
+        </div>
+        <!-- 表格视图容器 -->
+        <div class="qa-table-wrap" id="qaTableWrap" hidden></div>
+        <!-- 看板视图容器 -->
+        <div class="qa-kanban-wrap" id="qaKanbanWrap" hidden></div>
+      </div>
+    </div>
   </dialog>
 
   <!-- 记录笔记本：纸张式 UI，按日期翻阅 -->
@@ -1352,7 +1415,11 @@
         </div>
       </div>
       <div class="qr-field">
-        <label class="qr-label">🎯 记录到哪个格子</label>
+        <label class="qr-label">🎯 记录范围</label>
+        <div class="qr-scope-row" id="qrScopeRow">
+          <span class="qr-scope-chip on" data-scope="cell" title="只记录到下方选中的一个格子">▸ 单格</span>
+          <span class="qr-scope-chip" data-scope="period" title="一次把该事项重复写入所选时辰的全部格子（同名已记录的格子自动跳过）">▦ 整个时辰 · 重复记录</span>
+        </div>
         <div class="qr-cell-row">
           <button class="qr-now-btn" id="qrNowBtn" title="自动记录到当前时间所在格子">⏰ 现在</button>
           <select class="qr-period" id="qrPeriodSel" title="时辰"></select>
@@ -1482,6 +1549,7 @@
             <datalist id="inboxTagList"></datalist>
             <input type="datetime-local" id="inboxNewStart" title="开始日期（可选）" style="padding:4px 8px;width:150px;" />
             <input type="datetime-local" id="inboxNewDue" title="截止日期（可选）" style="padding:4px 8px;width:150px;" />
+            <input type="text" id="inboxNewNote" placeholder="备注（可选，保存后组块显示）" maxlength="300" style="width:160px;" />
             <button class="tool-btn" id="inboxAddBtn" style="background:var(--accent);color:#fff;">＋ 添加</button>
           </div>
           <div class="inbox-tag-chips" id="inboxTagChips"></div>
@@ -1523,6 +1591,8 @@
           </div>
           <!-- 表格选项工具栏（仅表格视图显示：排序 / 列显隐 / 日期显示） -->
           <div class="inbox-table-bar" id="inboxTableBar" hidden></div>
+          <!-- 看板分组工具栏（仅看板视图显示：按标签/主线/优先级/状态分列） -->
+          <div class="inbox-table-bar" id="inboxKanbanBar" hidden></div>
           <!-- 当前时辰九宫格预览（拖拽落点） -->
           <div class="inbox-grid-preview" id="inboxGridPreview">
             <div class="inbox-grid-preview-head">
@@ -1652,6 +1722,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=20260816d" defer></script>
+  <script src="app.js?v=20260825a" defer></script>
 </body>
 </html>
