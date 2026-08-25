@@ -128,9 +128,16 @@ const SW_VER = "20260821b";
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.7.18";
-  const APP_VERSION_DATE = "2026-08-24";
+  const APP_VERSION = "2.7.19";
+  const APP_VERSION_DATE = "2026-08-25";
   const APP_CHANGELOG = [
+    { v: "2.7.19", date: "2026-08-25", items: [
+      "新增：🥚 基本孵化模式——孵化模式新增「基本孵化 · 7维×子维度」：AI 按七大知识维度（清晰度Cl/完整性Cp/边界感B/关联度L/进化感Ev/精炼度P/节奏感Rh）× 20 子维度穷尽拆解任务，主线为执行链、支线按 7 维度全覆盖（每步带 target_dim 维度编码 + verify 自检标准），理解/执行不留死角",
+      "新增：7 维覆盖统计——孵化结果摘要新增「7维覆盖 X/7」彩色维度圆点进度条，一眼看出哪些维度已拆到位、哪些缺失",
+      "新增：基本孵化本地模板——无 AI 也按 7 维度全覆盖生成（主线 2 步 + 支线 7 步代表子维度，0 token 秒出），配好 API 后可一键重新生成个性化方案",
+      "优化：AI prompt 注入完整维度编码库（含核心追问），支线硬规则强制 7 维度全覆盖与 verify 必填",
+      "优化：降档链适配 basic（失败降档 basic→zen→medium→lite），流式标签显示「基本孵化」",
+    ]},
     { v: "2.7.18", date: "2026-08-24", items: [
       "新增：AI 对话三问式深挖——结果页对话新增「🔬 七维深挖 / 🎯 极限测试 / 🧪 实验设计」高亮指令，AI 按七大标准逐维诊断方案，每维按 导向型(现象定位)→解析型(根源拆解)→实验型(验证修复) 三层分析，输出诊断总览表并点名最薄弱 2 个维度",
       "新增：AI 对话内置诊断方法论——连续对话的 system prompt 注入七大标准体系（7 维度×20 子维度）与三问式分析法，问「哪里最容易失败」等即触发深度诊断而非表面调整",
@@ -503,6 +510,14 @@ const SW_VER = "20260821b";
   function dimScore(evalObj, dim) {
     const vals = dim.subs.map((s) => evalObj[s.key] || 0);
     return vals.reduce((a, b) => a + b, 0) / vals.length;
+  }
+
+  // 7 维度 × 子维度 完整体系文本（注入 AI prompt，供 basic 孵化/对话诊断复用）
+  // 每行：编码 维度名：子维度key(子维度名)·核心追问，逗号分隔
+  function buildDimListText() {
+    return KNOWLEDGE_DIMENSIONS.map((d) =>
+      `  - ${d.code} ${d.name}：${d.subs.map((s) => `${d.code}.${s.key}(${s.name})·${s.q}`).join(" / ")}`
+    ).join("\n");
   }
 
   // ---------- 截图/图片附件（IndexedDB 封装）----------
@@ -6592,6 +6607,7 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
     lite:   { min: 3, max: 5,  label: "lite" },
     medium: { min: 5, max: 8,  label: "medium" },
     zen:    { min: 8, max: 12, label: "zen" },
+    basic:  { min: 9, max: 14, label: "基本孵化" },
   };
   const HATCH_SCENES = {
     learn: {
@@ -6914,7 +6930,7 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
       '"branch":"main"',
       '"parent_step":null',
     ];
-    if (isDrill || scene === "learn") {
+    if (isDrill || scene === "learn" || mode === "basic") {
       schemaFields.push('"target_dim":"维度.子维度（如 Cl.def，drill 必填，learn 选填）"');
       schemaFields.push('"dim_goal":3');
       schemaFields.push('"verify":"完成自检标准（如：能脱稿讲2分钟）"');
@@ -6951,6 +6967,22 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
     } else if (scene === "learn") {
       systemPrompt.push("");
       systemPrompt.push("【学习场景可选标注】若步骤明显对应某 7 维度（Cl清晰度/Cp完整性/B边界感/L关联度/Ev进化感/P精炼度/Rh节奏感），可填 target_dim 帮助后续评估。");
+    } else if (mode === "basic") {
+      systemPrompt.push("");
+      systemPrompt.push("【模式：基本孵化 · 7 维度穷尽拆解】");
+      systemPrompt.push("目标：把任务按「七大知识维度 × 20 子维度」穷尽拆解为可执行步骤，理解/执行不留死角。");
+      systemPrompt.push("拆解结构：");
+      systemPrompt.push("  - 主线（branch=\"main\"，2-4 步）：任务核心执行链。动作具体、按执行顺序、前后衔接。");
+      systemPrompt.push("  - 支线（branch=\"side\"）：7 维度全覆盖——每个维度至少 1 条支线，挂到最相关的主线步骤（parent_step=该主线步骤 index）。");
+      systemPrompt.push("七大维度 × 子维度（target_dim 编码库，务必从里面挑）：");
+      systemPrompt.push(buildDimListText());
+      systemPrompt.push("每条支线硬规则：");
+      systemPrompt.push("1. target_dim 必填（用上面的维度.子维度编码，如 Cl.def）；7 个维度（Cl/Cp/B/L/Ev/P/Rh）必须全部覆盖到。");
+      systemPrompt.push("2. verify 必填：可自检的完成标准，具体到动作和判据（如：能对 3 个相似概念各写一句话区别）。");
+      systemPrompt.push("3. 单步 5-30 分钟：理解型短步（5-10min）、执行型长步（15-30min）。");
+      systemPrompt.push("4. text 必须把任务融入动作（如：写出「任务」的一句话定义；列出「任务」失效的 3 种场景）。");
+      systemPrompt.push("5. why 说明这一步补齐了哪个维度的哪个盲区（如：补齐 Cl 清晰度的边界盲区）。");
+      systemPrompt.push("6. 主线与支线共同覆盖全部 7 维度；若某个维度天然与任务无关（如纯执行任务无 Ev 进化感），用该维度最贴近的 1 个子维度生成轻量步骤（如 Ev.version：记录首次执行耗时作为 v1 基线）。");
     }
 
     systemPrompt.push("");
@@ -7128,6 +7160,16 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
       <div class="hatch-summary-row"><span class="hatch-summary-label">总步数</span><span class="hatch-summary-value">${(result.steps || []).length}</span></div>
       <div class="hatch-summary-row"><span class="hatch-summary-label">预估时长</span><span class="hatch-summary-value">${totalMin} 分钟（约 ${(totalMin / 60).toFixed(1)}h）</span></div>
       <div class="hatch-summary-row"><span class="hatch-summary-label">风险等级</span><span class="hatch-summary-value ${riskClass}">${riskText}</span></div>
+      ${(() => {
+        const dimSet = new Set();
+        (result.steps || []).forEach((s) => { if (s.target_dim) dimSet.add(String(s.target_dim).split(".")[0]); });
+        if (!dimSet.size) return "";
+        const covered = [...dimSet].filter((c) => KNOWLEDGE_DIMENSIONS.some((d) => d.code === c));
+        return `<div class="hatch-summary-row"><span class="hatch-summary-label">7维覆盖</span><span class="hatch-summary-value"><span class="hatch-dim-dots">${covered.map((c) => {
+          const d = KNOWLEDGE_DIMENSIONS.find((x) => x.code === c);
+          return `<span class="hatch-dim-dot" style="background:${d.color};" title="${d.name} ${d.code}">${d.code}</span>`;
+        }).join("")}</span> ${covered.length}/${KNOWLEDGE_DIMENSIONS.length} 维度</span></div>`;
+      })()}
       ${result.first_blocker ? `<div class="hatch-summary-row"><span class="hatch-summary-label">最可能卡点</span><span class="hatch-summary-value">${escapeHtml(result.first_blocker)}</span></div>` : ""}
       <div class="hatch-summary-row"><span class="hatch-summary-label">拆解耗时</span><span class="hatch-summary-value">${elapsedSec}s</span></div>
       <div class="hatch-summary-row hatch-summary-auto"><span class="hatch-summary-label">自动入箱</span><span class="hatch-summary-value" style="color:var(--accent,#7c5cff);">✓ 步骤已自动拆分进收集箱</span></div>
@@ -7692,7 +7734,7 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
         downBtn.textContent = "⬇ 降档重孵";
         downBtn.title = "上次完成率低，降一档重新拆解";
         downBtn.addEventListener("click", () => {
-          const ORDER = ["lite", "medium", "zen"];
+          const ORDER = ["lite", "medium", "zen", "basic"];
           const idx = ORDER.indexOf(mode);
           const down = idx > 0 ? ORDER[idx - 1] : "lite";
           el.hatchMode.value = down;
@@ -7767,7 +7809,7 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
       // 显示当前场景/模式标签
       if (el.hatchStreamTag) {
         const sceneLabels = { learn:"📖 学习", exec:"⚙️ 执行", decide:"⚖️ 决策", checklist:"📋 清单", drill:"🎯 薄弱补强" };
-        const modeLabels = { lite:"lite", medium:"medium", zen:"zen" };
+        const modeLabels = { lite:"lite", medium:"medium", zen:"zen", basic:"基本孵化" };
         el.hatchStreamTag.textContent = `${sceneLabels[scene] || scene} · ${modeLabels[mode] || mode}`;
         el.hatchStreamTag.hidden = false;
       }
@@ -7889,7 +7931,68 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
       ],
     };
     let bank = stepBanks[detected] || stepBanks.exec;
-    // 3) 按档位裁剪：lite 取前 4 步 / medium 全量 / zen 只取 2 步
+    // 3) 基本孵化（basic）：本地 7 维度全覆盖生成（0 token）
+    if (mode === "basic") {
+      const mainTpl = [
+        { text: `明确「${text.slice(0, 18)}」的最终交付物/掌握标准（做完后拿什么给别人看？），用一句话写下`, est: 5, risk: "low", why: "主线起点：先锁定可验证的目标", dim: null },
+        { text: `完成「${text.slice(0, 18)}」的核心第一版（最小可行，哪怕粗糙），作为可迭代骨架`, est: 30, risk: "med", why: "主线推进：先有骨架再精修", dim: null },
+      ];
+      // 每维度挑 1 个代表子维度（覆盖面广、动作性强）
+      const dimPicks = ["Cl.def", "Cp.structure", "B.fail", "L.upstream", "Ev.version", "P.chunk", "Rh.predict"];
+      const sideTpl = dimPicks.map((key) => {
+        const fn = HATCH_DIM_TEMPLATES[key];
+        const hint = SUB_TEST_HINTS[key] || "";
+        const meta = lookupDim(key.split(".")[0], key.split(".")[1]) || {};
+        return {
+          text: fn ? fn(text) : `${key} 维度练习`,
+          est: key.startsWith("Rh") ? 5 : 15,
+          risk: "low",
+          risk_note: "",
+          why: `补齐 ${meta.dimName || key}（${key}）维度盲区`,
+          dim: key,
+          verify: hint || `完成后到长期任务详情页给 ${key} 自评 3 星`,
+        };
+      });
+      const steps = [];
+      mainTpl.forEach((s, i) => {
+        steps.push({
+          text: s.text,
+          est_min: s.est,
+          depends_on: i > 0 ? i - 1 : null,
+          risk: s.risk,
+          risk_note: s.risk === "med" ? "核心第一版易拖长，先限制 30 分钟产出" : "",
+          why: s.why,
+          branch: "main",
+          parent_step: null,
+        });
+      });
+      sideTpl.forEach((s, i) => {
+        steps.push({
+          text: s.text,
+          est_min: s.est,
+          depends_on: null,
+          risk: s.risk,
+          risk_note: "",
+          why: s.why,
+          verify: s.verify,
+          branch: "side",
+          parent_step: i % 2, // 交替挂到主线 0/1 步，保持均衡
+          target_dim: s.dim,
+        });
+      });
+      const totalMin = steps.reduce((n, s) => n + s.est_min, 0);
+      return {
+        complexity: "complex",
+        est_total_min: totalMin,
+        first_blocker: "核心第一版超出 30 分钟（主线第 2 步）——先砍功能保骨架",
+        shortcut: "离线 7 维度全覆盖模板（主线2 + 支线7，0 token）。配置 API 后可点「重新生成」获得个性化方案。",
+        steps,
+        isLocal: true,
+        detected_scene: detected,
+        dimCover: { covered: 7, total: 7 },
+      };
+    }
+    // 4) 按档位裁剪：lite 取前 4 步 / medium 全量 / zen 只取 2 步
     if (mode === "lite") bank = bank.slice(0, Math.min(4, bank.length));
     else if (mode === "zen") bank = [bank[0], bank[bank.length - 1]].filter(Boolean);
     const steps = bank.map((s, i) => ({
@@ -8256,8 +8359,10 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     // 隐藏问询面板，进入孵化过程
     if (el.hatchOnboard) el.hatchOnboard.hidden = true;
     if (el.hatchTaskText) el.hatchTaskText.textContent = text;
-    // 自动模式
-    const mode = autoHatchMode(text);
+    // 模式：尊重用户在下拉框的手动选择；仅 auto 时自动选档
+    const mode = (el.hatchMode.value && el.hatchMode.value !== "auto")
+      ? el.hatchMode.value
+      : autoHatchMode(text);
     const scene = (hatchState.pendingScene && hatchState.pendingScene !== "auto")
       ? hatchState.pendingScene
       : detectHatchScene(text);
@@ -9198,7 +9303,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     }
   });
   // 错误区：重试 / 降档重试
-  const HATCH_MODE_ORDER = ["lite", "medium", "zen"];
+  const HATCH_MODE_ORDER = ["lite", "medium", "zen", "basic"];
   function rerunHatch(modeOverride) {
     if (!hatchState.taskText) return;
     const scene = el.hatchScene.value === "auto" ? detectHatchScene(hatchState.taskText) : el.hatchScene.value;

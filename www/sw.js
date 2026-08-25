@@ -1,6 +1,6 @@
 // 曼陀罗时辰 Service Worker
 // 策略：network-first（优先网络，失败回退缓存），避免缓存旧资源导致页面卡死
-const CACHE_NAME = "mandala-v66"; // v66 三问式深度打磨（AI对话七维深挖/极限测试/实验设计指令 + AI问询问式标注 + 本地模板实验型轮换 + 问式徽章）
+const CACHE_NAME = "mandala-v67"; // v67 基本孵化（7维度×子维度穷尽拆解）+ 7维覆盖统计 + 本地7维模板
 const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.json"];
 
 self.addEventListener("install", (event) => {
