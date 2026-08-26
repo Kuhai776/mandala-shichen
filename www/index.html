@@ -86,7 +86,7 @@
       } catch (e) { console.warn("[polyfill] dialog 降级失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260826a" />
+  <link rel="stylesheet" href="styles.css?v=20260826b" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
   <script src="lib/mermaid.min.js"></script>
@@ -1131,6 +1131,7 @@
               <option value="decide">⚖️ 决策</option>
               <option value="checklist">📋 清单</option>
               <option value="drill">🎯 薄弱补强</option>
+              <option value="habit">🔄 习惯</option>
             </select>
           </div>
         </div>
@@ -1244,6 +1245,7 @@
             <button class="tool-btn" id="hatchHistoryBtn" title="查看过往孵化记录">🕰️ 历史</button>
             <button class="danger-btn" id="hatchCancelBtn">取消</button>
             <button class="tool-btn hatch-grid-btn" id="hatchToGrid" title="把选中步骤按预估时长智能安排到时间格子">📋 安排到格子</button>
+            <button class="tool-btn hatch-save-habit" id="hatchSaveHabit" hidden title="把当前习惯方案保存为一个可打卡的习惯（四大定律计划自动带入）">💾 保存为习惯</button>
             <button class="tool-btn" id="hatchToInbox" title="把选中步骤拆成收集箱条目（带维度/时长标记，可稍后拖到格子）">📥 加入收集箱</button>
             <button class="primary-btn" id="hatchApply">✓ 加入清单</button>
           </div>
@@ -1536,11 +1538,12 @@
         <button class="icon-btn" id="closeInbox" aria-label="关闭">✕</button>
       </div>
       <div class="inbox-fullscreen-body">
-        <!-- 模式切换：速记 / 主线 / 长期任务 -->
+        <!-- 模式切换：速记 / 主线 / 长期任务 / 习惯 -->
         <div class="inbox-mode-tabs">
           <button class="inbox-mode-tab active" data-mode="quick">⚡ 速记</button>
           <button class="inbox-mode-tab" data-mode="mainline">🎯 主线</button>
           <button class="inbox-mode-tab" data-mode="long">🗺️ 长期任务</button>
+          <button class="inbox-mode-tab" data-mode="habit">🔄 习惯</button>
         </div>
 
         <!-- 速记模式 -->
@@ -1675,6 +1678,56 @@
           </div>
           <div class="long-list" id="longList"></div>
         </div>
+
+        <!-- 习惯模式：原子习惯（四大定律）管理 -->
+        <div class="inbox-habit-pane" id="inboxHabitPane" hidden>
+          <div class="habit-add-bar">
+            <input type="text" id="habitName" placeholder="习惯名称，如：每天读书30分钟 / 戒掉熬夜" maxlength="30" />
+            <select id="habitType" title="培养新习惯 / 纠正坏习惯">
+              <option value="build">🌱 培养</option>
+              <option value="break">✂️ 纠正</option>
+            </select>
+            <select id="habitFreq" title="频率">
+              <option value="每天">每天</option>
+              <option value="工作日">工作日</option>
+              <option value="每周3次">每周3次</option>
+              <option value="每周">每周</option>
+            </select>
+            <input type="text" id="habitTime" placeholder="时机/锚点 如：早餐后 / 21:00" maxlength="20" />
+            <button class="tool-btn" id="habitAddBtn" style="background:var(--accent);color:#fff;">＋ 添加</button>
+          </div>
+          <div class="habit-tip">💡 基于《原子习惯》四大定律 · 点击卡片可查看/编辑落地计划 · 点 ○ 打卡 ✓ · 待办可一键「🔄 转习惯」</div>
+          <div class="habit-list" id="habitList"></div>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 习惯详情弹窗：四大定律落地计划 + 孵化重建 + 打卡记录 -->
+  <dialog class="habit-dialog" id="habitDialog">
+    <div class="habit-dlg-content">
+      <div class="habit-dlg-header">
+        <h3>🔄 习惯详情</h3>
+        <button class="icon-btn" id="closeHabitDialog" aria-label="关闭">✕</button>
+      </div>
+      <div class="habit-dlg-body" id="habitDlgBody"></div>
+      <div class="habit-dlg-foot">
+        <button class="tool-btn" id="habitDlgHatch" title="用孵化功能按原子习惯四大定律重新拆解计划">🥚 孵化重建</button>
+        <button class="tool-btn danger" id="habitDlgDel" title="删除该习惯">🗑 删除</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 任务转习惯弹窗：把收集箱待办一键转为习惯 -->
+  <dialog class="habit-dialog" id="habitConvertDialog">
+    <div class="habit-dlg-content">
+      <div class="habit-dlg-header">
+        <h3>🔄 任务转习惯</h3>
+        <button class="icon-btn" id="closeHabitConvert" aria-label="关闭">✕</button>
+      </div>
+      <div class="habit-dlg-body" id="habitConvertBody"></div>
+      <div class="habit-dlg-foot">
+        <button class="tool-btn" id="habitConvertOk" style="background:var(--accent);color:#fff;">💾 保存为习惯</button>
       </div>
     </div>
   </dialog>
@@ -1736,6 +1789,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=20260826a" defer></script>
+  <script src="app.js?v=20260826b" defer></script>
 </body>
 </html>
