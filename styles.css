@@ -9844,4 +9844,104 @@ dialog.qa-dialog-fullscreen::backdrop { background: rgba(0, 0, 0, 0.5); }
   .qa-detail-dialog, .qa-import-dialog { max-width: 100%; }
 }
 
+/* ================= 习惯模块（原子习惯 · 四大定律） ================= */
+.inbox-habit-pane { display: flex; flex-direction: column; gap: 10px; padding: 8px 0; }
+.habit-add-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.habit-add-bar input[type="text"] { flex: 1 1 200px; min-width: 160px; }
+.habit-add-bar select { padding: 7px 10px; border-radius: 10px; border: 1px solid var(--border, rgba(128,128,160,.25)); background: var(--panel, #23233a); color: var(--text, #e8e8f0); font-size: 13px; }
+.habit-tip { font-size: 12px; color: var(--text-dim, #888); opacity: .9; }
+.habit-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; padding-bottom: 40px; }
+.habit-empty { text-align: center; padding: 50px 16px; color: var(--text-dim, #888); }
+.habit-empty-icon { font-size: 40px; margin-bottom: 8px; }
+.habit-empty-title { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+.habit-empty-desc { font-size: 13px; line-height: 1.8; }
+.habit-group-title { font-size: 12px; font-weight: 700; color: var(--text-dim, #888); padding: 4px 2px 0; }
+.habit-card { background: var(--panel, #23233a); border: 1px solid var(--border, rgba(128,128,160,.2)); border-radius: 12px; padding: 10px 12px; cursor: pointer; transition: transform .15s, border-color .15s; }
+.habit-card:hover { border-color: var(--accent, #7c5cff); transform: translateY(-1px); }
+.habit-card-head { display: flex; align-items: center; gap: 8px; }
+.habit-check { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--border, rgba(128,128,160,.4)); background: transparent; color: var(--text, #e8e8f0); font-size: 14px; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.habit-check:hover { border-color: #4ade80; color: #4ade80; }
+.habit-card-name { flex: 1; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.habit-type-chip { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 20px; flex-shrink: 0; }
+.habit-card-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.habit-meta-chip { font-size: 11px; color: var(--text-dim, #888); background: rgba(128,128,160,.12); padding: 2px 8px; border-radius: 20px; }
+.habit-law-dots { display: inline-flex; gap: 4px; margin-left: 2px; }
+.habit-law-dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid; background: transparent; opacity: .45; }
+.habit-law-dot.on { background: currentColor; opacity: 1; }
+.habit-card-7d { display: flex; gap: 3px; margin-top: 8px; }
+.habit-7d { width: 14px; height: 14px; border-radius: 4px; background: rgba(128,128,160,.15); font-size: 9px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-dim, #888); }
+.habit-7d.on { background: #4ade80; color: #052e16; font-weight: 700; }
+.habit-card-plan-tag { display: inline-block; margin-top: 8px; font-size: 11px; color: #7c5cff; background: rgba(124,92,255,.12); padding: 2px 8px; border-radius: 20px; }
+
+/* 习惯详情弹窗 */
+.habit-dialog { border: none; border-radius: 16px; background: var(--panel, #1e1e32); color: var(--text, #e8e8f0); max-width: 640px; width: calc(100vw - 32px); max-height: 86vh; padding: 0; overflow: hidden; }
+.habit-dialog::backdrop { background: var(--overlay, rgba(0,0,0,.55)); }
+.habit-dlg-content { display: flex; flex-direction: column; max-height: 86vh; }
+.habit-dlg-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border, rgba(128,128,160,.2)); }
+.habit-dlg-header h3 { margin: 0; font-size: 16px; }
+.habit-dlg-body { padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.habit-dlg-foot { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border, rgba(128,128,160,.2)); }
+.habit-dlg-head { display: flex; flex-direction: column; gap: 8px; }
+.habit-dlg-name { display: flex; align-items: center; gap: 8px; }
+.habit-dlg-title { font-size: 17px; font-weight: 700; }
+.habit-dlg-meta { display: flex; gap: 6px; flex-wrap: wrap; }
+.habit-dlg-quick { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 4px; }
+.habit-7d-row { display: flex; align-items: center; gap: 4px; }
+.habit-7d-label { font-size: 11px; color: var(--text-dim, #888); margin-right: 4px; }
+.habit-dlg-goal { font-size: 13px; color: var(--text-secondary, #b8b8c8); background: rgba(128,128,160,.08); padding: 6px 10px; border-radius: 8px; line-height: 1.6; }
+.habit-dlg-laws-title { font-size: 13px; font-weight: 700; margin-top: 4px; }
+.habit-laws { display: flex; flex-direction: column; gap: 8px; }
+.habit-law { border: 1px solid var(--border, rgba(128,128,160,.22)); border-radius: 10px; padding: 10px; }
+.habit-law-head { display: flex; align-items: center; gap: 8px; }
+.habit-law-icon { width: 26px; height: 26px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+.habit-law-name { font-size: 13px; font-weight: 700; }
+.habit-law-tag { font-size: 10px; color: var(--text-dim, #888); margin-left: auto; }
+.habit-law-desc { font-size: 11px; color: var(--text-dim, #888); line-height: 1.6; margin: 6px 0 4px; }
+.habit-law-plan { width: 100%; box-sizing: border-box; border-radius: 8px; border: 1px solid var(--border, rgba(128,128,160,.25)); background: rgba(0,0,0,.2); color: var(--text, #e8e8f0); padding: 8px; font-size: 13px; resize: vertical; }
+.habit-dlg-extra { border-top: 1px dashed var(--border, rgba(128,128,160,.25)); padding-top: 10px; }
+.habit-extra-title { font-size: 12px; font-weight: 700; margin-bottom: 8px; }
+.habit-extra-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.habit-extra-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--text-dim, #888); }
+.habit-field { border-radius: 8px; border: 1px solid var(--border, rgba(128,128,160,.25)); background: rgba(0,0,0,.2); color: var(--text, #e8e8f0); padding: 7px 9px; font-size: 13px; }
+.habit-dlg-plan-title { font-size: 13px; font-weight: 700; margin-top: 4px; }
+.habit-dlg-plan { display: flex; flex-direction: column; gap: 6px; }
+.habit-plan-step { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.6; background: rgba(124,92,255,.08); border-radius: 8px; padding: 8px 10px; }
+.habit-plan-idx { width: 18px; height: 18px; border-radius: 50%; background: var(--accent, #7c5cff); color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; }
+.habit-plan-verify { display: block; font-size: 11px; color: #4ade80; margin-top: 2px; }
+.habit-dlg-save-tip { font-size: 11px; color: var(--text-dim, #888); opacity: .8; text-align: center; }
+.habit-checked { border-color: #4ade80 !important; color: #4ade80 !important; }
+
+/* 今日行动链（详情） */
+.habit-today { border: 1px dashed rgba(124,92,255,.45); border-radius: 10px; padding: 10px 12px; background: rgba(124,92,255,.07); }
+.habit-today-title { font-size: 12px; font-weight: 700; color: #a78bfa; margin-bottom: 8px; }
+.habit-today-chain { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.habit-today-step { font-size: 12.5px; line-height: 1.5; background: rgba(124,92,255,.14); border: 1px solid rgba(124,92,255,.3); color: var(--text, #e8e8f0); padding: 3px 10px; border-radius: 20px; }
+.habit-today-arrow { color: #a78bfa; font-size: 12px; }
+.habit-today-sub { font-size: 11px; color: var(--text-dim, #888); margin-top: 8px; }
+
+/* 本月打卡日历（详情） */
+.habit-cal { border-top: 1px dashed var(--border, rgba(128,128,160,.25)); padding-top: 10px; }
+.habit-cal-head { font-size: 12px; font-weight: 700; margin-bottom: 8px; }
+.habit-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.habit-cal-cell { height: 26px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; border-radius: 6px; background: rgba(128,128,160,.1); color: var(--text-dim, #888); }
+.habit-cal-cell.on { background: rgba(74,222,128,.25); color: #4ade80; font-weight: 700; }
+.habit-cal-cell.today { outline: 2px solid var(--accent, #7c5cff); outline-offset: -1px; }
+.habit-cal-cell.blank { background: transparent; }
+
+/* 任务转习惯弹窗 */
+.habit-conv-tip { font-size: 13px; line-height: 1.7; color: var(--text-secondary, #b8b8c8); }
+.habit-conv-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; }
+.habit-conv-form label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--text-dim, #888); }
+.habit-conv-form input, .habit-conv-form select { border-radius: 8px; border: 1px solid var(--border, rgba(128,128,160,.25)); background: rgba(0,0,0,.2); color: var(--text, #e8e8f0); padding: 8px 10px; font-size: 13px; }
+
+/* 看板卡片 🔄 按钮 */
+.ikb-habit { position: absolute; top: 4px; right: 50px; width: 22px; height: 22px; border-radius: 6px; border: none; background: rgba(74,222,128,.14); color: #4ade80; font-size: 11px; cursor: pointer; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity .2s; }
+.inbox-kanban-card:hover .ikb-habit, .inbox-kanban-card:focus-within .ikb-habit { opacity: 1; }
+.ikb-habit:hover { background: rgba(74,222,128,.3); }
+@media (hover: none) { .ikb-habit { opacity: 1; } }
+
+/* 孵化结果 · 四大定律徽章 */
+.hatch-tag-law { font-weight: 600; }
+.hatch-save-habit { background: rgba(74,222,128,.14) !important; color: #4ade80 !important; border: 1px solid rgba(74,222,128,.35) !important; }
+
 

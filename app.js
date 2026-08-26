@@ -128,9 +128,26 @@ const SW_VER = "20260821b";
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.7.20";
-  const APP_VERSION_DATE = "2026-08-26";
+  const APP_VERSION = "2.7.22";
+  const APP_VERSION_DATE = "2026-08-27";
   const APP_CHANGELOG = [
+    { v: "2.7.22", date: "2026-08-27", items: [
+      "新增：📌 今日行动链——习惯详情自动把「身份认同→习惯堆叠/时机→两分钟版→环境设计」组装成一条可执行的今日行动链（箭头串联），一眼看清今天每一步做什么、在哪做、做完得到什么",
+      "新增：🗓 本月打卡日历——习惯详情新增当月日历网格，打卡日高亮、今日描边，配合连续天数/本周完成率看清节奏",
+      "新增：四大定律覆盖统计——孵化「习惯」结果摘要新增四定律彩色圆点（X/4），一眼看出哪条定律还没落地计划",
+      "优化：习惯列表智能排序——未打卡（今日待办）的习惯自动置前，组内按连续天数排序，打卡优先级一目了然",
+      "优化：打卡语义区分——培养习惯显示「✓ 打卡成功」，纠正习惯显示「✓ 今日保持（未发生）」；取消打卡后连续天数自动重算",
+      "优化：转习惯类型自动识别更精准——仅「戒/杜绝/不再/少刷/少喝/停止…」等明确戒除词触发纠正，避免「停车/暂停」误判；习惯名自动清理「习惯「」」包裹",
+      "优化：习惯数据自愈——加载时自动迁移补齐字段（兼容旧数据），同名同类型习惯重复添加会提示",
+      "优化：习惯详情显示来源待办（已转换任务）· 卡片近7天圆点带日期悬停 · 习惯标签显示数量徽章",
+    ]},
+    { v: "2.7.21", date: "2026-08-26", items: [
+      "新增：🔄 习惯模块——待办收集箱新增「习惯」标签：直接添加习惯（培养/纠正×频率×时机）、每日打卡（连续天数/累计次数/近7天圆点）、点击卡片管理四大定律落地计划",
+      "新增：任务转习惯——收集箱表格/看板每个待办新增「🔄」按钮，一键把重复性待办转换为长期习惯（自动识别培养/纠正类型），原待办标记完成",
+      "新增：孵化「习惯」场景——孵化场景新增「🔄 习惯」，基于《原子习惯》四大定律像孵化一样拆解：培养用正向四定律（显而易见/有吸引力/简便易行/令人愉悦），纠正用反向四定律（隐而不现/缺乏吸引力/难以施行/令人厌烦），AI 与本地模板均按身份→提示→捆绑→两分钟→奖赏→追踪拆成 6 步可执行计划，每步带定律徽章",
+      "新增：💾 保存为习惯——孵化结果新增「保存为习惯」按钮：四大定律计划与 6 步拆解自动带入习惯，配好 API 后 AI 可生成个性化方案",
+      "新增：习惯详情弹窗——四大定律计划逐条填写自动保存、身份认同/习惯堆叠/两分钟版/环境设计进阶字段、孵化计划回看、🥚 孵化重建一键重新拆解",
+    ]},
     { v: "2.7.20", date: "2026-08-26", items: [
       "新增：⚡ 基本孵化独立按钮——底部快捷条新增「⚡ 基本孵化」一键入口（快捷键 B）：无任务时打开弹窗并预切基本孵化模式，有任务时直接按 7 维×子维度穷尽拆解；孵化弹窗内也新增同款快捷按钮",
       "优化：❓ 提问库头部精简——工具栏收敛为「📥 导入解析 + 🎲 抽一题 + ⋯」，字号调整/导出回答/全部重置/删除库归入 ⋯ 更多菜单，界面更清爽",
@@ -2081,6 +2098,23 @@ const SW_VER = "20260821b";
     inboxBatchDel: document.getElementById("inboxBatchDel"),
     inboxBatchCancel: document.getElementById("inboxBatchCancel"),
     inboxMainlinePane: document.getElementById("inboxMainlinePane"),
+    // 收集箱-习惯模式
+    inboxHabitPane: document.getElementById("inboxHabitPane"),
+    habitName: document.getElementById("habitName"),
+    habitType: document.getElementById("habitType"),
+    habitFreq: document.getElementById("habitFreq"),
+    habitTime: document.getElementById("habitTime"),
+    habitAddBtn: document.getElementById("habitAddBtn"),
+    habitList: document.getElementById("habitList"),
+    habitDialog: document.getElementById("habitDialog"),
+    closeHabitDialog: document.getElementById("closeHabitDialog"),
+    habitDlgBody: document.getElementById("habitDlgBody"),
+    habitDlgHatch: document.getElementById("habitDlgHatch"),
+    habitDlgDel: document.getElementById("habitDlgDel"),
+    habitConvertDialog: document.getElementById("habitConvertDialog"),
+    closeHabitConvert: document.getElementById("closeHabitConvert"),
+    habitConvertBody: document.getElementById("habitConvertBody"),
+    habitConvertOk: document.getElementById("habitConvertOk"),
     mlName: document.getElementById("mlName"),
     mlColor: document.getElementById("mlColor"),
     mlDim: document.getElementById("mlDim"),
@@ -2125,6 +2159,7 @@ const SW_VER = "20260821b";
     realmFabHatch: document.getElementById("realmFabHatch"),
     realmFabBasic: document.getElementById("realmFabBasic"),
     hatchBasicBtn: document.getElementById("hatchBasicBtn"),
+    hatchSaveHabit: document.getElementById("hatchSaveHabit"),
     hatchMode: document.getElementById("hatchMode"),
     hatchScene: document.getElementById("hatchScene"),
     hatchHistoryHint: document.getElementById("hatchHistoryHint"),
@@ -6805,11 +6840,17 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
       focus: "针对 7 维度薄弱子维度生成定向练习",
       rules: "每个薄弱子维度生成 1-2 个步骤；步骤必须直接回应该子维度的核心追问；target_dim 必填；dim_goal = 当前分+1（封顶5）",
     },
+    habit: {
+      label: "习惯",
+      focus: "按《原子习惯》四大定律设计行为改变方案（培养或纠正）",
+      rules: "判断任务是培养新习惯还是戒掉坏习惯：培养用正向四定律（显而易见/有吸引力/简便易行/令人愉悦），戒除用反向四定律（隐而不现/缺乏吸引力/难以施行/令人厌烦）；四大定律各生成 1-2 个步骤；每步必须带 law 字段（培养: obvious/attractive/easy/satisfying；纠正: invisible/unattractive/difficult/unsatisfying）；步骤要具体到「提示/行动/环境/奖赏」四要素；verify 给出可自检的执行标准",
+    },
   };
 
   // 自动识别场景（关键词路由）
   function detectHatchScene(taskText) {
     const t = taskText.toLowerCase();
+    if (/(习惯|养成|培养|坚持|打卡|戒|戒掉|纠正|不再|自律|每天.*练|改掉)/.test(t)) return "habit";
     if (/(学|读|研究|理解|掌握|弄懂|搞懂|复习|预习)/.test(t)) return "learn";
     if (/(选|决定|对比|选择|评估.*方案|权衡)/.test(t)) return "decide";
     if (/(准备|组织|策划|整理|检查|盘点|核对)/.test(t)) return "checklist";
@@ -7105,6 +7146,10 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
       schemaFields.push('"dim_goal":3');
       schemaFields.push('"verify":"完成自检标准（如：能脱稿讲2分钟）"');
     }
+    if (scene === "habit") {
+      schemaFields.push('"law":"四大定律编码（obvious/attractive/easy/satisfying 或 invisible/unattractive/difficult/unsatisfying）"');
+      schemaFields.push('"verify":"执行自检标准（如：连续3天在提示出现后2分钟内启动）"');
+    }
 
     const systemPrompt = [
       "你是任务拆解专家。把用户的粗粒度任务拆成可执行子任务。",
@@ -7137,6 +7182,27 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
     } else if (scene === "learn") {
       systemPrompt.push("");
       systemPrompt.push("【学习场景可选标注】若步骤明显对应某 7 维度（Cl清晰度/Cp完整性/B边界感/L关联度/Ev进化感/P精炼度/Rh节奏感），可填 target_dim 帮助后续评估。");
+    } else if (scene === "habit") {
+      systemPrompt.push("");
+      systemPrompt.push("【场景：习惯 · 原子习惯方法论（James Clear《原子习惯》）】");
+      systemPrompt.push("先判断任务类型：培养新习惯（build）还是戒掉坏习惯（break）。");
+      systemPrompt.push("· 培养（build）用正向四大定律：");
+      systemPrompt.push("  1. obvious 显而易见——设计提示：把触发线索放显眼处（习惯堆叠：在现有习惯后叠加新习惯）；");
+      systemPrompt.push("  2. attractive 有吸引力——诱惑捆绑：把想做的事和喜欢做的事绑定；");
+      systemPrompt.push("  3. easy 简便易行——两分钟规则：把习惯压到 2 分钟内先动起来，降低启动阻力；");
+      systemPrompt.push("  4. satisfying 令人愉悦——即时奖赏：完成即打卡/记录，让大脑记住奖励。");
+      systemPrompt.push("· 戒除（break）用反向四大定律（与培养相反）：");
+      systemPrompt.push("  1. invisible 隐而不现——移除坏习惯的触发提示；");
+      systemPrompt.push("  2. unattractive 缺乏吸引力——把长期代价具象化贴在眼前；");
+      systemPrompt.push("  3. difficult 难以施行——增加启动阻力（锁机/隔房间/收走工具）；");
+      systemPrompt.push("  4. unsatisfying 令人厌烦——坏习惯一发生即记录并承担小代价。");
+      systemPrompt.push("硬规则：");
+      systemPrompt.push("1. 四大定律每定律至少生成 1 个步骤（共 4-8 步），law 字段必填且只能使用上述编码；");
+      systemPrompt.push("2. 每步具体到「提示 → 行动 → 环境 → 奖赏」：写明什么时候做、在哪做、动作是什么、完成后得到什么；");
+      systemPrompt.push("3. 第 1 步从「身份认同」开始：先定义想成为谁（如：我是读书的人），行为自然跟上；");
+      systemPrompt.push("4. 第 2 步设计环境与提示（定律1），中间步骤依次覆盖定律2-4；");
+      systemPrompt.push("5. verify 给出 3 天/7 天内可自检的执行标准（如：连续 3 天在 21:00 提示出现后 2 分钟内翻开书）；");
+      systemPrompt.push("6. 步骤是『设计行为系统』而非任务清单：不是『读30分钟书』，而是『睡前把书放枕边+床头放台灯，躺下就读一页』。");
     } else if (mode === "basic") {
       systemPrompt.push("");
       systemPrompt.push("【模式：基本孵化 · 7 维度穷尽拆解】");
@@ -7304,6 +7370,8 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
     el.hatchResult.hidden = false;
     el.hatchError.hidden = true;
     setHatchFsStatus("done", `完成 · ${result.steps.length} 步`);
+    // 习惯场景：显示「保存为习惯」按钮
+    if (el.hatchSaveHabit) el.hatchSaveHabit.hidden = !(hatchState.scene === "habit" || result.habitType || (result.steps || []).some((s) => s.law));
     // 自动将孵化步骤拆分进收集箱（无需手动点「加入收集箱」）
     try {
       const added = autoHatchStepsToInbox(result);
@@ -7339,6 +7407,15 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
           const d = KNOWLEDGE_DIMENSIONS.find((x) => x.code === c);
           return `<span class="hatch-dim-dot" style="background:${d.color};" title="${d.name} ${d.code}">${d.code}</span>`;
         }).join("")}</span> ${covered.length}/${KNOWLEDGE_DIMENSIONS.length} 维度</span></div>`;
+      })()}
+      ${(() => {
+        const lawSteps = (result.steps || []).filter((s) => s.law);
+        if (!lawSteps.length) return "";
+        const lawSet = new Set(lawSteps.map((s) => s.law));
+        const isBreak = (result.habitType === "break") || /戒|戒掉|杜绝|不再|忍住|改掉/.test(hatchState.taskText || "");
+        const pool = HABIT_LAWS[isBreak ? "break" : "build"];
+        const covered = pool.filter((l) => lawSet.has(l.key));
+        return `<div class="hatch-summary-row"><span class="hatch-summary-label">四定律</span><span class="hatch-summary-value"><span class="hatch-dim-dots">${covered.map((l) => `<span class="hatch-dim-dot" style="background:${l.color};" title="${l.name}">${l.icon}</span>`).join("")}</span> ${covered.length}/4 条定律有落地计划</span></div>`;
       })()}
       ${result.first_blocker ? `<div class="hatch-summary-row"><span class="hatch-summary-label">最可能卡点</span><span class="hatch-summary-value">${escapeHtml(result.first_blocker)}</span></div>` : ""}
       <div class="hatch-summary-row"><span class="hatch-summary-label">拆解耗时</span><span class="hatch-summary-value">${elapsedSec}s</span></div>
@@ -7409,6 +7486,16 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
           dimTag = `<span class="hatch-tag hatch-tag-dim" style="background:${meta.dimColor}22;color:${meta.dimColor};" title="${meta.dimName}${dc} · ${meta.subName}：${meta.question}（编码 ${step.target_dim}）">${dc}·${meta.subName}${goalTxt}</span>`;
         }
       }
+      // 习惯四大定律徽章（habit 场景步骤）
+      let lawTag = "";
+      if (step.law) {
+        const lawMeta = (HABIT_LAWS.build.concat(HABIT_LAWS.break)).find((l) => l.key === step.law);
+        if (lawMeta) {
+          lawTag = `<span class="hatch-tag hatch-tag-law" style="background:${lawMeta.color}22;color:${lawMeta.color};" title="《原子习惯》四大定律 · ${lawMeta.name}：${lawMeta.desc}">${lawMeta.icon} ${lawMeta.name}</span>`;
+        } else {
+          lawTag = `<span class="hatch-tag hatch-tag-law">${escapeHtml(step.law)}</span>`;
+        }
+      }
       const hasKids = Array.isArray(step.children) && step.children.length;
       const collapsed = step._collapsed;
       const kidsBtn = hasKids
@@ -7422,7 +7509,7 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
               <span class="hatch-item-idx">${isSide ? "└" : (idx + 1)}</span>
               <span class="hatch-item-text hatch-item-text-edit" title="点击编辑措辞">✏️ ${escapeHtml(step.text)}</span>
             </div>
-            <div class="hatch-item-meta">${branchTag}${minTag}${depTag}${riskTag}${dimTag}</div>
+            <div class="hatch-item-meta">${branchTag}${lawTag}${minTag}${depTag}${riskTag}${dimTag}</div>
             ${step.verify ? `<div class="hatch-item-verify">✓ ${escapeHtml(step.verify)}</div>` : ""}
             ${step.risk_note && (step.risk === "med" || step.risk === "high") ? `<div class="hatch-item-risk-note">⚠ ${escapeHtml(step.risk_note)}</div>` : ""}
             ${step.why ? `<div class="hatch-item-meta" style="margin-top:2px;color:var(--text-muted);">为什么：${escapeHtml(step.why)}</div>` : ""}
@@ -7978,7 +8065,7 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
       showHatchStream();
       // 显示当前场景/模式标签
       if (el.hatchStreamTag) {
-        const sceneLabels = { learn:"📖 学习", exec:"⚙️ 执行", decide:"⚖️ 决策", checklist:"📋 清单", drill:"🎯 薄弱补强" };
+        const sceneLabels = { learn:"📖 学习", exec:"⚙️ 执行", decide:"⚖️ 决策", checklist:"📋 清单", drill:"🎯 薄弱补强", habit:"🔄 习惯" };
         const modeLabels = { lite:"lite", medium:"medium", zen:"zen", basic:"基本孵化" };
         el.hatchStreamTag.textContent = `${sceneLabels[scene] || scene} · ${modeLabels[mode] || mode}`;
         el.hatchStreamTag.hidden = false;
@@ -8101,7 +8188,51 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
       ],
     };
     let bank = stepBanks[detected] || stepBanks.exec;
-    // 3) 基本孵化（basic）：本地 7 维度全覆盖生成（0 token）
+    // 3) 习惯场景（habit）：原子习惯四大定律本地模板（0 token）
+    if (scene === "habit") {
+      const isBreak = /戒|戒掉|停|少|杜绝|不再|忍住|改掉|摆脱|戒除/.test(text);
+      const habitName = text.replace(/^(我要|我想|每天|坚持|养成|培养|戒掉|戒除|改掉|不再|停止|学会|开始)/, "").trim().slice(0, 24) || text.slice(0, 24);
+      const tpl = isBreak ? [
+        { text: `写下「${habitName}」的 3 个长期代价（健康/金钱/关系/机会成本），打印贴在每天能看到的位置`, est: 5, risk: "low", law: "unattractive", why: "反向定律1：让坏处可见，打破「其实没多糟」的错觉", verify: "代价清单已贴出，3 天内每天看 1 次并打勾" },
+        { text: `盘点触发「${habitName}」的场景与提示（时间/地点/情绪/前序动作），把提示源移出视线（如：卸载/锁抽屉/移出房间）`, est: 15, risk: "med", law: "invisible", why: "反向定律2：移除提示，让坏习惯失去启动信号", verify: "识别出 ≥3 个触发场景，并已移除至少 1 个可见提示源" },
+        { text: `给「${habitName}」增加启动阻力：设置物理/流程障碍（如：手机锁进带锁抽屉、零食只买小包装放高柜）`, est: 15, risk: "med", law: "difficult", why: "反向定律3：提高摩擦，让坏习惯更难启动", verify: "已设置 2 个以上阻力点，实际执行中每次启动需额外 ≥30 秒" },
+        { text: `设计「${habitName}」发生的即时代价：每次发生立即记录 + 一个小惩罚（如：10 个俯卧撑 / 转账 20 元到储蓄罐）`, est: 10, risk: "low", law: "unsatisfying", why: "反向定律4：即时厌恶反馈，打断奖赏回路", verify: "连续 3 天记录每次发生并执行惩罚" },
+        { text: `准备替代行为：写下触发「${habitName}」时改做的 1 个健康替代动作（如：想刷手机就站起来倒水）`, est: 10, risk: "low", law: "satisfying", why: "给旧习惯找替身，用新行为填补同样的触发场景", verify: "替代行为已明确，3 天内至少成功替换 1 次" },
+        { text: `建立 7 天追踪：每晚打勾「今天未发生/发生几次」，周末复盘阻力点是否有效`, est: 5, risk: "low", law: "satisfying", why: "追踪让改变可见，7 天后按数据调整方案", verify: "7 天打卡表已完成，复盘出 1 个最有效与 1 个最无效的措施" },
+      ] : [
+        { text: `写下你想成为的人：我是「${habitName}」的人（身份认同），用一句话定义这个身份的具体表现`, est: 5, risk: "low", law: "obvious", why: "行为从身份出发：先定义想成为谁，行为自然跟上", verify: "身份句已写下并贴出，3 天内每天默念 1 次" },
+        { text: `设计环境与提示：把「${habitName}」的触发物放在显眼处（习惯堆叠：在「早餐后/下班后」等现有习惯之后执行）`, est: 15, risk: "med", law: "obvious", why: "定律1 显而易见：环境是行为的看不见的手", verify: "提示物已就位，连续 3 天在锚点习惯后 2 分钟内启动" },
+        { text: `做诱惑捆绑：把「${habitName}」和自己喜欢的事绑定（如：边做边听喜欢的播客，做完犒劳小奖励）`, est: 10, risk: "low", law: "attractive", why: "定律2 有吸引力：让行动本身变得值得期待", verify: "捆绑方案已定，3 天内执行时都带上绑定内容" },
+        { text: `写两分钟版：把「${habitName}」压到 2 分钟内（如：只翻开书读一页），先动起来再谈时长`, est: 10, risk: "low", law: "easy", why: "定律3 简便易行：降低启动门槛，靠「开始」惯性扩展", verify: "两分钟版已写定，连续 3 天在提示后 2 分钟内启动" },
+        { text: `设计即时奖赏：完成后立刻打卡/打勾，并设定 7/21/66/90 天里程碑奖励`, est: 10, risk: "low", law: "satisfying", why: "定律4 令人愉悦：即时反馈让大脑记住奖励，习惯才持续", verify: "打卡表与里程碑已设好，每天完成后 1 分钟内打卡" },
+        { text: `第 7 天复盘：统计 7 天打卡次数，调整提示/环境/时长，让系统更顺滑`, est: 5, risk: "low", law: "satisfying", why: "追踪与迭代：习惯系统是持续优化的，不靠意志力", verify: "完成 7 天统计并写下 1 条优化措施" },
+      ];
+      const steps = tpl.map((s, i) => ({
+        text: s.text,
+        est_min: s.est,
+        depends_on: i > 0 ? i - 1 : null,
+        risk: s.risk,
+        risk_note: s.risk === "med" ? "环境改造最难坚持，先做最小改动（只移走 1 个提示源）" : "",
+        why: s.why,
+        verify: s.verify,
+        law: s.law,
+        branch: "main", // 习惯是顺序链：6 步纵向推进（身份→提示→捆绑→两分钟→奖赏→追踪）
+        parent_step: null,
+        habitType: isBreak ? "break" : "build",
+      }));
+      const totalMin = steps.reduce((n, s) => n + s.est_min, 0);
+      return {
+        complexity: "standard",
+        est_total_min: totalMin,
+        first_blocker: "环境改造（定律1/2）最容易放弃——先做最小改动，接受前 3 天的不完美",
+        shortcut: `原子习惯 ${isBreak ? "戒除" : "培养"}模板（四大定律 6 步，0 token）。配置 API 后可点「重新生成」获得个性化方案。`,
+        steps,
+        isLocal: true,
+        detected_scene: "habit",
+        habitType: isBreak ? "break" : "build",
+      };
+    }
+    // 4) 基本孵化（basic）：本地 7 维度全覆盖生成（0 token）
     if (mode === "basic") {
       const mainTpl = [
         { text: `明确「${text.slice(0, 18)}」的最终交付物/掌握标准（做完后拿什么给别人看？），用一句话写下`, est: 5, risk: "low", why: "主线起点：先锁定可验证的目标", dim: null },
@@ -9519,6 +9650,41 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     local.longTaskId = hatchState.longTaskId || null;
     renderHatchResult(local);
     toast("已用本地启发式拆解（离线模式）", "info");
+  });
+  // 💾 保存为习惯：把当前孵化结果存为一个可打卡的习惯（四大定律计划自动带入）
+  if (el.hatchSaveHabit) el.hatchSaveHabit.addEventListener("click", () => {
+    const result = hatchState.result;
+    if (!result || !result.steps || !result.steps.length) { toast("没有可保存的步骤", "warn"); return; }
+    const isBreak = (result.habitType === "break") || /戒|戒掉|停|杜绝|不再|忍住|改掉/.test(hatchState.taskText || "");
+    let base = (hatchState.taskText || "").replace(/^(我要|我想|每天|坚持|养成|培养|戒掉|戒除|改掉|不再|停止|学会|开始)/, "").trim() || "我的习惯";
+    // 清理「习惯「xxx」」这类包裹，取内层名称；并去掉尾缀「的习惯/坏习惯」
+    const m = base.match(/习惯「(.+?)」|「(.+?)」/);
+    if (m) base = (m[1] || m[2]).trim();
+    base = base.replace(/的坏习惯$/, "").replace(/的习惯$/, "").trim();
+    base = base.slice(0, 30) || "我的习惯";
+    const h = addHabit(base, isBreak ? "break" : "build", "每天", "");
+    if (!h) return;
+    // 四大定律计划：从步骤的 law 字段提取
+    const lawPlans = new Map();
+    result.steps.forEach((s) => {
+      if (s.law && !lawPlans.has(s.law)) lawPlans.set(s.law, s.text);
+    });
+    h.laws = Array.from(lawPlans.entries()).map(([law, plan]) => ({ law, plan }));
+    h.plan = result.steps.map((s) => ({ text: s.text, verify: s.verify || "", law: s.law || "", est_min: s.est_min || 0 }));
+    // 进阶设计：从步骤文本提取身份/环境/两分钟线索（尽力而为）
+    const all = result.steps.map((s) => s.text).join(" ");
+    const idm = all.match(/我是「(.+?)」的人/);
+    if (idm) h.identity = `我是${idm[1]}的人`;
+    else {
+      const idm2 = all.match(/成为(.+?)的人|我想成为(.+?)的人/);
+      if (idm2) h.identity = ((idm2[1] || idm2[2]) || "").replace(/^的人[：:]?/, "").trim();
+    }
+    if (h.identity) h.identity = h.identity.replace(/的习惯的人$/, "的人").slice(0, 40);
+    const tmm = all.match(/只(.+?)，先动起来/) || all.match(/两分钟版[：:]\s*([^，。；]{2,20})/) || all.match(/（如：(.+?)[）)]/);
+    if (tmm) h.twoMin = (tmm[1] || "").slice(0, 30);
+    saveHabits();
+    toast(`💾 已保存为习惯「${h.name}」（${isBreak ? "纠正" : "培养"} · ${lawPlans.size}/4 定律计划）`, "success");
+    openHabitDetail(h.id);
   });
 
   el.hatchSelectAll.addEventListener("click", () => {
@@ -14271,14 +14437,43 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     el.inboxQuickPane.hidden = mode !== "quick";
     el.inboxMainlinePane.hidden = mode !== "mainline";
     el.inboxLongPane.hidden = mode !== "long";
+    el.inboxHabitPane.hidden = mode !== "habit";
     el.inboxDialog.querySelectorAll(".inbox-mode-tab").forEach((t) => {
       t.classList.toggle("active", t.dataset.mode === mode);
     });
     if (mode === "mainline") renderMainlineList();
+    if (mode === "habit") renderHabitList();
   }
   document.querySelectorAll(".inbox-mode-tab").forEach((tab) => {
     tab.addEventListener("click", () => switchInboxMode(tab.dataset.mode));
   });
+
+  // 习惯：添加 / 列表委托 / 详情与转换弹窗
+  if (el.habitAddBtn) el.habitAddBtn.addEventListener("click", () => {
+    const h = addHabit(el.habitName.value, el.habitType.value, el.habitFreq.value, el.habitTime.value);
+    if (h) {
+      el.habitName.value = "";
+      el.habitTime.value = "";
+      renderHabitList();
+      openHabitDetail(h.id);
+      toast(`已添加习惯「${h.name}」，填写四大定律落地计划更有效`, "success");
+    }
+  });
+  if (el.habitName) el.habitName.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); el.habitAddBtn.click(); } });
+  if (el.habitList) el.habitList.addEventListener("click", (e) => {
+    const check = e.target.closest("[data-check]");
+    if (check) {
+      e.stopPropagation();
+      checkinHabit(check.dataset.check);
+      return;
+    }
+    const card = e.target.closest(".habit-card");
+    if (card) openHabitDetail(card.dataset.id);
+  });
+  if (el.closeHabitDialog) el.closeHabitDialog.addEventListener("click", () => el.habitDialog.close());
+  if (el.habitDialog) el.habitDialog.addEventListener("click", (e) => { if (e.target === el.habitDialog) el.habitDialog.close(); });
+  if (el.closeHabitConvert) el.closeHabitConvert.addEventListener("click", () => el.habitConvertDialog.close());
+  if (el.habitConvertDialog) el.habitConvertDialog.addEventListener("click", (e) => { if (e.target === el.habitConvertDialog) el.habitConvertDialog.close(); });
 
   // 长期任务表单保存
   if (el.longSaveBtn) el.longSaveBtn.addEventListener("click", saveLongForm);
@@ -14304,7 +14499,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   let inboxView = "kanban"; // 收集箱视图：table 表格 / kanban 看板
   let inboxMultiSelect = new Set(); // 多选 idx 集合
   let inboxMultiSelectMode = false;
-  let inboxMode = "quick"; // 当前收集箱模式：quick / mainline / long
+  let inboxMode = "quick"; // 当前收集箱模式：quick / mainline / long / habit
   const inboxCollapsedParents = new Set(); // 已折叠的父任务 id（任务级主线/支线）
   const inboxCollapsedNotes = new Set(); // 已折叠备注的任务 id（看板组块备注）
   let inboxDateEditingIdx = -1; // 正在编辑日期的条目 idx（日期弹窗）
@@ -14355,6 +14550,390 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
 
   function saveInbox() { save(INBOX_KEY, inboxItems); }
   function saveMainlines() { save(INBOX_MAINLINES_KEY, inboxMainlines); }
+
+  // ---------- 习惯模块（原子习惯 · 四大定律） ----------
+  const HABITS_KEY = "mandala-habits-v1";
+  let habits = load(HABITS_KEY, []);
+  // 数据自愈：兼容旧/损坏数据，补齐默认字段
+  function migrateHabit(h) {
+    if (!h || typeof h !== "object") return null;
+    if (!h.id) h.id = genId("hab");
+    h.type = h.type === "break" ? "break" : "build";
+    if (!h.name) h.name = "未命名习惯";
+    if (!h.freq) h.freq = "每天";
+    ["time", "goal", "identity", "stackAfter", "twoMin", "env"].forEach((k) => { if (h[k] === undefined || h[k] === null) h[k] = ""; });
+    if (!Array.isArray(h.laws)) h.laws = [];
+    if (!Array.isArray(h.plan)) h.plan = [];
+    if (!Array.isArray(h.checkins)) h.checkins = [];
+    if (!h.streak) h.streak = 0;
+    if (!h.total) h.total = 0;
+    if (h.status === undefined) h.status = "active";
+    if (!h.srcTaskId) h.srcTaskId = null;
+    if (!h.createdAt) h.createdAt = Date.now();
+    return h;
+  }
+  habits = habits.map(migrateHabit).filter(Boolean);
+  function saveHabits() { save(HABITS_KEY, habits); }
+
+  // 连续天数重算：从今天（今天未打则从昨天）向前倒推连续打卡天数
+  function recalcStreak(h) {
+    const days = new Set((h.checkins || []).map((c) => c.date));
+    let streak = 0;
+    let cur = new Date();
+    if (!days.has(todayKey(cur))) cur = new Date(cur.getTime() - 86400000);
+    while (days.has(todayKey(cur))) { streak++; cur = new Date(cur.getTime() - 86400000); }
+    h.streak = streak;
+    return streak;
+  }
+  // 本周完成 x/目标（周一起算）
+  function habitWeekDone(h) {
+    const target = { "每天": 7, "工作日": 5, "每周3次": 3, "每周": 1 }[h.freq] || 7;
+    const days = new Set((h.checkins || []).map((c) => c.date));
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - ((start.getDay() + 6) % 7)); // 周一
+    let done = 0;
+    for (let i = 0; i < 7; i++) { const d = new Date(start); d.setDate(start.getDate() + i); if (days.has(todayKey(d))) done++; }
+    return { done, target };
+  }
+
+  // 《原子习惯》四大定律元数据：培养（build）正向 / 纠正（break）反向
+  const HABIT_LAWS = {
+    build: [
+      { key: "obvious",      name: "显而易见",     icon: "👁",  color: "#7c5cff", desc: "提示与线索：把触发线索放到显眼处，环境设计让好习惯自然开始（习惯堆叠：在现有习惯后叠加新习惯）" },
+      { key: "attractive",   name: "有吸引力",     icon: "🧲",  color: "#ff6b9d", desc: "诱惑捆绑：把想做的事和喜欢做的事捆绑（如：边跑步边听喜欢的播客）" },
+      { key: "easy",         name: "简便易行",     icon: "🪶",  color: "#4ecdc4", desc: "两分钟规则：把习惯压到 2 分钟内先动起来（如：只翻开书读一页），先启动再扩展" },
+      { key: "satisfying",   name: "令人愉悦",     icon: "🎁",  color: "#ffd93d", desc: "即时奖赏与习惯追踪：完成后立刻记录/打勾，让大脑记住奖励，用 streak 连续记录强化" },
+    ],
+    break: [
+      { key: "invisible",    name: "隐而不现",     icon: "🙈",  color: "#9aa5b1", desc: "移除提示：让坏习惯的触发线索从环境中消失（如：把零食移出视线/卸载 APP）" },
+      { key: "unattractive", name: "缺乏吸引力",   icon: "🚫",  color: "#f87171", desc: "强调代价：把坏习惯的长期代价具象化、贴在眼前，打破『它其实没多糟』的幻觉" },
+      { key: "difficult",    name: "难以施行",     icon: "🧱",  color: "#fb923c", desc: "增加阻力：给坏习惯设置摩擦力（如：手机锁进抽屉/烟放车里），让启动成本变高" },
+      { key: "unsatisfying", name: "令人厌烦",     icon: "😖",  color: "#a3e635", desc: "即时代价：坏习惯一发生就记录并承担小惩罚（如：每次刷超时 10 个俯卧撑/转 20 元储蓄罐）" },
+    ],
+  };
+  const HABIT_TYPE_META = {
+    build: { label: "培养", icon: "🌱", color: "#4ade80" },
+    break: { label: "纠正", icon: "✂️", color: "#f87171" },
+  };
+
+  function todayKey(d) { const x = d ? new Date(d) : new Date(); return x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0") + "-" + String(x.getDate()).padStart(2, "0"); }
+
+  // 习惯打卡：今天已打卡则取消（连续天数自动重算），否则 +1 记录
+  function checkinHabit(id) {
+    const h = habits.find((x) => x.id === id);
+    if (!h) return;
+    const tk = todayKey();
+    if (!Array.isArray(h.checkins)) h.checkins = [];
+    const isBreak = h.type === "break";
+    const idx = h.checkins.findIndex((c) => c.date === tk);
+    if (idx >= 0) {
+      h.checkins.splice(idx, 1); // 取消打卡
+      h.total = Math.max(0, (h.total || 0) - 1);
+      recalcStreak(h);
+      toast(`↩︎ 已取消「${h.name}」今日${isBreak ? "保持" : "打卡"} · 连续 ${h.streak} 天`, "info");
+    } else {
+      h.checkins.push({ date: tk, ok: true });
+      h.total = (h.total || 0) + 1;
+      h.lastDone = Date.now();
+      recalcStreak(h);
+      haptic(20);
+      toast(isBreak
+        ? `✓ 「${h.name}」今日保持（未发生）· 连续 ${h.streak} 天`
+        : `✓ 「${h.name}」打卡成功 · 连续 ${h.streak} 天`, "success");
+    }
+    saveHabits();
+    renderHabitList();
+  }
+
+  // 习惯详情（含四大定律计划编辑）
+  function openHabitDetail(id) {
+    const h = habits.find((x) => x.id === id);
+    if (!h || !el.habitDialog) return;
+    const typeM = HABIT_TYPE_META[h.type || "build"];
+    const laws = HABIT_LAWS[h.type === "break" ? "break" : "build"];
+    const plans = h.laws || [];
+    const today = todayKey();
+    const doneToday = (h.checkins || []).some((c) => c.date === today);
+    const last7 = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(Date.now() - (6 - i) * 86400000);
+      const k = todayKey(d);
+      return `<span class="habit-7d ${(h.checkins || []).some((c) => c.date === k) ? "on" : ""}" title="${k}">${"日一二三四五六"[d.getDay()]}</span>`;
+    }).join("");
+    const week = habitWeekDone(h);
+    // 来源待办（转换时保留）
+    let srcHtml = "";
+    if (h.srcTaskId) {
+      const src = inboxItems.find((i) => i.id === h.srcTaskId);
+      if (src) srcHtml = `<div class="habit-dlg-goal">📥 来源待办：${escapeHtml((src.text || "").slice(0, 44))}${src.done ? "（已完成）" : ""}</div>`;
+    }
+    // 📌 今日行动链：身份→锚点/时机→两分钟版→环境 → 打卡，把习惯拆成今天可执行的动作
+    const chain = [];
+    if (h.identity) chain.push(`🪞 ${escapeHtml(h.identity)}`);
+    if (h.stackAfter) chain.push(`🔗 ${escapeHtml(h.stackAfter)} 之后`);
+    else if (h.time) chain.push(`⏰ ${escapeHtml(h.time)}`);
+    if (h.twoMin) chain.push(`⏱ ${escapeHtml(h.twoMin)}`);
+    if (h.env) chain.push(`🏠 ${escapeHtml(h.env)}`);
+    chain.push(doneToday ? "✅ 今日已" + (h.type === "break" ? "保持" : "打卡") : "○ 今日" + (h.type === "break" ? "保持" : "打卡"));
+    const todayChainHtml = chain.length > 1
+      ? `<div class="habit-today"><div class="habit-today-title">📌 今日行动链</div>
+          <div class="habit-today-chain">${chain.map((s) => `<span class="habit-today-step">${s}</span>`).join('<span class="habit-today-arrow">→</span>')}</div>
+          <div class="habit-today-sub">${h.twoMin ? "先从「两分钟版」动起来，再顺手完成后续" : "点上方「今日打卡」完成闭环，即时奖赏让大脑记住"}</div></div>`
+      : `<div class="habit-today"><div class="habit-today-title">📌 今日行动链</div>
+          <div class="habit-today-chain"><span class="habit-today-step">○ 直接开始「${escapeHtml((h.twoMin || h.name).slice(0, 20))}」</span></div>
+          <div class="habit-today-sub">在「📝 进阶设计」填身份认同/锚点/两分钟版/环境，自动生成完整行动链</div></div>`;
+    // 🗓 本月打卡日历
+    const cal = (() => {
+      const now = new Date(); const y = now.getFullYear(); const mo = now.getMonth();
+      const first = new Date(y, mo, 1);
+      const startDow = first.getDay();
+      const daysInMo = new Date(y, mo + 1, 0).getDate();
+      const moKeys = new Set(Array.from({ length: daysInMo }, (_, i) => todayKey(new Date(y, mo, i + 1))));
+      const moDone = (h.checkins || []).filter((c) => moKeys.has(c.date)).length;
+      let cells = "";
+      for (let i = 0; i < startDow; i++) cells += `<span class="habit-cal-cell blank"></span>`;
+      for (let d = 1; d <= daysInMo; d++) {
+        const k = todayKey(new Date(y, mo, d));
+        cells += `<span class="habit-cal-cell ${(h.checkins || []).some((c) => c.date === k) ? "on" : ""} ${k === today ? "today" : ""}" title="${k}">${d}</span>`;
+      }
+      return `<div class="habit-cal"><div class="habit-cal-head">🗓 ${y}年${mo + 1}月 · 已打卡 ${moDone}/${daysInMo} 天</div><div class="habit-cal-grid">${cells}</div></div>`;
+    })();
+    const lawCards = laws.map((l) => {
+      const p = plans.find((x) => x.law === l.key);
+      return `<div class="habit-law" data-law="${l.key}">
+        <div class="habit-law-head"><span class="habit-law-icon" style="background:${l.color}22;color:${l.color};">${l.icon}</span>
+          <span class="habit-law-name" style="color:${l.color};">${l.name}</span>
+          <span class="habit-law-tag">${h.type === "break" ? "戒" : "养"} · 定律${laws.indexOf(l) + 1}</span></div>
+        <div class="habit-law-desc">${escapeHtml(l.desc)}</div>
+        <textarea class="habit-law-plan" data-law="${l.key}" rows="2" placeholder="写下这条定律的落地计划（如：把书放在床头，手机放客厅）…" maxlength="200">${escapeHtml(p ? p.plan || "" : "")}</textarea>
+      </div>`;
+    }).join("");
+    el.habitDlgBody.innerHTML = `
+      <div class="habit-dlg-head">
+        <div class="habit-dlg-name"><span class="habit-type-chip" style="background:${typeM.color}22;color:${typeM.color};">${typeM.icon} ${typeM.label}</span>
+          <span class="habit-dlg-title">${escapeHtml(h.name)}</span></div>
+        <div class="habit-dlg-meta">
+          <span class="habit-meta-chip">📅 ${escapeHtml(h.freq || "每天")}</span>
+          ${h.time ? `<span class="habit-meta-chip">⏰ ${escapeHtml(h.time)}</span>` : ""}
+          <span class="habit-meta-chip">🔥 连续 ${h.streak || 0} 天</span>
+          <span class="habit-meta-chip" title="本周完成 / 目标">🗓 本周 ${week.done}/${week.target}</span>
+          <span class="habit-meta-chip">Σ 累计 ${h.total || 0} 次</span>
+        </div>
+        <div class="habit-dlg-quick">
+          <div class="habit-7d-row"><span class="habit-7d-label">近7天</span>${last7}</div>
+          <button class="tool-btn ${doneToday ? "habit-checked" : ""}" id="habitDlgCheck" data-id="${h.id}">${doneToday ? "✓ 今日已" + (h.type === "break" ? "保持" : "打卡") : "○ 今日" + (h.type === "break" ? "保持" : "打卡")}</button>
+        </div>
+      </div>
+      ${srcHtml}
+      ${h.goal ? `<div class="habit-dlg-goal">🎯 目标：${escapeHtml(h.goal)}</div>` : ""}
+      ${h.identity ? `<div class="habit-dlg-goal">🪞 身份认同：${escapeHtml(h.identity)}</div>` : ""}
+      ${h.stackAfter ? `<div class="habit-dlg-goal">🔗 习惯堆叠：${escapeHtml(h.stackAfter)} 之后</div>` : ""}
+      ${h.twoMin ? `<div class="habit-dlg-goal">⏱ 两分钟版：${escapeHtml(h.twoMin)}</div>` : ""}
+      ${h.env ? `<div class="habit-dlg-goal">🏠 环境设计：${escapeHtml(h.env)}</div>` : ""}
+      ${todayChainHtml}
+      <div class="habit-dlg-laws-title">🧭 四大定律落地计划${h.type === "break" ? "（反向·戒除）" : "（正向·培养）"}</div>
+      <div class="habit-laws">${lawCards}</div>
+      <div class="habit-dlg-extra">
+        <div class="habit-extra-title">📝 进阶设计（可选）</div>
+        <div class="habit-extra-grid">
+          <label>身份认同：<input type="text" class="habit-field" data-f="identity" placeholder="如：我是读书的人" maxlength="40" value="${escapeHtml(h.identity || "")}" /></label>
+          <label>习惯堆叠锚点：<input type="text" class="habit-field" data-f="stackAfter" placeholder="如：早餐后" maxlength="20" value="${escapeHtml(h.stackAfter || "")}" /></label>
+          <label>两分钟版：<input type="text" class="habit-field" data-f="twoMin" placeholder="如：翻开书读一页" maxlength="30" value="${escapeHtml(h.twoMin || "")}" /></label>
+          <label>环境设计：<input type="text" class="habit-field" data-f="env" placeholder="如：书放床头手机放客厅" maxlength="40" value="${escapeHtml(h.env || "")}" /></label>
+          <label>目标：<input type="text" class="habit-field" data-f="goal" placeholder="如：一年读完 24 本书" maxlength="50" value="${escapeHtml(h.goal || "")}" /></label>
+        </div>
+      </div>
+      ${cal}
+      ${(h.plan && h.plan.length) ? `<div class="habit-dlg-plan-title">🧬 孵化拆解步骤（${h.plan.length} 步）</div><div class="habit-dlg-plan">${h.plan.map((s, i) =>
+        `<div class="habit-plan-step"><span class="habit-plan-idx">${i + 1}</span>${escapeHtml(s.text)}${s.verify ? `<span class="habit-plan-verify">✓ ${escapeHtml(s.verify)}</span>` : ""}</div>`).join("")}</div>` : ""}
+      <div class="habit-dlg-save-tip">💾 四大定律计划与进阶设计输入后自动保存</div>
+    `;
+    el.habitDialog.showModal();
+    // 四大定律计划自动保存（空内容不落库）
+    const lawPlansAllEmpty = !(h.laws || []).some((x) => x.plan && x.plan.trim());
+    if (lawPlansAllEmpty && window.matchMedia("(hover:hover)").matches) {
+      const firstTa = el.habitDlgBody.querySelector(".habit-law-plan");
+      if (firstTa) { try { firstTa.focus({ preventScroll: true }); } catch (e) {} }
+    }
+    el.habitDlgBody.querySelectorAll(".habit-law-plan").forEach((ta) => {
+      const law = ta.dataset.law;
+      let t = null;
+      const saveLaw = () => {
+        if (!Array.isArray(h.laws)) h.laws = [];
+        const v = ta.value.trim();
+        let p = h.laws.find((x) => x.law === law);
+        if (!v) {
+          if (p) h.laws = h.laws.filter((x) => x !== p); // 空计划不保存
+        } else {
+          if (!p) { p = { law }; h.laws.push(p); }
+          p.plan = v;
+        }
+        saveHabits();
+      };
+      ta.addEventListener("input", () => { clearTimeout(t); t = setTimeout(saveLaw, 400); });
+      ta.addEventListener("blur", saveLaw);
+    });
+    // 进阶字段自动保存
+    el.habitDlgBody.querySelectorAll(".habit-field").forEach((inp) => {
+      let t = null;
+      const saveF = () => { h[inp.dataset.f] = inp.value; saveHabits(); };
+      inp.addEventListener("input", () => { clearTimeout(t); t = setTimeout(saveF, 400); });
+      inp.addEventListener("blur", saveF);
+    });
+    // 打卡按钮
+    const ck = el.habitDlgBody.querySelector("#habitDlgCheck");
+    if (ck) ck.addEventListener("click", () => {
+      checkinHabit(ck.dataset.id);
+      openHabitDetail(ck.dataset.id); // 刷新
+    });
+    el.habitDlgHatch.onclick = () => { el.habitDialog.close(); openHatchDialog({ text: `${h.type === "break" ? "戒掉" : "培养"}习惯「${h.name}」`, sourceLabel: "习惯详情" }); if (el.hatchScene) el.hatchScene.value = "habit"; };
+    el.habitDlgDel.onclick = () => {
+      if (confirm(`删除习惯「${h.name}」？（打卡记录一并删除）`)) {
+        habits = habits.filter((x) => x.id !== h.id);
+        saveHabits();
+        el.habitDialog.close();
+        renderHabitList();
+        toast("已删除习惯", "info");
+      }
+    };
+  }
+
+  // 习惯列表渲染（收集箱 habit tab）
+  function updateHabitTabBadge() {
+    document.querySelectorAll(".inbox-mode-tab").forEach((t) => {
+      if (t.dataset.mode === "habit") t.textContent = habits.length ? `🔄 习惯 ${habits.length}` : "🔄 习惯";
+    });
+  }
+  function renderHabitList() {
+    if (!el.habitList) return;
+    updateHabitTabBadge();
+    if (!habits.length) {
+      el.habitList.innerHTML = `<div class="habit-empty">
+        <div class="habit-empty-icon">🔄</div>
+        <div class="habit-empty-title">还没有习惯</div>
+        <div class="habit-empty-desc">上方输入名称直接添加，或到「⚡ 速记」把待办一键转习惯<br/>用孵化功能可把习惯按《原子习惯》四大定律拆成可执行计划</div>
+      </div>`;
+      return;
+    }
+    const today = todayKey();
+    // 智能排序：今日未打卡（待办）在前 → 连续天数高在前
+    const sortFn = (a, b) => {
+      const ad = (a.checkins || []).some((c) => c.date === today) ? 1 : 0;
+      const bd = (b.checkins || []).some((c) => c.date === today) ? 1 : 0;
+      if (ad !== bd) return ad - bd;
+      return (b.streak || 0) - (a.streak || 0);
+    };
+    const build = habits.filter((h) => (h.type || "build") === "build").sort(sortFn);
+    const breaks = habits.filter((h) => h.type === "break").sort(sortFn);
+    const card = (h) => {
+      const typeM = HABIT_TYPE_META[h.type === "break" ? "break" : "build"];
+      const isBreak = h.type === "break";
+      const doneToday = (h.checkins || []).some((c) => c.date === today);
+      const week = habitWeekDone(h);
+      const last7 = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(Date.now() - (6 - i) * 86400000);
+        const k = todayKey(d);
+        return `<span class="habit-7d ${(h.checkins || []).some((c) => c.date === k) ? "on" : ""}" title="${k}">${"日一二三四五六"[d.getDay()]}</span>`;
+      }).join("");
+      const lawDots = HABIT_LAWS[isBreak ? "break" : "build"].map((l) => {
+        const p = (h.laws || []).find((x) => x.law === l.key);
+        return `<span class="habit-law-dot ${p && p.plan && p.plan.trim() ? "on" : ""}" style="border-color:${l.color};" title="${l.name}${p && p.plan && p.plan.trim() ? " ✓" : ""}"></span>`;
+      }).join("");
+      return `<div class="habit-card" data-id="${h.id}" title="点击查看详情 / 编辑四大定律计划">
+        <div class="habit-card-head">
+          <button class="habit-check" data-check="${h.id}" title="${doneToday ? (isBreak ? "今日已保持，点击撤销" : "今日已打卡，点击取消") : (isBreak ? "今日保持（未发生），点击打卡" : "今日打卡")}">${doneToday ? "✓" : "○"}</button>
+          <span class="habit-card-name">${escapeHtml(h.name)}</span>
+          <span class="habit-type-chip" style="background:${typeM.color}22;color:${typeM.color};">${typeM.icon} ${typeM.label}</span>
+        </div>
+        <div class="habit-card-meta">
+          <span class="habit-meta-chip">📅 ${escapeHtml(h.freq || "每天")}</span>
+          ${h.time ? `<span class="habit-meta-chip">⏰ ${escapeHtml(h.time)}</span>` : ""}
+          <span class="habit-meta-chip" title="连续天数">🔥 ${h.streak || 0}天</span>
+          <span class="habit-meta-chip" title="本周完成 / 目标">🗓 ${week.done}/${week.target}</span>
+          <span class="habit-meta-chip" title="累计次数">Σ ${h.total || 0}</span>
+          <span class="habit-law-dots" title="四大定律计划完善度">${lawDots}</span>
+        </div>
+        <div class="habit-card-7d" title="近7天打卡">${last7}</div>
+        ${(h.plan && h.plan.length) ? `<div class="habit-card-plan-tag">🧬 孵化计划 ${h.plan.length} 步</div>` : ""}
+      </div>`;
+    };
+    let html = "";
+    if (build.length) html += `<div class="habit-group-title">🌱 培养 ${build.length}</div>` + build.map(card).join("");
+    if (breaks.length) html += `<div class="habit-group-title">✂️ 纠正 ${breaks.length}</div>` + breaks.map(card).join("");
+    el.habitList.innerHTML = html;
+  }
+
+  // 添加习惯
+  function addHabit(name, type, freq, time) {
+    const n = (name || "").trim();
+    if (!n) { toast("先输入习惯名称", "warn"); return null; }
+    if (n.length > 30) { toast("习惯名称过长（最多30字）", "warn"); return null; }
+    const t = type || "build";
+    if (habits.some((x) => x.name === n && (x.type || "build") === t)) {
+      toast(`已有同名习惯「${n}」，可打开卡片继续完善计划`, "warn");
+      return null;
+    }
+    const h = {
+      id: genId("hab"),
+      name: n,
+      type: t,
+      freq: freq || "每天",
+      time: (time || "").trim() || "",
+      goal: "", identity: "", stackAfter: "", twoMin: "", env: "",
+      laws: [],
+      plan: [],
+      streak: 0, total: 0, lastDone: null,
+      checkins: [],
+      status: "active",
+      srcTaskId: null,
+      createdAt: Date.now(),
+    };
+    habits.push(h);
+    saveHabits();
+    updateHabitTabBadge();
+    haptic(15);
+    return h;
+  }
+
+  // 任务 → 习惯 转换弹窗
+  function openHabitConvert(idx) {
+    const it = inboxItems[idx];
+    if (!it || !el.habitConvertDialog) return;
+    const base = (it.text || it.title || "").replace(/^#\w+#\s*/, "");
+    // 仅明确的戒除词触发纠正，避免「停车/暂停/少吃点苦」等误判
+    const autoBreak = /戒|戒掉|戒除|杜绝|不再|忍住|改掉|摆脱|戒断|少(吃|喝|抽|刷|玩|熬夜|碰|看|玩手机|看电视)|停(止|掉|用|止住|掉刷)|退出|卸载/.test(base);
+    el.habitConvertBody.innerHTML = `
+      <div class="habit-conv-tip">把待办「<b>${escapeHtml(base.slice(0, 30))}</b>」转换为一个长期习惯：转换后原待办标记为完成（可在收集箱保留记录）。</div>
+      <div class="habit-conv-form">
+        <label>习惯名称<input type="text" id="hcName" maxlength="30" value="${escapeHtml(base)}" /></label>
+        <label>类型<select id="hcType"><option value="build" ${autoBreak ? "" : "selected"}>🌱 培养（养成新习惯）</option><option value="break" ${autoBreak ? "selected" : ""}>✂️ 纠正（戒掉坏习惯）</option></select></label>
+        <label>频率<select id="hcFreq"><option>每天</option><option>工作日</option><option>每周3次</option><option>每周</option></select></label>
+        <label>时机/锚点<input type="text" id="hcTime" maxlength="20" placeholder="如：早餐后 / 21:00" /></label>
+      </div>
+      <div class="habit-conv-tip">💡 保存后可在习惯详情里用「🥚 孵化重建」按四大定律拆解执行计划，或直接到孵化里选「🔄 习惯」场景拆解。</div>
+    `;
+    el.habitConvertDialog.showModal();
+    const hcName = el.habitConvertBody.querySelector("#hcName");
+    const hcType = el.habitConvertBody.querySelector("#hcType");
+    const hcFreq = el.habitConvertBody.querySelector("#hcFreq");
+    const hcTime = el.habitConvertBody.querySelector("#hcTime");
+    hcName.focus(); hcName.select();
+    el.habitConvertOk.onclick = () => {
+      const h = addHabit(hcName.value, hcType.value, hcFreq.value, hcTime.value);
+      if (h) {
+        h.srcTaskId = it.id;
+        it.done = true;
+        saveInbox();
+        renderInboxList();
+        renderInboxStats();
+        el.habitConvertDialog.close();
+        toast(`🔄 已转换为习惯「${h.name}」，可在「🔄 习惯」标签管理`, "success");
+        switchInboxMode("habit");
+        renderHabitList();
+      }
+    };
+  }
+
+
 
   function genId(prefix) { return (prefix || "id") + "_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8); }
 
@@ -15403,6 +15982,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     const noteBlock = item.note ? `<div class="ikb-note ${inboxCollapsedNotes.has(item.id) ? "collapsed" : ""}" data-idx="${idx}">${escapeHtml(item.note)}</div>` : "";
     return `<div class="inbox-kanban-card ${item.done ? "done" : ""}" data-idx="${idx}" title="${item.done ? "点击切换回未完成 · 长按编辑 · 拖拽可移动分类" : "点击切换完成 · 长按编辑 · 拖拽可安排到九宫格或移动分类"}" draggable="true">
       <button type="button" class="ikb-sticky" data-idx="${idx}" title="📌 贴到时间格子（便利贴提醒，不占任务位）">📌</button>
+      <button type="button" class="ikb-habit" data-idx="${idx}" title="🔄 转习惯（把重复性待办变成长期习惯）">🔄</button>
       <button type="button" class="ikb-edit" data-idx="${idx}" title="编辑：优先级星标 / 归属主线支线 / 收纳到任务 / 备注">✎</button>
       <div class="ikb-card-main"><span class="ikb-card-cb">${item.done ? "✓" : "○"}</span><span class="ikb-card-text">${escapeHtml(item.text || "")}</span></div>
       <div class="ikb-card-meta">${prio}${groupBadge}${childBadge}${noteBadge}${extraTags}${dueStr}</div>
@@ -15572,6 +16152,14 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         if (inboxItems[idx]) openKanbanCardEdit(idx);
         return;
       }
+      // 🔄 转习惯按钮：把待办转为长期习惯
+      const habitBtn = e.target.closest(".ikb-habit");
+      if (habitBtn) {
+        e.stopPropagation();
+        const idx = parseInt(habitBtn.dataset.idx);
+        if (inboxItems[idx]) openHabitConvert(idx);
+        return;
+      }
       // 备注块：点击切换展开/折叠（组块备注）
       const noteEl = e.target.closest(".ikb-note");
       if (noteEl) {
@@ -15615,7 +16203,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     el.inboxList.addEventListener("touchstart", (e) => {
       if (inboxView !== "kanban") return;
       const card = e.target.closest(".inbox-kanban-card");
-      if (!card || e.target.closest(".ikb-edit, .ikb-note, .ikb-sticky")) return;
+      if (!card || e.target.closest(".ikb-edit, .ikb-note, .ikb-sticky, .ikb-habit")) return;
       const t = e.touches[0];
       kbTouch = { card, idx: parseInt(card.dataset.idx, 10) || 0, startX: t.clientX, startY: t.clientY, holdTimer: null, ghost: null };
       kbTouch.holdTimer = setTimeout(() => {
@@ -15922,6 +16510,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       ${!isChild ? `<button class="it-op" data-act="up" data-idx="${idx}" title="上移（手动调整顺序）">↑</button>
       <button class="it-op" data-act="down" data-idx="${idx}" title="下移（手动调整顺序）">↓</button>` : ""}
       <button class="it-op" data-act="sticky" data-idx="${idx}" title="📌 贴到时间格子（便利贴提醒，不占任务位）">📌</button>
+      <button class="it-op" data-act="tohabit" data-idx="${idx}" title="🔄 转习惯（把重复性待办变成长期习惯）">🔄</button>
       <button class="it-op" data-act="hatch" data-idx="${idx}" title="🥚 AI 孵化拆解">🥚</button>
       <button class="it-op" data-act="edit" data-idx="${idx}" title="编辑：优先级/归属/收纳/备注">✎</button>
       <button class="it-op" data-act="assign" data-idx="${idx}" title="归属主线/支线">📂</button>
@@ -16029,6 +16618,10 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         if (act === "hatch") {
           if (el.inboxDialog && el.inboxDialog.open) el.inboxDialog.close();
           openHatchDialog({ text: it.text, sourceLabel: "收集箱待办" });
+          return;
+        }
+        if (act === "tohabit") {
+          openHabitConvert(idx);
           return;
         }
         if (act === "sticky") {
