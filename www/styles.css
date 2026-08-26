@@ -9911,6 +9911,23 @@ dialog.qa-dialog-fullscreen::backdrop { background: rgba(0, 0, 0, 0.5); }
 .habit-dlg-save-tip { font-size: 11px; color: var(--text-dim, #888); opacity: .8; text-align: center; }
 .habit-checked { border-color: #4ade80 !important; color: #4ade80 !important; }
 
+/* 今日行动链（详情） */
+.habit-today { border: 1px dashed rgba(124,92,255,.45); border-radius: 10px; padding: 10px 12px; background: rgba(124,92,255,.07); }
+.habit-today-title { font-size: 12px; font-weight: 700; color: #a78bfa; margin-bottom: 8px; }
+.habit-today-chain { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.habit-today-step { font-size: 12.5px; line-height: 1.5; background: rgba(124,92,255,.14); border: 1px solid rgba(124,92,255,.3); color: var(--text, #e8e8f0); padding: 3px 10px; border-radius: 20px; }
+.habit-today-arrow { color: #a78bfa; font-size: 12px; }
+.habit-today-sub { font-size: 11px; color: var(--text-dim, #888); margin-top: 8px; }
+
+/* 本月打卡日历（详情） */
+.habit-cal { border-top: 1px dashed var(--border, rgba(128,128,160,.25)); padding-top: 10px; }
+.habit-cal-head { font-size: 12px; font-weight: 700; margin-bottom: 8px; }
+.habit-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.habit-cal-cell { height: 26px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; border-radius: 6px; background: rgba(128,128,160,.1); color: var(--text-dim, #888); }
+.habit-cal-cell.on { background: rgba(74,222,128,.25); color: #4ade80; font-weight: 700; }
+.habit-cal-cell.today { outline: 2px solid var(--accent, #7c5cff); outline-offset: -1px; }
+.habit-cal-cell.blank { background: transparent; }
+
 /* 任务转习惯弹窗 */
 .habit-conv-tip { font-size: 13px; line-height: 1.7; color: var(--text-secondary, #b8b8c8); }
 .habit-conv-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; }
