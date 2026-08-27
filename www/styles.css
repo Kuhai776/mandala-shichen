@@ -2839,6 +2839,74 @@ body:has(.pomodoro-bar[style*="display: block"]) .realm-fab {
 .overview-mini-cell.filled { background: var(--accent); }
 .overview-mini-cell.filled.done { background: var(--success); }
 
+/* 主页「今日习惯」快捷打卡条（全天概览下方） */
+.overview-habits {
+  margin-top: 14px;
+  background: var(--bg-card);
+  border: 1px dashed rgba(124, 92, 255, 0.35);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+.ovh-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #a78bfa;
+  margin-bottom: 8px;
+}
+.ovh-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ovh-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 6px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: all 0.15s;
+  max-width: 100%;
+}
+.ovh-chip:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(124, 92, 255, 0.2);
+}
+.ovh-chip:active { transform: scale(0.95); }
+.ovh-chip.done {
+  background: rgba(74, 222, 128, 0.12);
+  border-color: rgba(74, 222, 128, 0.4);
+}
+.ovh-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 2px solid var(--text-muted);
+  flex-shrink: 0;
+}
+.ovh-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+.ovh-streak {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+.ovh-check {
+  color: var(--text-muted);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.ovh-chip.done .ovh-check { color: #4ade80; font-weight: 700; }
+
 /* ---------- Toast ---------- */
 .toast-container {
   position: fixed;
@@ -3591,6 +3659,7 @@ dialog::backdrop {
 }
 
 .stat-bar-fill.done { background: linear-gradient(90deg, var(--success), #6ee7a8); }
+.stat-bar-fill.warn { background: linear-gradient(90deg, var(--danger), #f87171); }
 
 .stat-bar-value {
   width: 36px;
