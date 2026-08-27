@@ -128,9 +128,17 @@ const SW_VER = "20260821b";
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.7.22";
+  const APP_VERSION = "2.7.23";
   const APP_VERSION_DATE = "2026-08-27";
   const APP_CHANGELOG = [
+    { v: "2.7.23", date: "2026-08-27", items: [
+      "新增：🔄 今日习惯快捷打卡条——主页「全天概览」下方常驻今日待打卡/已打卡习惯（培养🌱/纠正✂️彩色圆点 + 连续天数），点击即打卡/撤销，无需进入收集箱",
+      "新增：📊 统计弹窗习惯板块——习惯统计卡片（活跃培养/纠正数、今日打卡、最长连续、累计打卡）+ 近30天每日打卡习惯数柱状图 + 🏆连续天数排行 Top5",
+      "新增：🗺️ 统计弹窗长期任务板块——长期任务统计卡片（进行中/已完成/已逾期/平均进度）+ 各任务进度条（逾期红色高亮）+ 最长任务跨度展示",
+      "新增：📋 周报习惯统计——本周规划周报追加「本周习惯打卡 X 次」+ 各习惯本周完成/目标进度条",
+      "优化：🔒 数据安全修复——习惯数据纳入全量备份（导出/每日快照/跨设备同步码），恢复快照/导入/同步时按 id 合并习惯、打卡记录取并集、连续天数自动重算，习惯数据不再随换设备丢失",
+      "优化：快照恢复确认文案显示将恢复的习惯数量，避免误覆盖",
+    ]},
     { v: "2.7.22", date: "2026-08-27", items: [
       "新增：📌 今日行动链——习惯详情自动把「身份认同→习惯堆叠/时机→两分钟版→环境设计」组装成一条可执行的今日行动链（箭头串联），一眼看清今天每一步做什么、在哪做、做完得到什么",
       "新增：🗓 本月打卡日历——习惯详情新增当月日历网格，打卡日高亮、今日描边，配合连续天数/本周完成率看清节奏",
@@ -1845,6 +1853,7 @@ const SW_VER = "20260821b";
     qaKanbanWrap: document.getElementById("qaKanbanWrap"),
     qaBody: document.getElementById("qaBody"),
     overviewGrid: document.getElementById("overviewGrid"),
+    overviewHabits: document.getElementById("overviewHabits"),
     chatMessages: document.getElementById("chatMessages"),
     chatInput: document.getElementById("chatInput"),
     sendBtn: document.getElementById("sendBtn"),
@@ -3078,6 +3087,7 @@ const SW_VER = "20260821b";
       });
       el.overviewGrid.appendChild(item);
     }
+    renderOverviewHabits();
   }
 
   // ---------- 渲染：时钟 ----------
@@ -13119,7 +13129,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         a.download = `mandala-${new Date().toISOString().slice(0, 10)}.json`;
         a.click();
         URL.revokeObjectURL(url);
-        toast("已导出全量 JSON（含孵化历史/回溯站/对话/模板等）", "success");
+        toast("已导出全量 JSON（含习惯打卡/孵化历史/回溯站/对话/模板等）", "success");
       }
     });
   });
@@ -14455,6 +14465,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       el.habitName.value = "";
       el.habitTime.value = "";
       renderHabitList();
+      renderOverviewHabits();
       openHabitDetail(h.id);
       toast(`已添加习惯「${h.name}」，填写四大定律落地计划更有效`, "success");
     }
@@ -14643,6 +14654,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     }
     saveHabits();
     renderHabitList();
+    renderOverviewHabits();
   }
 
   // 习惯详情（含四大定律计划编辑）
@@ -14792,6 +14804,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         saveHabits();
         el.habitDialog.close();
         renderHabitList();
+        renderOverviewHabits();
         toast("已删除习惯", "info");
       }
     };
@@ -14862,6 +14875,39 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     el.habitList.innerHTML = html;
   }
 
+  // ---------- 主页「今日习惯」快捷打卡条（v2.7.23：全天概览下方，一键打卡无需进收集箱） ----------
+  function renderOverviewHabits() {
+    const box = el.overviewHabits;
+    if (!box) return;
+    const active = habits.filter((h) => h.status !== "archived");
+    if (!active.length) { box.hidden = true; box.innerHTML = ""; return; }
+    const today = todayKey();
+    const done = active.filter((h) => (h.checkins || []).some((c) => c.date === today));
+    const todo = active.filter((h) => !(h.checkins || []).some((c) => c.date === today));
+    // 排序：待打卡在前，待打卡按连续天数降序（快要断签的优先保），已打卡按 streak 降序
+    const byStreak = (a, b) => (b.streak || 0) - (a.streak || 0);
+    const chip = (h, isDone) => {
+      const tM = HABIT_TYPE_META[h.type === "break" ? "break" : "build"];
+      return `<button type="button" class="ovh-chip ${isDone ? "done" : ""}" data-hid="${h.id}" title="${isDone ? (h.type === "break" ? "今日已保持，点击撤销" : "今日已打卡，点击取消") : (h.type === "break" ? "今日保持（未发生），点击打卡" : "今日打卡")}${h.time ? ` · ${h.time}` : ""}">
+        <span class="ovh-dot" style="${isDone ? `background:${tM.color};` : ""}"></span>
+        <span class="ovh-name">${escapeHtml(h.name)}</span>
+        <span class="ovh-streak">🔥${h.streak || 0}</span>
+        <span class="ovh-check">${isDone ? "✓" : "○"}</span>
+      </button>`;
+    };
+    box.innerHTML = `<div class="ovh-title">🔄 今日习惯 ${done.length}/${active.length}</div>
+      <div class="ovh-list">${todo.sort(byStreak).map((h) => chip(h, false)).join("")}${done.sort(byStreak).map((h) => chip(h, true)).join("")}</div>`;
+    box.hidden = false;
+  }
+  // 事件委托：点击 chip 即打卡/撤销（一次绑定，长驻不重复）
+  if (el.overviewHabits) {
+    el.overviewHabits.addEventListener("click", (e) => {
+      const chipEl = e.target.closest(".ovh-chip");
+      if (!chipEl) return;
+      checkinHabit(chipEl.dataset.hid);
+    });
+  }
+
   // 添加习惯
   function addHabit(name, type, freq, time) {
     const n = (name || "").trim();
@@ -14929,6 +14975,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         toast(`🔄 已转换为习惯「${h.name}」，可在「🔄 习惯」标签管理`, "success");
         switchInboxMode("habit");
         renderHabitList();
+        renderOverviewHabits();
       }
     };
   }
@@ -17074,10 +17121,125 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         </div>`;
     }
     el.statBody.innerHTML = html;
-    // 追加趋势图、热力图、周报
+    // 追加趋势图、热力图、周报、习惯板块、长期任务板块
     el.statBody.innerHTML += renderTrendChart();
     el.statBody.innerHTML += renderHeatmap();
     el.statBody.innerHTML += renderWeeklyReport();
+    el.statBody.innerHTML += renderHabitStatSection();
+    el.statBody.innerHTML += renderLongtaskStatSection();
+  }
+
+  // ---------- 长期任务统计板块（v2.7.23：卡片 + 进度分布 + 时间跨度） ----------
+  function renderLongtaskStatSection() {
+    if (!longTasks.length) {
+      return `<h4 style="font-size:13px;color:var(--text-secondary);margin:16px 0 6px;">🗺️ 长期任务统计</h4>
+        <div style="font-size:12px;color:var(--text-muted);padding:10px 0 4px;">暂无长期任务 · 点顶部「🗺️ 长期事项时间地图」的「＋ 新建」创建跨日/周/月的长线任务</div>`;
+    }
+    const todayStr = todayKey();
+    const done = longTasks.filter((t) => t.done).length;
+    const overdue = longTasks.filter((t) => !t.done && t.dueDate && t.dueDate < todayStr).length;
+    const active = longTasks.length - done;
+    const avgProg = longTasks.length ? Math.round(longTasks.reduce((s, t) => s + (t.progress || 0), 0) / longTasks.length) : 0;
+    const spans = longTasks.map((t) => {
+      const s = t.startDate ? new Date(t.startDate) : new Date(todayStr);
+      const e = t.dueDate ? new Date(t.dueDate) : new Date(s);
+      return Math.max(1, Math.round((e - s) / 86400000));
+    });
+    const maxSpan = spans.length ? Math.max(...spans) : 0;
+    let html = `<h4 style="font-size:13px;color:var(--text-secondary);margin:16px 0 6px;">🗺️ 长期任务统计（${longTasks.length} 项）</h4>`;
+    html += `<div class="stat-grid">
+      <div class="stat-card"><div class="stat-value">${active}</div><div class="stat-label">进行中</div></div>
+      <div class="stat-card"><div class="stat-value">${done}</div><div class="stat-label">已完成</div></div>
+      <div class="stat-card"><div class="stat-value">${overdue}<span style="font-size:13px;color:var(--danger);"> ⚠</span></div><div class="stat-label">已逾期</div></div>
+      <div class="stat-card"><div class="stat-value">${avgProg}%</div><div class="stat-label">平均进度</div></div>
+    </div>`;
+    // 各任务进度条（按剩余天数升序：越紧急越靠前）
+    const sorted = [...longTasks].sort((a, b) => {
+      if (a.done !== b.done) return a.done ? 1 : -1;
+      const dA = a.dueDate || "9999-12-31", dB = b.dueDate || "9999-12-31";
+      return dA < dB ? -1 : 1;
+    });
+    const repeatIcon = (t) => (t.repeat && t.repeat !== "none") ? " 🔁" : "";
+    sorted.slice(0, 8).forEach((t) => {
+      const pct = Math.min(100, t.progress || 0);
+      const cls = t.done ? "done" : (t.dueDate && t.dueDate < todayStr ? "overdue" : "");
+      html += `<div class="stat-bar-row" style="margin-top:4px;">
+        <span class="stat-bar-label ${cls === "overdue" ? "" : ""}" style="width:auto;max-width:118px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(t.title)}${t.dueDate ? " · 截止 " + t.dueDate : ""}">${t.done ? "✅" : (cls === "overdue" ? "⚠️" : "🕐")} ${escapeHtml(t.title)}${repeatIcon(t)}</span>
+        <div class="stat-bar-track"><div class="stat-bar-fill ${t.done ? "done" : ""} ${cls === "overdue" ? "warn" : ""}" style="width:${pct}%"></div></div>
+        <span class="stat-bar-value" style="width:auto;">${t.progress || 0}%</span>
+      </div>`;
+    });
+    // 时间跨度分布（最长跨度）
+    if (maxSpan >= 30) {
+      const label = maxSpan >= 365 ? `${(maxSpan / 365).toFixed(1)} 年` : (maxSpan >= 30 ? `${Math.round(maxSpan / 30)} 个月` : `${maxSpan} 天`);
+      html += `<div style="margin-top:8px;font-size:12px;color:var(--text-muted);">📏 最长任务跨度 <b style="color:var(--accent-light);">${label}</b>（${maxSpan} 天）</div>`;
+    }
+    return html;
+  }
+
+  // ---------- 习惯统计板块（v2.7.23：卡片 + 近30天打卡柱状图 + 连续天数排行） ----------
+  function renderHabitStatSection() {
+    if (!habits.length) {
+      return `<h4 style="font-size:13px;color:var(--text-secondary);margin:16px 0 6px;">🔄 习惯统计</h4>
+        <div style="font-size:12px;color:var(--text-muted);padding:10px 0 4px;">还没有习惯 · 打开收集箱「🔄 习惯」添加，或用孵化按四大定律拆解</div>`;
+    }
+    const today = todayKey();
+    const active = habits.filter((h) => h.status !== "archived");
+    const buildN = active.filter((h) => h.type !== "break").length;
+    const breakN = active.filter((h) => h.type === "break").length;
+    const doneTodayN = active.filter((h) => (h.checkins || []).some((c) => c.date === today)).length;
+    const maxStreak = active.reduce((m, h) => Math.max(m, h.streak || 0), 0);
+    const totalCheckins = active.reduce((s, h) => s + (h.total || 0), 0);
+    let html = `<h4 style="font-size:13px;color:var(--text-secondary);margin:16px 0 6px;">🔄 习惯统计（今日打卡 ${doneTodayN}/${active.length}）</h4>`;
+    html += `<div class="stat-grid">
+      <div class="stat-card"><div class="stat-value">${buildN}<span style="font-size:13px;color:var(--text-muted);"> 培</span> ${breakN}<span style="font-size:13px;color:var(--text-muted);"> 纠</span></div><div class="stat-label">活跃习惯</div></div>
+      <div class="stat-card"><div class="stat-value">${doneTodayN}</div><div class="stat-label">今日打卡</div></div>
+      <div class="stat-card"><div class="stat-value">🔥 ${maxStreak}</div><div class="stat-label">最长连续（天）</div></div>
+      <div class="stat-card"><div class="stat-value">${totalCheckins}</div><div class="stat-label">累计打卡</div></div>
+    </div>`;
+    // 近 30 天打卡数柱状图（SVG 柱：当日打卡习惯数 / 目标数）
+    const days = 30;
+    const data = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const k = todayKey(d);
+      const cnt = active.filter((h) => (h.checkins || []).some((c) => c.date === k)).length;
+      data.push({ date: k, cnt });
+    }
+    const W = 320, H = 110, PAD = 20;
+    const bw = (W - PAD * 2) / days;
+    const maxV = Math.max(active.length, 1);
+    let bars = "";
+    data.forEach((d, i) => {
+      const h = Math.max(d.cnt ? 3 : 1.5, (d.cnt / maxV) * (H - PAD * 2));
+      const x = PAD + i * bw;
+      const y = H - PAD - h;
+      const isToday = d.date === today;
+      bars += `<rect x="${(x + 0.5).toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(1.5, bw - 2.5).toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" fill="${d.cnt ? (isToday ? "var(--accent)" : "rgba(74,222,128,.55)") : "var(--bg-tertiary)"}"><title>${d.date}：${d.cnt}/${active.length} 个习惯打卡</title></rect>`;
+    });
+    const last7 = data.slice(-7);
+    const avg7 = (last7.reduce((s, d) => s + d.cnt, 0) / 7).toFixed(1);
+    html += `<div style="font-size:12px;color:var(--text-muted);margin:10px 0 4px;">📈 近 30 天习惯打卡数（柱高=当日打卡习惯数，近7天日均 ${avg7}）</div>
+      <div class="chart-container">
+        <svg class="chart-svg" style="height:110px;" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+          <line x1="${PAD}" y1="${H - PAD}" x2="${W - PAD}" y2="${H - PAD}" stroke="var(--border)" stroke-width="1"/>
+          ${bars}
+        </svg>
+      </div>`;
+    // 连续天数排行 Top 5（按 streak 降序，进度条 = streak / maxStreak）
+    const top = [...active].sort((a, b) => (b.streak || 0) - (a.streak || 0)).slice(0, 5);
+    const tM = { build: "🌱", break: "✂️" };
+    html += `<div style="font-size:12px;color:var(--text-muted);margin:10px 0 4px;">🏆 连续天数排行</div>`;
+    top.forEach((h) => {
+      const pct = maxStreak ? Math.round(((h.streak || 0) / maxStreak) * 100) : 0;
+      html += `<div class="stat-bar-row">
+        <span class="stat-bar-label" style="width:auto;max-width:118px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(h.name)}">${tM[h.type === "break" ? "break" : "build"]} ${escapeHtml(h.name)}</span>
+        <div class="stat-bar-track"><div class="stat-bar-fill done" style="width:${pct}%"></div></div>
+        <span class="stat-bar-value" style="width:auto;">🔥${h.streak || 0}</span>
+      </div>`;
+    });
+    return html;
   }
 
   // 近 30 天完成趋势折线图（SVG）
@@ -17207,6 +17369,34 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       <span style="color:var(--danger)">🔴 ${byPriority.high}</span> ·
       <span style="color:var(--warning)">🟡 ${byPriority.medium}</span> ·
       <span style="color:var(--success)">🟢 ${byPriority.low}</span></div>`;
+    // 本周习惯打卡（v2.7.23）
+    if (habits.length) {
+      const wS = new Date();
+      wS.setHours(0, 0, 0, 0);
+      wS.setDate(wS.getDate() - 6);
+      let wkDone = 0;
+      const perHabit = [];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(wS); d.setDate(wS.getDate() + i);
+        const k = todayKey(d);
+        wkDone += habits.filter((h) => (h.checkins || []).some((c) => c.date === k)).length;
+      }
+      habits.forEach((h) => {
+        const wd = habitWeekDone(h);
+        if (wd.done) perHabit.push({ h, done: wd.done, target: wd.target });
+      });
+      perHabit.sort((a, b) => b.done - a.done);
+      html += `<div style="margin-top:8px;font-size:12px;color:var(--text-secondary);">🔄 本周习惯打卡 <b style="color:var(--success)">${wkDone}</b> 次${perHabit.length ? "：" : ""}</div>`;
+      perHabit.slice(0, 5).forEach(({ h, done, target }) => {
+        const pct = Math.min(100, Math.round((done / target) * 100));
+        const tM = h.type === "break" ? "✂️" : "🌱";
+        html += `<div class="stat-bar-row" style="margin-top:4px;">
+          <span class="stat-bar-label" style="width:auto;max-width:118px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(h.name)}">${tM} ${escapeHtml(h.name)}</span>
+          <div class="stat-bar-track"><div class="stat-bar-fill done" style="width:${pct}%"></div></div>
+          <span class="stat-bar-value" style="width:auto;">${done}/${target}</span>
+        </div>`;
+      });
+    }
     return html;
   }
 
@@ -17214,13 +17404,14 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   const SNAPSHOT_KEY = "mandala-snapshots-v1";
   const MAX_SNAPSHOTS = 7;
   function getSnapshots() { return load(SNAPSHOT_KEY, { lastDate: "", list: [] }); }
-  // 全量备份数据装配（快照 / 导出 / 同步码共用，v6 全量）
+  // 全量备份数据装配（快照 / 导出 / 同步码共用，v7 全量：+ habits）
   function buildFullBackupData() {
     return {
-      version: 6,
+      version: 7,
       exportedAt: new Date().toISOString(),
       tasks: state.tasks, done: state.done, checklists: state.checklists, repeats: state.repeats,
       records: state.records, reviews: state.reviews,
+      habits: habits,
       inbox: load(INBOX_KEY, []), inboxMainlines: load(INBOX_MAINLINES_KEY, []),
       longTasks: load(LONGTASK_KEY, []),
       hatchHistory: load(HATCH_HISTORY_KEY, []),
@@ -17263,14 +17454,16 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     const item = snap.list[idx];
     if (!item || !item.data) return;
     const days = Object.keys(item.data.tasks || {}).length;
-    if (!confirm(`恢复到 ${formatDateLabel(item.date)} 的快照？\n当前数据会被覆盖（${days} 天任务）。建议先手动导出备份。`)) return;
+    const habN = (item.data.habits || []).length;
+    if (!confirm(`恢复到 ${formatDateLabel(item.date)} 的快照？\n当前数据会被覆盖（${days} 天任务${habN ? `、${habN} 个习惯` : ""}）。建议先手动导出备份。`)) return;
     if (item.data.tasks) state.tasks = item.data.tasks;
     if (item.data.done) state.done = item.data.done;
     if (item.data.checklists) state.checklists = item.data.checklists;
     if (item.data.repeats) state.repeats = item.data.repeats;
     if (item.data.records) state.records = item.data.records;
     if (item.data.reviews) state.reviews = item.data.reviews;
-    if (item.data.inbox) { inboxItems = item.data.inbox; saveInbox(); }
+    if (item.data.habits) { habits = item.data.habits.map(migrateHabit).filter(Boolean); saveHabits(); }
+    if (item.data.inbox) { inboxItems = item.data.inbox.map(migrateInboxItem); saveInbox(); }
     if (item.data.inboxMainlines) { inboxMainlines = item.data.inboxMainlines; saveMainlines(); }
     if (item.data.longTasks) { longTasks = item.data.longTasks; saveLongTasks(); }
     // 全量键（v6+）：孵化历史 / 回溯站 / 对话 / 模板 / 番茄钟 / 维度开关
@@ -17289,6 +17482,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     save(REVIEW_KEY, state.reviews);
     refreshRepeats();
     renderAll();
+    renderHabitList();
     toast("已恢复到所选快照", "success");
   }
   function deleteSnapshot(idx) {
@@ -17343,12 +17537,41 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     a.download = `mandala-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    toast("已导出全量 JSON（含孵化历史/回溯站/对话/模板等）", "success");
+    toast("已导出全量 JSON（含习惯打卡/孵化历史/回溯站/对话/模板等）", "success");
   });
 
   // 应用全量备份中的附加键（v6+）：收集箱/主线/长任务按 id 合并，孵化历史按 task_hash 合并，其余覆盖
+  // v7+：习惯按 id 合并（同 id 时打卡记录取并集，连续天数/累计次数重算，其余字段保留本地最新）
   function applyBackupExtraKeys(data) {
     if (!data || typeof data !== "object") return;
+    if (Array.isArray(data.habits)) {
+      let changed = false;
+      data.habits.forEach((bh) => {
+        if (!bh || !bh.id) return;
+        const migrated = migrateHabit(bh);
+        const local = habits.find((h) => h.id === migrated.id);
+        if (!local) {
+          habits.push(migrated);
+          changed = true;
+        } else {
+          // 合并打卡记录：按日期并集（双方打卡都保留）
+          const byDate = new Map();
+          (local.checkins || []).forEach((c) => byDate.set(c.date, c));
+          (migrated.checkins || []).forEach((c) => { if (!byDate.has(c.date)) byDate.set(c.date, c); });
+          const mergedCheckins = Array.from(byDate.values()).sort((a, b) => (a.date < b.date ? -1 : 1));
+          if (mergedCheckins.length !== (local.checkins || []).length) changed = true;
+          local.checkins = mergedCheckins;
+          recalcStreak(local);
+          local.total = mergedCheckins.length;
+          // 定律计划/进阶字段：本地为空则采纳备份（不覆盖已填内容）
+          if (!local.laws || !local.laws.length) local.laws = migrated.laws || [];
+          if (!local.plan || !local.plan.length) local.plan = migrated.plan || [];
+        }
+      });
+      if (changed) saveHabits();
+      renderHabitList();
+      renderOverviewHabits();
+    }
     if (Array.isArray(data.inbox)) {
       const seen = new Set(inboxItems.map((i) => i.id));
       data.inbox.forEach((i) => { if (i && i.id && !seen.has(i.id)) { inboxItems.push(migrateInboxItem(i)); seen.add(i.id); } });
