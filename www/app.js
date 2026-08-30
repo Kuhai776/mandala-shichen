@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260905";
+const SW_VER = "20260908";
 
 (function () {
   "use strict";
@@ -2046,6 +2046,9 @@ const SW_VER = "20260905";
     importFile: document.getElementById("importFile"),
     snapshotNowBtn: document.getElementById("snapshotNowBtn"),
     snapshotList: document.getElementById("snapshotList"),
+    exportBackupBtn: document.getElementById("exportBackupBtn"),
+    importBackupBtn: document.getElementById("importBackupBtn"),
+    importBackupFile: document.getElementById("importBackupFile"),
     fabAdd: document.getElementById("fabAdd"),
     shortcutBtn: document.getElementById("shortcutBtn"),
     shortcutDialog: document.getElementById("shortcutDialog"),
@@ -2195,6 +2198,7 @@ const SW_VER = "20260905";
     hatchGenTip: document.getElementById("hatchGenTip"),
     realmFabHatch: document.getElementById("realmFabHatch"),
     realmFabBasic: document.getElementById("realmFabBasic"),
+    realmFabMindmap: document.getElementById("realmFabMindmap"),
     hatchBasicBtn: document.getElementById("hatchBasicBtn"),
     hatchSaveHabit: document.getElementById("hatchSaveHabit"),
     hatchMode: document.getElementById("hatchMode"),
@@ -8679,7 +8683,39 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
   }
 
   // 构建续聊 prompt：携带当前任务 + 现有方案 + 最近对话，保持上下文
-  function buildFollowupPrompt(userText) {
+  // 孵化对话意图分类：adjust=调整方案 / diag=诊断深挖 / chat=闲聊 / local=本地命令（零 token）
+  function classifyHatchIntent(text) {
+    const t = (text || "").trim();
+    // 本地命令：统计 / 复制导出（直接本地响应，不消耗 token）
+    if (/(几步|多少步|几.?步|步数)/.test(t) || /(总共|一共).{0,4}(分钟|多久)|总时长|要多久|估时/.test(t)) return "local-count";
+    if (/复制|导出|拷贝/.test(t) && /(方案|步骤|列表|txt|md|markdown|mermaid)/.test(t)) return "local-copy";
+    // 调整方案（明确修改动作）
+    if (/改|调整|细化|加一|增加|删|去掉|移除|合并|拆分|精简|减少|换成|替换|缩短|延长|重拆|重新拆|补充|插入|换.*档|换.*模式|按.*分钟|压缩到|改成/.test(t)) return "adjust";
+    // 诊断深挖
+    if (/七维|深挖|诊断|薄弱|短板|极限|实验|隐患|最容易失败|找问题|评估|复盘|卡点|风险|为什么这么拆|哪里.*问题|原因|复盘/.test(t)) return "diag";
+    return "chat";
+  }
+
+  // 本地命令处理（统计/复制，零 token）
+  function handleLocalHatchCommand(text) {
+    const steps = (hatchState.result && hatchState.result.steps) || [];
+    const total = steps.reduce((s, x) => s + (parseInt(x.est_min, 10) || 0), 0);
+    if (/(几步|多少步|几.?步|步数)/.test(text)) {
+      const main = steps.filter((s) => s.branch === "main").length;
+      return `📊 当前方案共 ${steps.length} 步（主线 ${main} · 支线 ${steps.length - main}），预估总时长约 ${total || "—"} 分钟。需要我调整哪部分？`;
+    }
+    if (/分钟|总时长|多久|估时/.test(text)) {
+      return `⏱ 当前方案预估总时长约 ${total || "—"} 分钟（${steps.length} 步）。想压缩或拉长可以告诉我。`;
+    }
+    if (/复制|导出|拷贝/.test(text)) {
+      const txt = steps.map((s, i) => `${i + 1}. ${s.text}${s.est_min ? `（${s.est_min}min）` : ""}${s.target_dim ? ` [${s.target_dim}]` : ""}`).join("\n") || "（方案为空）";
+      copyText(txt);
+      return `📋 当前方案（${steps.length} 步）已复制到剪贴板。`;
+    }
+    return null;
+  }
+
+  function buildFollowupPrompt(userText, intent) {
     const steps = (hatchState.result && hatchState.result.steps) || [];
     // 方案压缩：只保留 text/est_min/dim，单条截断 60 字、最多列 14 条，超长省略（省 token）
     let stepsStr = steps.slice(0, 14).map((s, i) => `${i + 1}. ${trunc(s.text, 60)}${s.est_min ? `（${s.est_min}min）` : ""}${s.target_dim ? ` [${s.target_dim}]` : ""}`).join("\n");
@@ -8689,11 +8725,10 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
     const recent = hatchState.chatLog.slice(-4)
       .map((m) => `${m.role === "user" ? "用户" : "AI"}：${trunc(m.content, 240)}`)
       .join("\n") || "（无）";
-    // 仅当用户提出深度诊断/复盘/测试类诉求时才注入完整 7 维体系（否则省去 ~800+ token）
-    const needDiag = /七维|深挖|诊断|薄弱|短板|极限|实验|最容易失败|什么隐患|找问题|评估|复盘|卡点|风险|优化|加强|改进|提升|为什么这么拆|哪里.*问题/.test(userText || "");
+    // 意图分类：diag 才注入完整 7 维体系（否则省去 ~800+ token）；adjust/chat 不注入
+    const needDiag = intent === "diag";
     const system = [
       "你是任务拆解专家，正在与用户就同一个任务的拆解方案进行连续对话。请保持上下文，基于当前方案与对话历史回答。",
-      "只输出 JSON，不要解释、不要 markdown 围栏。（仅规则 4 的诊断/深挖场景输出中文分析文字）",
       "",
       `【任务】${hatchState.taskText}`,
       "【当前方案】",
@@ -8702,21 +8737,23 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
       "【对话历史】",
       recent,
       "",
-      "【规则】",
-      '1. 用户要求调整方案（细化某步/增删/合并/精简步数/换场景或档位重拆等）时：输出完整的新版方案 JSON，schema：{"complexity":"simple|standard|complex","est_total_min":数字,"first_blocker":"最可能卡住的点","shortcut":"可选捷径","steps":[{"text":"具体动作","est_min":15,"depends_on":null,"risk":"low","risk_note":"","why":"为什么必要","branch":"main","parent_step":null}]}',
-      "2. 步数按用户要求控制；用户未指定时默认 3-8 步，单步 15-30 分钟，按执行顺序排列。",
-      '3. 主线/支线：主干步骤 branch="main" 串联；辅助/并行步骤 branch="side" 并给 parent_step 填依附的主线步骤 index（从 0 起）；至少 1 个 main。',
-      '4. 用户只是提问/闲聊（如“为什么这么拆”“有没有更快的办法”）时：用简短中文直接回答，不要输出 JSON。',
     ];
-    if (needDiag) {
+    // 按意图只激活一条规则，避免指令冲突（此前 1/4/5 三规则并存易打架）
+    if (intent === "adjust") {
+      system.push("【规则 · 本轮为方案调整】");
+      system.push('只输出完整的新版方案 JSON，不要解释、不要 markdown 围栏。schema：{"complexity":"simple|standard|complex","est_total_min":数字,"first_blocker":"最可能卡住的点","shortcut":"可选捷径","steps":[{"text":"具体动作","est_min":15,"depends_on":null,"risk":"low","risk_note":"","why":"为什么必要","branch":"main","parent_step":null}]}');
+      system.push("步数按用户要求控制；用户未指定时默认 3-8 步，单步 15-30 分钟，按执行顺序排列。");
+      system.push('主线/支线：主干步骤 branch="main" 串联；辅助/并行步骤 branch="side" 并给 parent_step 填依附的主线步骤 index（从 0 起）；至少 1 个 main。');
+    } else if (intent === "diag") {
       const dimList = KNOWLEDGE_DIMENSIONS.map((d) =>
         `   - ${d.code} ${d.name}：${d.subs.map((s) => s.name).join(" / ")}`
       ).join("\n");
-      system.push("");
       system.push("【七大标准诊断体系】");
       system.push(dimList);
       system.push("【三问式分析法】每个维度按三层递进深挖：导向型（现象定位）→ 解析型（根源拆解）→ 实验型（验证修复）");
-      system.push('5. 用户要求诊断/深挖/找薄弱点/极限测试/实验设计（如“七维深挖”“哪里最容易失败”）时：用七大标准逐维分析，每维按三问式（导向→解析→实验）展开；先给「诊断总览表」（维度｜现象｜根源｜修复），再点名最薄弱的 2 个维度并各给 1 条可执行的修复建议；分析要具体到方案的某一步，不许空谈理论；用中文回答，不要输出 JSON。');
+      system.push("【规则 · 本轮为诊断/深挖】用七大标准逐维分析，每维按三问式（导向→解析→实验）展开；先给「诊断总览表」（维度｜现象｜根源｜修复），再点名最薄弱的 2 个维度并各给 1 条可执行的修复建议；分析要具体到方案的某一步，不许空谈理论；用中文回答，不要输出 JSON。");
+    } else {
+      system.push("【规则 · 本轮为提问/闲聊】用简短中文直接回答，不要输出 JSON，不要修改方案。");
     }
     return { systemPrompt: system.join("\n"), userPrompt: userText };
   }
@@ -8735,6 +8772,17 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
     if (el.hatchChatSend) { el.hatchChatSend.disabled = true; el.hatchChatSend.textContent = "…"; }
 
     const botEl = appendHatchChat("bot", "⏳ AI 思考中…");
+    // 意图分类 + 本地命令拦截（统计/复制导出 → 零 token 秒回）
+    const intent = classifyHatchIntent(text);
+    if (intent === "local-count" || intent === "local-copy") {
+      const localReply = handleLocalHatchCommand(text);
+      if (localReply) {
+        botEl.textContent = localReply;
+        hatchState.chatLog.push({ role: "assistant", content: localReply });
+        if (el.hatchChatSend) { el.hatchChatSend.disabled = false; el.hatchChatSend.textContent = "发送"; }
+        return;
+      }
+    }
     // 思考计时：每秒更新占位（痛点：60s 超时干等无感知）
     let thinkSec = 0;
     const thinkTimer = setInterval(() => {
@@ -8742,7 +8790,7 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
       if (botEl && (botEl.textContent || "").startsWith("⏳")) botEl.textContent = `⏳ AI 思考中… ${thinkSec}s`;
     }, 1000);
     try {
-      const { systemPrompt, userPrompt } = buildFollowupPrompt(text);
+      const { systemPrompt, userPrompt } = buildFollowupPrompt(text, intent);
       hatchState.abortController = new AbortController();
       const timeoutId = setTimeout(() => hatchState.abortController.abort(), 90000);
       const raw = await callHatchLLM(systemPrompt, userPrompt, hatchState.abortController.signal, (full) => {
@@ -8764,6 +8812,9 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
         parsed.scene = hatchState.result.scene;
         renderHatchResult(parsed, { keepChat: true });
         appendHatchChat("bot", `✓ 方案已更新：${parsed.steps.length} 步，预估 ${parsed.est_total_min || "—"} 分钟。可继续提出调整。`);
+      } else if (intent === "adjust" && botEl) {
+        // 调整意图但未返回可解析方案：明确提示，原文已在上方展示
+        botEl.textContent = (botEl.textContent || raw || "（无回复）") + "\n\n⚠ 未解析到可更新的方案 JSON（AI 可能以文字回复了）。可回复「按这个改」让我重试，或直接说具体要求。";
       }
       hatchState.chatLog.push({ role: "assistant", content: raw });
     } catch (err) {
@@ -11563,6 +11614,31 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       }
       this._open();
     }
+    // 独立入口：打开独立导图库中保存的某张导图
+    openSavedMindmap(rec) {
+      if (!rec || !rec.root) { this.openBlank(); return; }
+      this.root = rec.root;
+      this.layout = rec.layout || "lr";
+      this._openedFrom = { mode: "saved", id: rec.id };
+      if (rec.taskText) {
+        hatchState.taskText = rec.taskText;
+        hatchState.taskHash = hashTaskText(rec.taskText);
+        hatchState.result = { steps: this.treeToSteps(rec.root), est_total_min: rec.estTotalMin || null };
+      }
+      this._open();
+    }
+    // 空白新建：独立思维导图（根节点可编辑）
+    openBlank() {
+      const root = this.newNode("新思维导图", {});
+      root._isRoot = true;
+      this.root = root;
+      this.layout = "lr";
+      this._openedFrom = { mode: "blank" };
+      hatchState.taskText = "新思维导图";
+      hatchState.taskHash = hashTaskText("新思维导图");
+      hatchState.result = { steps: [], est_total_min: null };
+      this._open();
+    }
     _findSavedMindmap(taskHash) {
       try {
         const hist = loadHatchHistory();
@@ -11902,6 +11978,29 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     mmEditor.openFromHistory(rec);
   }
 
+  // 独立入口：打开思维导图编辑器（最近导图 → 最近孵化历史 → 空白新建）
+  function openMindmapStandalone() {
+    if (!mmEditor) mmEditor = new MindMapEditor();
+    // 1) 独立导图库最近一张
+    const saved = load(MINDMAP_KEY, []);
+    if (saved.length) {
+      const last = saved[saved.length - 1];
+      mmEditor.openSavedMindmap(last);
+      toast(`已打开最近导图「${trunc(last.taskText || "未命名", 24)}」（共 ${saved.length} 张，可在编辑器内切换）`, "info");
+      return;
+    }
+    // 2) 最近一条孵化历史（含步骤）
+    const hist = loadHatchHistory();
+    if (hist.length) {
+      mmEditor.openFromHistory(hist[hist.length - 1]);
+      toast("已从最近孵化记录生成思维导图（可编辑后保存）", "info");
+      return;
+    }
+    // 3) 空白新建
+    mmEditor.openBlank();
+    toast("已新建空白思维导图 · 双击根节点命名，选中后 Tab 添加节点", "info");
+  }
+
   // 剪贴板复制工具（带 toast 反馈）
   function copyText(text) {
     const done = () => toast("已复制到剪贴板", "success");
@@ -11942,6 +12041,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     startHatchFromForm();
   };
   if (el.realmFabBasic) el.realmFabBasic.addEventListener("click", startBasicHatch);
+  if (el.realmFabMindmap) el.realmFabMindmap.addEventListener("click", openMindmapStandalone);
   if (el.hatchBasicBtn) el.hatchBasicBtn.addEventListener("click", startBasicHatch);
   if (el.hatchGenBtn) el.hatchGenBtn.addEventListener("click", generateOnboardQuestions);
   if (el.hatchStartBtn) el.hatchStartBtn.addEventListener("click", startHatchFromForm);
@@ -19993,6 +20093,25 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     saveSnapshot(false);
     return true;
   }
+  // 版本变更检测：检测到应用版本升级/降级时，自动把当前全量数据导出为备份文件并提示
+  // （APK 签名不同需卸载重装，localStorage 会被清空——自动导出是最后一道防线）
+  function checkVersionAutoBackup() {
+    try {
+      const VER_KEY = "mandala-last-version";
+      const last = load(VER_KEY, "");
+      const cur = SW_VER;
+      if (last && last !== cur) {
+        // 先手动存一份快照（本地），再尝试下载文件（外部）
+        try { saveSnapshot(true); } catch (e) { /* 忽略 */ }
+        try { downloadBackupFile(buildFullBackupData(), `mandala-${last}-to-${cur}-backup.json`); } catch (e) { /* 忽略 */ }
+        toast(`🔄 检测到版本更新（${last} → ${cur}），已自动导出备份文件（请到下载目录/通知栏确认）。若未弹出下载，请到 设置→数据管理→导出备份文件`, "info", 8000);
+        setTimeout(() => {
+          toast("💡 卸载前请先完成导出，装新版本后到 设置→数据管理→导入备份文件 恢复", "info", 8000);
+        }, 8500);
+      }
+      save(VER_KEY, cur);
+    } catch (e) { /* 忽略 */ }
+  }
   function restoreSnapshot(idx) {
     const snap = getSnapshots();
     const item = snap.list[idx];
@@ -20000,32 +20119,38 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     const days = Object.keys(item.data.tasks || {}).length;
     const habN = (item.data.habits || []).length;
     if (!confirm(`恢复到 ${formatDateLabel(item.date)} 的快照？\n当前数据会被覆盖（${days} 天任务${habN ? `、${habN} 个习惯` : ""}）。建议先手动导出备份。`)) return;
-    if (item.data.tasks) state.tasks = item.data.tasks;
-    if (item.data.done) state.done = item.data.done;
-    if (item.data.checklists) state.checklists = item.data.checklists;
-    if (item.data.repeats) state.repeats = item.data.repeats;
-    if (item.data.records) state.records = item.data.records;
-    if (item.data.reviews) state.reviews = item.data.reviews;
-    if (item.data.habits) { habits = item.data.habits.map(migrateHabit).filter(Boolean); saveHabits(); }
-    if (item.data.inbox) { inboxItems = item.data.inbox.map(migrateInboxItem); saveInbox(); }
-    if (item.data.inboxMainlines) { inboxMainlines = item.data.inboxMainlines; saveMainlines(); }
-    if (item.data.longTasks) { longTasks = item.data.longTasks; saveLongTasks(); }
+    applyFullBackup(item.data);
+    toast("已恢复到所选快照", "success");
+  }
+  // 全量覆盖恢复（快照恢复 / 导入备份文件共用）
+  function applyFullBackup(data) {
+    if (!data || typeof data !== "object") return;
+    if (data.tasks) state.tasks = data.tasks;
+    if (data.done) state.done = data.done;
+    if (data.checklists) state.checklists = data.checklists;
+    if (data.repeats) state.repeats = data.repeats;
+    if (data.records) state.records = data.records;
+    if (data.reviews) state.reviews = data.reviews;
+    if (data.habits) { habits = data.habits.map(migrateHabit).filter(Boolean); saveHabits(); }
+    if (data.inbox) { inboxItems = data.inbox.map(migrateInboxItem); saveInbox(); }
+    if (data.inboxMainlines) { inboxMainlines = data.inboxMainlines; saveMainlines(); }
+    if (data.longTasks) { longTasks = data.longTasks; saveLongTasks(); }
     // 全量键（v6+）：孵化历史 / 回溯站 / 对话 / 模板 / 番茄钟 / 维度开关
-    if (item.data.hatchHistory) save(HATCH_HISTORY_KEY, item.data.hatchHistory);
-    if (item.data.trash) save(TRASH_KEY, item.data.trash);
-    if (item.data.chat) save(CHAT_KEY, item.data.chat);
-    if (item.data.templates) save(TPL_KEY, item.data.templates);
-    if (item.data.convTemplates) save(CONV_TPL_KEY, item.data.convTemplates);
-    if (item.data.pomo) save(POMO_STATE_KEY, item.data.pomo);
-    if (item.data.activeDims) save(ACTIVE_DIMS_KEY, item.data.activeDims);
+    if (data.hatchHistory) save(HATCH_HISTORY_KEY, data.hatchHistory);
+    if (data.trash) save(TRASH_KEY, data.trash);
+    if (data.chat) save(CHAT_KEY, data.chat);
+    if (data.templates) save(TPL_KEY, data.templates);
+    if (data.convTemplates) save(CONV_TPL_KEY, data.convTemplates);
+    if (data.pomo) save(POMO_STATE_KEY, data.pomo);
+    if (data.activeDims) save(ACTIVE_DIMS_KEY, data.activeDims);
     // v8 快照键：思维导图库 / 提问库 / 记录笔记 / 自动记录 / 连续打卡 / Hermes / 动作队列
-    if (item.data.mindmaps) save(MINDMAP_KEY, item.data.mindmaps);
-    if (item.data.qaBank) save(QA_KEY, item.data.qaBank);
-    if (item.data.recordNotes) save(NOTE_KEY, item.data.recordNotes);
-    if (item.data.autoRecord) save(AUTO_RECORD_KEY, item.data.autoRecord);
-    if (item.data.streak) save(STREAK_KEY, item.data.streak);
-    if (item.data.hermesNotes) save(HERMES_NOTES_KEY, item.data.hermesNotes);
-    if (item.data.actions) save(ACTIONS_KEY, item.data.actions);
+    if (data.mindmaps) save(MINDMAP_KEY, data.mindmaps);
+    if (data.qaBank) save(QA_KEY, data.qaBank);
+    if (data.recordNotes) save(NOTE_KEY, data.recordNotes);
+    if (data.autoRecord) save(AUTO_RECORD_KEY, data.autoRecord);
+    if (data.streak) save(STREAK_KEY, data.streak);
+    if (data.hermesNotes) save(HERMES_NOTES_KEY, data.hermesNotes);
+    if (data.actions) save(ACTIONS_KEY, data.actions);
     save(STORAGE_KEY, state.tasks);
     save(DONE_KEY, state.done);
     save(CHECKLIST_KEY, state.checklists);
@@ -20035,7 +20160,6 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     refreshRepeats();
     renderAll();
     renderHabitList();
-    toast("已恢复到所选快照", "success");
   }
   function deleteSnapshot(idx) {
     const snap = getSnapshots();
@@ -20060,6 +20184,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         <span class="snapshot-label">${s.manual ? "📸" : "🌙"} ${label}${isToday ? "（今日）" : ""}</span>
         <span class="snapshot-actions">
           <button class="snapshot-btn" data-act="restore" data-idx="${idx}" title="恢复到此时刻">↩ 恢复</button>
+          <button class="snapshot-btn" data-act="export" data-idx="${idx}" title="导出这份快照为文件（防卸载丢失）">⬇ 导出</button>
           <button class="snapshot-btn danger" data-act="del" data-idx="${idx}" title="删除快照">✕</button>
         </span>
       </div>`;
@@ -20068,9 +20193,18 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       btn.addEventListener("click", () => {
         const idx = parseInt(btn.dataset.idx);
         if (btn.dataset.act === "restore") restoreSnapshot(idx);
+        else if (btn.dataset.act === "export") exportSnapshotFile(idx);
         else deleteSnapshot(idx);
       });
     });
+  }
+  // 导出指定快照为独立 JSON 文件（快照本体存 localStorage，卸载即失；导出文件才能真正带走）
+  function exportSnapshotFile(idx) {
+    const snap = getSnapshots();
+    const item = snap.list[idx];
+    if (!item || !item.data) { toast("快照数据缺失", "error"); return; }
+    downloadBackupFile(item.data, `mandala-snapshot-${item.date || "history"}.json`);
+    toast("快照已导出为文件，请妥善保存", "success");
   }
   if (el.snapshotNowBtn) {
     el.snapshotNowBtn.addEventListener("click", () => {
@@ -20080,17 +20214,54 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   }
 
   // ---------- 导出/导入 ----------
-  el.exportBtn.addEventListener("click", () => {
-    const data = buildFullBackupData();
+  // 公共：把备份对象下载为 JSON 文件
+  function downloadBackupFile(data, filename) {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `mandala-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = filename || `mandala-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+  el.exportBtn.addEventListener("click", () => {
+    downloadBackupFile(buildFullBackupData());
     toast("已导出全量 JSON（含习惯打卡/孵化历史/回溯站/对话/模板等）", "success");
   });
+  // 设置页「导出备份文件」（更新/卸载前必做）
+  if (el.exportBackupBtn) el.exportBackupBtn.addEventListener("click", () => {
+    downloadBackupFile(buildFullBackupData());
+    toast("✅ 全量备份已导出，请保存好此文件", "success");
+  });
+  // 设置页「导入备份文件」（从 JSON 恢复/合并）
+  if (el.importBackupBtn && el.importBackupFile) {
+    el.importBackupBtn.addEventListener("click", () => el.importBackupFile.click());
+    el.importBackupFile.addEventListener("change", () => {
+      const file = el.importBackupFile.files && el.importBackupFile.files[0];
+      el.importBackupFile.value = "";
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const data = JSON.parse(reader.result);
+          if (!data || typeof data !== "object") throw new Error("备份内容不是有效对象");
+          const mode = confirm("导入方式：\n「确定」= 全量覆盖恢复（推荐用于换机/重装）\n「取消」= 合并导入（保留本地现有数据）");
+          if (mode) {
+            applyFullBackup(data);       // 覆盖恢复
+            toast("✅ 已从备份文件全量恢复", "success");
+          } else {
+            applyBackupExtraKeys(data);  // 合并导入
+            toast("✅ 已合并导入备份数据（保留本地现有）", "success");
+          }
+          renderAll();
+        } catch (e) {
+          toast("❌ 导入失败：不是有效的备份文件（" + (e.message || e) + "）", "error");
+        }
+      };
+      reader.onerror = () => toast("❌ 文件读取失败", "error");
+      reader.readAsText(file);
+    });
+  }
 
   // 应用全量备份中的附加键（v6+）：收集箱/主线/长任务按 id 合并，孵化历史按 task_hash 合并，其余覆盖
   // v7+：习惯按 id 合并（同 id 时打卡记录取并集，连续天数/累计次数重算，其余字段保留本地最新）
@@ -20496,6 +20667,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     checkUrlSync();
     autoSnapshotToday(); // 自动快照：每天首次打开备份一份
     renderSnapshotList();
+    checkVersionAutoBackup(); // 版本变更：自动导出备份文件 + 提示
     pullSync(); // Hermes 联动：启动拉取远程数据合并
     renderHermesNotes(); // 恢复今日 Hermes notes 显示
     // 首次使用引导（延迟展示，等渲染完成）

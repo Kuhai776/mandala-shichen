@@ -86,7 +86,7 @@
       } catch (e) { console.warn("[polyfill] dialog 降级失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260905" />
+  <link rel="stylesheet" href="styles.css?v=20260908" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
   <script src="lib/mermaid.min.js"></script>
@@ -426,6 +426,9 @@
     </button>
     <button class="realm-fab-btn realm-fab-basic" id="realmFabBasic" title="⚡ 基本孵化 · 7维×子维度 (B)">
       <span class="rf-icon">⚡</span><span class="rf-name">基本孵化</span>
+    </button>
+    <button class="realm-fab-btn realm-fab-mm" id="realmFabMindmap" title="🧠 思维导图 · 独立编辑器（最近导图/历史/空白新建）">
+      <span class="rf-icon">🧠</span><span class="rf-name">思维导图</span>
     </button>
   </div>
 
@@ -882,13 +885,22 @@
         <!-- 数据页 -->
         <div class="settings-panel" data-panel="data">
           <p class="panel-desc">所有数据自动保存在浏览器本地（localStorage），刷新/重启浏览器不会丢失。不同设备/浏览器各自独立。建议定期导出备份。</p>
+          <div class="form-group" style="border:1px solid rgba(255,200,80,.4);background:rgba(255,200,80,.07);border-radius:10px;padding:10px 12px;">
+            <label style="color:#ffc850;font-weight:700;">⚠️ 更新 / 卸载前必做</label>
+            <p class="panel-desc" style="margin:4px 0 8px;">APK 签名不同需<strong>先卸载再安装</strong>，卸载会清空本地数据！请先导出备份文件（或生成同步码），装好后导入恢复。</p>
+            <div class="dialog-actions" style="justify-content:flex-start;gap:8px;flex-wrap:wrap;">
+              <button class="primary-btn" id="exportBackupBtn" style="background:linear-gradient(135deg,#7c5cff,#9d85ff);border:none;">⬇ 导出备份文件（全量 JSON）</button>
+              <button class="tool-btn" id="importBackupBtn">⬆ 导入备份文件</button>
+              <input type="file" id="importBackupFile" accept=".json,application/json" style="display:none;" />
+            </div>
+          </div>
           <div class="form-group">
             <label>数据存储情况</label>
             <div class="time-display" id="storageInfo">—</div>
           </div>
           <div class="form-group">
             <label>自动快照备份</label>
-            <p class="panel-desc">每天首次打开自动备份一份完整数据（保留最近 7 份），可随时一键恢复，防误删/数据损坏。</p>
+            <p class="panel-desc">每天首次打开自动备份一份完整数据（保留最近 7 份），可随时一键恢复，防误删/数据损坏。每份快照也可导出为文件，防止卸载丢失。</p>
             <div class="dialog-actions" style="justify-content:flex-start;">
               <button class="tool-btn" id="snapshotNowBtn">📸 立即备份</button>
             </div>
@@ -1852,6 +1864,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=20260905" defer></script>
+  <script src="app.js?v=20260908" defer></script>
 </body>
 </html>

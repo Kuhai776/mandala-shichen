@@ -10448,3 +10448,16 @@ dialog.qa-dialog-fullscreen::backdrop { background: rgba(0, 0, 0, 0.5); }
   /* 抽屉内两列并排减少滚动 */
   .mm-pf-grid { grid-template-columns: 1fr 1fr; }
 }
+
+/* 🧠 独立思维导图入口（底部快捷条） */
+.realm-fab-btn.realm-fab-mm {
+  background: linear-gradient(135deg, rgba(124, 92, 255, 0.2), rgba(59, 130, 246, 0.2));
+  color: #c9bfff;
+  border: 1px solid rgba(124, 92, 255, 0.4);
+}
+.realm-fab-btn.realm-fab-mm .rf-icon { font-size: 14px; }
+.realm-fab-btn.realm-fab-mm:active .rf-icon { transform: scale(0.9); }
+.realm-fab-btn.realm-fab-mm:hover { border-color: var(--accent, #7c5cff); box-shadow: 0 0 10px rgba(124,92,255,.35); }
+@media (max-width: 720px) {
+  .realm-fab-btn.realm-fab-mm .rf-name { font-size: 10.5px; }
+}
