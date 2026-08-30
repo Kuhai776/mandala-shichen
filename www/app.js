@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260908";
+const SW_VER = "20260909";
 
 (function () {
   "use strict";
@@ -10668,12 +10668,15 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         exportMd: document.getElementById("mmExportMd"),
         apply: document.getElementById("mmApply"),
         save: document.getElementById("mmSave"),
+        libraryBtn: document.getElementById("mmLibraryBtn"),
+        exportInbox: document.getElementById("mmExportInbox"),
         close: document.getElementById("mmClose"),
         hint: document.getElementById("mmHint"),
         stats: document.getElementById("mmStats"),
         legend: document.getElementById("mmLegend"),
         nodePanel: document.getElementById("mmNodePanel"),
         outline: document.getElementById("mmOutline"),
+        library: document.getElementById("mmLibrary"),
         searchRes: document.getElementById("mmSearchRes"),
         floatEdit: document.getElementById("mmFloatEdit"),
         floatInput: document.getElementById("mmFloatInput"),
@@ -10779,14 +10782,15 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     }
 
     // ---------- 布局（tidy 槽位分配） ----------
-    doLayout() {
+    doLayout(root) {
+      root = root || this.root;
       this._slot = 0;
       const NODE_W = 0, NODE_H = 0; // 占位（实际在渲染时用节点尺寸）
       const hGap = this.layout === "lr" ? 72 : 30;
       const vGap = this.layout === "lr" ? 22 : 72;
-      this._calcLayout(this.root, 0);
+      this._calcLayout(root, 0);
       this._nodePos = new Map();
-      const sizes = this._collectSizes(this.root);
+      const sizes = this._collectSizes(root);
       const pos = (n, depth) => {
         const sz = sizes.get(n.id) || { w: 220, h: 44 };
         const x = depth * (sz.w + hGap);
@@ -10794,7 +10798,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         this._nodePos.set(n.id, { x, y, w: sz.w, h: sz.h, depth });
         n.children.forEach((c) => pos(c, depth + 1));
       };
-      pos(this.root, 0);
+      pos(root, 0);
       // 包围盒
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       this._nodePos.forEach((p) => {
@@ -10830,7 +10834,8 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     // ---------- 渲染 ----------
     render() {
       if (!this.root) return;
-      this.doLayout();
+      const renderRoot = (this.focusId && this.findNode(this.focusId)) || this.root;
+      this.doLayout(renderRoot);
       const g = this.els.g;
       this.els.g.innerHTML = "";
       // SVG 渐变 defs（根节点紫蓝渐变 / 主线边渐变）
@@ -10840,12 +10845,39 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         <stop offset="0%" stop-color="#7c5cff"/><stop offset="55%" stop-color="#9d6bff"/><stop offset="100%" stop-color="#5b8cff"/>
       </linearGradient>`;
       g.appendChild(defs);
-      this._renderEdges(this.root);
-      this._renderNode(this.root, 0);
-      this._renderStats();
+      this._renderEdges(renderRoot);
+      this._renderNode(renderRoot, 0);
+      this._renderStats(renderRoot);
       this._renderLegend();
       this._applyView();
       this._updateFloatBar();
+      // 聚焦状态提示
+      if (this.els.hint && this.focusId) {
+        this.els.hint.textContent = `🎯 已聚焦：${renderRoot.text || "节点"} · 双击编辑 · Esc 退出聚焦`;
+        this.els.hint.style.background = "rgba(255,217,61,.18)";
+      }
+    }
+    // 聚焦节点：只显示该节点及其子树（其余隐藏），Esc 退出
+    focusNode(id) {
+      const n = this.findNode(id);
+      if (!n) return;
+      this.focusId = id;
+      this.selectedId = id;
+      this.view = { x: 0, y: 0, scale: 1 };
+      this.render();
+      toast(`🎯 已聚焦「${trunc(n.text, 16)}」分支 · Esc 返回全景`, "info");
+    }
+    clearFocus() {
+      if (!this.focusId) return false;
+      this.focusId = null;
+      this.view = { x: 0, y: 0, scale: 1 };
+      // 退出聚焦时显式恢复默认 hint（render 只在聚焦态覆盖 hint）
+      if (this.els.hint) {
+        this.els.hint.textContent = "🖱 滚轮缩放 · 拖动空白平移 · 点击选中节点 · 双击编辑文本";
+        this.els.hint.style.background = "rgba(15,15,30,.7)";
+      }
+      this.render();
+      return true;
     }
     // 选中节点浮动操作条（触屏友好：不需要开面板就能增删改）
     _updateFloatBar() {
@@ -11040,21 +11072,23 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       // 递归渲染子节点
       if (!n.collapsed) n.children.forEach((c) => this._renderNode(c, depth + 1));
     }
-    _renderStats() {
+    _renderStats(root) {
       if (!this.els.stats) return;
-      const total = this._countNodes(this.root);
-      const mains = (this.root && this.root.children) || [];
+      root = root || this.root;
+      const total = this._countNodes(root);
+      const mains = (root && root.children) || [];
       const sides = [];
       const kids = [];
       const walk = (n) => { n.children.forEach((c) => { if (c.type === "side") sides.push(c); else if (c.type === "child") kids.push(c); walk(c); }); };
-      walk(this.root);
-      const totalMin = this._sumMin(this.root);
+      walk(root);
+      const totalMin = this._sumMin(root);
       const dimSet = new Set();
       const walkDim = (n) => { if (n.meta && n.meta.target_dim) dimSet.add(String(n.meta.target_dim).split(".")[0]); n.children.forEach(walkDim); };
-      walkDim(this.root);
+      walkDim(root);
+      const focusTag = this.focusId ? `<span style="color:#ffd93d;">🎯 聚焦</span>` : "";
       const dots = KNOWLEDGE_DIMENSIONS.map((d) =>
         `<span class="mm-dimdot" style="background:${d.color};opacity:${dimSet.has(d.code) ? 1 : 0.22};" title="${d.name} ${d.code}${dimSet.has(d.code) ? " ✓" : " 未覆盖"}"></span>`).join("");
-      this.els.stats.innerHTML = `<span>${total} 节点</span><span>主线 ${mains.length}</span><span>支线 ${sides.length}</span><span>子步 ${kids.length}</span><span>总时长 ${totalMin || "—"}min</span><span class="mm-stats-dims" title="7 维覆盖">${dots} ${dimSet.size}/${KNOWLEDGE_DIMENSIONS.length}</span>`;
+      this.els.stats.innerHTML = `${focusTag}<span>${total} 节点</span><span>主线 ${mains.length}</span><span>支线 ${sides.length}</span><span>子步 ${kids.length}</span><span>总时长 ${totalMin || "—"}min</span><span class="mm-stats-dims" title="7 维覆盖">${dots} ${dimSet.size}/${KNOWLEDGE_DIMENSIONS.length}</span>`;
     }
     _renderLegend() {
       if (!this.els.legend) return;
@@ -11538,19 +11572,33 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     // ---------- 保存 / 应用 ----------
     save() {
       if (!this.root) return;
-      const rec = {
-        id: "mm_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-        taskText: this.els.title ? this.els.title.textContent : "",
-        createdAt: Date.now(),
-        layout: this.layout,
-        root: this.root,
-      };
-      try {
-        const list = load(MINDMAP_KEY, []);
+      const list = load(MINDMAP_KEY, []);
+      const taskText = (this.els.title ? this.els.title.textContent : "") || this.root.text || "未命名导图";
+      let rec = null;
+      // upsert：从已保存库打开的导图按 id 更新；否则新建（避免同一张导图反复保存产生重复条目）
+      if (this._openedFrom && this._openedFrom.mode === "saved" && this._openedFrom.id) {
+        rec = list.find((r) => r.id === this._openedFrom.id) || null;
+        if (rec) {
+          rec.taskText = taskText;
+          rec.layout = this.layout;
+          rec.root = this.root;
+          rec.updatedAt = Date.now();
+        }
+      }
+      if (!rec) {
+        rec = {
+          id: "mm_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+          taskText,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          layout: this.layout,
+          root: this.root,
+        };
         list.push(rec);
-        while (list.length > 100) list.shift();
-        save(MINDMAP_KEY, list);
-      } catch (e) { console.warn("思维导图保存失败", e); }
+        this._openedFrom = { mode: "saved", id: rec.id };
+      }
+      while (list.length > 100) list.shift();
+      try { save(MINDMAP_KEY, list); } catch (e) { console.warn("思维导图保存失败", e); }
       // 同步到当前孵化历史条目（随记录回看）
       try {
         if (hatchState.taskHash) {
@@ -11562,7 +11610,93 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
           }
         }
       } catch (e) {}
-      toast("💾 思维导图已保存（可随孵化历史回看）", "success");
+      toast("💾 思维导图已保存（导图库可随时打开编辑）", "success");
+    }
+    // 📚 导图库：多导图管理（打开/新建/重命名/删除/导出）
+    openLibrary() {
+      this.renderLibrary();
+      if (this.els.library) this.els.library.hidden = false;
+      if (this.els.outline) this.els.outline.hidden = true;
+      if (this.els.nodePanel) this.els.nodePanel.hidden = true;
+    }
+    closeLibrary() { if (this.els.library) this.els.library.hidden = true; }
+    renderLibrary() {
+      if (!this.els.library) return;
+      const list = load(MINDMAP_KEY, []);
+      const fmt = (ts) => { const t = new Date(ts); return `${t.getMonth() + 1}月${t.getDate()}日 ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`; };
+      const items = list.length
+        ? list.map((r) => {
+            const cnt = r.root ? this._countNodes(r.root) : 0;
+            return `<div class="mm-lib-item" data-id="${r.id}">
+              <div class="mm-lib-main"><div class="mm-lib-title">${escapeHtml(r.taskText || "未命名导图")}</div>
+              <div class="mm-lib-meta">${cnt} 节点 · 更新于 ${fmt(r.updatedAt || r.createdAt)}</div></div>
+              <div class="mm-lib-actions">
+                <button data-a="open" title="打开编辑">打开</button>
+                <button data-a="rename" title="重命名">改名</button>
+                <button data-a="export" title="导出为 JSON 文件">导出</button>
+                <button data-a="del" title="删除（不可恢复）">删</button>
+              </div>
+            </div>`;
+          }).join("")
+        : `<div class="mm-lib-empty">暂无导图 · 点下方「＋ 新建」创建一张空白导图</div>`;
+      this.els.library.innerHTML = `<div class="mm-lib-head"><span>📚 导图库（${list.length}）</span><button id="mmLibNew" class="mm-tb">＋ 新建空白</button><button id="mmLibClose" class="icon-btn">✕</button></div>
+        <div class="mm-lib-list">${items}</div>`;
+      const lib = this.els.library;
+      lib.querySelector("#mmLibClose").addEventListener("click", () => this.closeLibrary());
+      lib.querySelector("#mmLibNew").addEventListener("click", () => { this.closeLibrary(); this.openBlank(); });
+      lib.querySelectorAll(".mm-lib-item").forEach((el) => {
+        const id = el.dataset.id;
+        el.querySelector('[data-a="open"]').addEventListener("click", () => {
+          const rec = list.find((r) => r.id === id);
+          this.closeLibrary();
+          if (rec) this.openSavedMindmap(rec);
+        });
+        el.querySelector('[data-a="rename"]').addEventListener("click", () => {
+          const rec = list.find((r) => r.id === id);
+          if (!rec) return;
+          const name = prompt("导图名称：", rec.taskText || "");
+          if (name && name.trim()) { rec.taskText = name.trim(); save(MINDMAP_KEY, list); this.renderLibrary(); }
+        });
+        el.querySelector('[data-a="export"]').addEventListener("click", () => {
+          const rec = list.find((r) => r.id === id);
+          if (rec) { downloadBackupFile(rec, `mindmap-${rec.taskText || id}.json`); toast("导图已导出为文件", "success"); }
+        });
+        el.querySelector('[data-a="del"]').addEventListener("click", () => {
+          const rec = list.find((r) => r.id === id);
+          if (!rec) return;
+          if (confirm(`删除导图「${rec.taskText || "未命名"}」？此操作不可恢复。`)) {
+            const i = list.indexOf(rec);
+            list.splice(i, 1);
+            save(MINDMAP_KEY, list);
+            this.renderLibrary();
+            toast("已删除", "info");
+          }
+        });
+      });
+    }
+    // 📥 转任务：把导图节点转为收集箱任务（附建议 tag + 维度 tag）
+    exportToInbox() {
+      const steps = this.treeToSteps();
+      if (!steps.length) { toast("导图里还没有可转的节点（先保存或添加主线步骤）", "info"); return; }
+      const tag = suggestTag(this.root.text || "");
+      const existing = new Set(inboxItems.map((i) => (i.text || "").trim()));
+      let added = 0;
+      steps.forEach((s) => {
+        const t = (s.text || "").trim();
+        if (!t || existing.has(t)) return;
+        existing.add(t);
+        inboxItems.push(migrateInboxItem({
+          id: "inb_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+          text: t,
+          tags: [tag, s.target_dim].filter(Boolean),
+          priority: 0, mainline: null, sideline: null, parentId: null,
+          due: null, estimate: s.est_min ? String(s.est_min) : null, note: s.why || "",
+          done: false, createdAt: Date.now(), links: [], kind: "mindmap",
+        }));
+        added++;
+      });
+      if (added) { saveInbox(); renderInboxList(); renderInboxStats(); toast(`📥 已将 ${added} 个节点转入收集箱（tag：${tag || "无"}）`, "success"); }
+      else toast("没有新节点可转（可能已存在）", "info");
     }
     applyToList() {
       if (!this.root) return;
@@ -11653,8 +11787,10 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       this.history = [];
       this.histIdx = -1;
       this.selectedId = null;
+      this.focusId = null;
       this.outlineOpen = false;
       this.view = { x: 0, y: 0, scale: 1 };
+      if (this.els.library) this.els.library.hidden = true;
       if (this.els.title) this.els.title.textContent = this.root.text || "孵化思维导图";
       if (this.els.sub) this.els.sub.textContent = this.root._isRoot ? `根：${this.root.text} · 双击节点编辑，拖拽节点到另一节点改隶属` : "双击节点编辑 · 拖拽节点到另一节点改隶属";
       // 空态引导：无主线步骤时提示如何起步
@@ -11734,6 +11870,8 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       els.exportMd.addEventListener("click", () => this.exportMarkdown());
       els.apply.addEventListener("click", () => this.applyToList());
       els.save.addEventListener("click", () => this.save());
+      if (els.libraryBtn) els.libraryBtn.addEventListener("click", () => this.openLibrary());
+      if (els.exportInbox) els.exportInbox.addEventListener("click", () => this.exportToInbox());
       els.close.addEventListener("click", () => this.close());
       // 搜索
       els.search.addEventListener("input", () => this.search(els.search.value.trim()));
@@ -11911,6 +12049,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
           else if (a === "up") this.moveNode(this.selectedId, -1);
           else if (a === "down") this.moveNode(this.selectedId, 1);
           else if (a === "promote") this.promote(this.selectedId);
+          else if (a === "focus") this.focusNode(this.selectedId);
           else if (a === "del") this.deleteNode(this.selectedId);
         });
       }
@@ -11922,6 +12061,11 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         const inField = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
         if (e.key === "Escape") {
           if (editing) { e.stopPropagation(); this._finishEdit && this._finishEdit(false); }
+          else if (this.focusId) {
+            // 聚焦态：Esc 先退出聚焦返回全景
+            e.preventDefault(); e.stopPropagation();
+            this.clearFocus();
+          }
           else if (this.selectedId) {
             // 先取消选中（Esc 第二下才关闭对话框）
             e.preventDefault(); e.stopPropagation();
@@ -11941,6 +12085,8 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
           if (sc) sc.hidden = !sc.hidden;
           return;
         }
+        // Shift+F 聚焦选中节点分支
+        if (e.shiftKey && k.toLowerCase() === "f" && this.selectedId) { e.preventDefault(); this.focusNode(this.selectedId); return; }
         if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? this.redo() : this.undo(); return; }
         if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === "y") { e.preventDefault(); this.redo(); return; }
         if (!this.selectedId) return;
