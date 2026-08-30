@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260909";
+const SW_VER = "20260910";
 
 (function () {
   "use strict";
@@ -10747,7 +10747,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
           why: (m.meta && m.meta.why) || "", branch: "main", parent_step: null,
           target_dim: (m.meta && m.meta.target_dim) || "", dim_goal: (m.meta && m.meta.dim_goal) || null,
           law: (m.meta && m.meta.law) || "",
-          icon: (m.meta && m.meta.icon) || "", note: (m.meta && m.meta.note) || "",
+          icon: (m.meta && m.meta.icon) || "", note: (m.meta && m.meta.note) || "", done: !!(m.meta && m.meta.done),
         });
         const sides = [];
         const kids = [];
@@ -10762,7 +10762,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
             why: (s.meta && s.meta.why) || "", branch: "side", parent_step: mainIdx,
             target_dim: (s.meta && s.meta.target_dim) || "", dim_goal: (s.meta && s.meta.dim_goal) || null,
             law: (s.meta && s.meta.law) || "",
-            icon: (s.meta && s.meta.icon) || "", note: (s.meta && s.meta.note) || "",
+            icon: (s.meta && s.meta.icon) || "", note: (s.meta && s.meta.note) || "", done: !!(s.meta && s.meta.done),
           });
         });
         if (kids.length) {
@@ -10770,7 +10770,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
             text: k.text, est_min: k.meta && k.meta.est_min, risk: (k.meta && k.meta.risk) || "low",
             target_dim: (k.meta && k.meta.target_dim) || "", dim_goal: (k.meta && k.meta.dim_goal) || null,
             branch: "main", why: (k.meta && k.meta.why) || "",
-            icon: (k.meta && k.meta.icon) || "", note: (k.meta && k.meta.note) || "",
+            icon: (k.meta && k.meta.icon) || "", note: (k.meta && k.meta.note) || "", done: !!(k.meta && k.meta.done),
           }));
         }
       });
@@ -10847,6 +10847,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       g.appendChild(defs);
       this._renderEdges(renderRoot);
       this._renderNode(renderRoot, 0);
+      this._renderLinks(renderRoot);
       this._renderStats(renderRoot);
       this._renderLegend();
       this._applyView();
@@ -10988,9 +10989,16 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         rect.setAttribute("stroke-opacity", 0.9);
       } else {
         rect.setAttribute("fill", col.fill);
-        if (col.stroke) rect.setAttribute("stroke", col.stroke);
-        rect.setAttribute("stroke-width", isSel ? 2 : 1);
-        rect.setAttribute("stroke-opacity", isSel ? 1 : 0.6);
+        const done = n.meta && n.meta.done;
+        if (done) {
+          rect.setAttribute("stroke", "#4ade80");
+          rect.setAttribute("stroke-width", 1.6);
+          rect.setAttribute("stroke-opacity", 0.9);
+        } else {
+          if (col.stroke) rect.setAttribute("stroke", col.stroke);
+          rect.setAttribute("stroke-width", isSel ? 2 : 1);
+          rect.setAttribute("stroke-opacity", isSel ? 1 : 0.6);
+        }
       }
       group.appendChild(rect);
       // 风险左边条
@@ -11027,10 +11035,11 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         text.appendChild(more);
       }
       group.appendChild(text);
-      // 徽标行（⏱ / ✓ / dim / 📝备注）
+      // 徽标行（⏱ / ✓ / ✅完成 / 📝备注 / dim）
       let badges = [];
       if (n.meta && n.meta.est_min) badges.push(`⏱${n.meta.est_min}`);
-      if (n.meta && n.meta.verify) badges.push("✓");
+      if (n.meta && n.meta.done) badges.push("✅");
+      else if (n.meta && n.meta.verify) badges.push("✓");
       if (n.meta && n.meta.note) badges.push("📝");
       if (n.meta && n.meta.target_dim) {
         const dc = String(n.meta.target_dim).split(".")[0];
@@ -11072,6 +11081,46 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       // 递归渲染子节点
       if (!n.collapsed) n.children.forEach((c) => this._renderNode(c, depth + 1));
     }
+    // 跨分支关联线：节点 meta.link → 目标节点之间画橙色虚线（表达依赖/关联）
+    _renderLinks(root) {
+      if (!this.els.g || !this._nodePos) return;
+      root = root || this.root;
+      const NS = "http://www.w3.org/2000/svg";
+      const drawn = new Set();
+      const walk = (n) => {
+        if (n.meta && n.meta.link) {
+          const t = this.findNode(n.meta.link);
+          const p = this._nodePos.get(n.id);
+          const tp = t && this._nodePos.get(t.id);
+          if (p && tp) {
+            const key = [n.id, t.id].sort().join("→");
+            if (!drawn.has(key)) {
+              drawn.add(key);
+              const x1 = p.x + p.w, y1 = p.y + p.h / 2;
+              const x2 = tp.x, y2 = tp.y + tp.h / 2;
+              const dx = Math.max(40, (x2 - x1) * 0.5);
+              const path = document.createElementNS(NS, "path");
+              path.setAttribute("d", `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`);
+              path.setAttribute("fill", "none");
+              path.setAttribute("stroke", "#ffa94d");
+              path.setAttribute("stroke-width", 1.6);
+              path.setAttribute("stroke-dasharray", "5 4");
+              path.setAttribute("opacity", "0.75");
+              path.setAttribute("pointer-events", "none");
+              this.els.g.appendChild(path);
+              // 目标端小圆点
+              const dot = document.createElementNS(NS, "circle");
+              dot.setAttribute("cx", x2); dot.setAttribute("cy", y2); dot.setAttribute("r", 3.5);
+              dot.setAttribute("fill", "#ffa94d"); dot.setAttribute("opacity", "0.9");
+              dot.setAttribute("pointer-events", "none");
+              this.els.g.appendChild(dot);
+            }
+          }
+        }
+        n.children.forEach(walk);
+      };
+      walk(root);
+    }
     _renderStats(root) {
       if (!this.els.stats) return;
       root = root || this.root;
@@ -11086,9 +11135,13 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       const walkDim = (n) => { if (n.meta && n.meta.target_dim) dimSet.add(String(n.meta.target_dim).split(".")[0]); n.children.forEach(walkDim); };
       walkDim(root);
       const focusTag = this.focusId ? `<span style="color:#ffd93d;">🎯 聚焦</span>` : "";
+      let doneCnt = 0;
+      const walkDone = (n) => { if (n.meta && n.meta.done) doneCnt++; n.children.forEach(walkDone); };
+      walkDone(root);
+      const doneTag = doneCnt ? `<span style="color:#4ade80;">✅ ${doneCnt}</span>` : "";
       const dots = KNOWLEDGE_DIMENSIONS.map((d) =>
         `<span class="mm-dimdot" style="background:${d.color};opacity:${dimSet.has(d.code) ? 1 : 0.22};" title="${d.name} ${d.code}${dimSet.has(d.code) ? " ✓" : " 未覆盖"}"></span>`).join("");
-      this.els.stats.innerHTML = `${focusTag}<span>${total} 节点</span><span>主线 ${mains.length}</span><span>支线 ${sides.length}</span><span>子步 ${kids.length}</span><span>总时长 ${totalMin || "—"}min</span><span class="mm-stats-dims" title="7 维覆盖">${dots} ${dimSet.size}/${KNOWLEDGE_DIMENSIONS.length}</span>`;
+      this.els.stats.innerHTML = `${focusTag}${doneTag}<span>${total} 节点</span><span>主线 ${mains.length}</span><span>支线 ${sides.length}</span><span>子步 ${kids.length}</span><span>总时长 ${totalMin || "—"}min</span><span class="mm-stats-dims" title="7 维覆盖">${dots} ${dimSet.size}/${KNOWLEDGE_DIMENSIONS.length}</span>`;
     }
     _renderLegend() {
       if (!this.els.legend) return;
@@ -11171,6 +11224,13 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       for (const c of n.children) { const r = this.findNode(id, c); if (r) return r; }
       return null;
     }
+    // 收集除指定节点外的所有节点（用于「关联到」下拉）
+    _allNodesExcept(id) {
+      const out = [];
+      const walk = (n) => { if (n.id !== id) out.push(n); n.children.forEach(walk); };
+      walk(this.root);
+      return out;
+    }
     findParent(id, n, parent) {
       n = n || this.root;
       if (n.id === id) return parent;
@@ -11199,6 +11259,9 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         <div class="mm-panel-head"><span>✏️ 节点详情</span><button type="button" class="icon-btn mm-panel-close">✕</button></div>
         <div class="mm-panel-body">
           <label>文本<textarea class="mm-pf-text" rows="2">${escapeHtml(n.text)}</textarea></label>
+          <label class="mm-pf-done-label" style="flex-direction:row;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" class="mm-pf-done" ${m.done ? "checked" : ""} /> 已完成（✅ 绿框标记）
+          </label>
           <div class="mm-pf-grid">
             <label>时长(分)<input type="number" class="mm-pf-min" value="${m.est_min || ""}" min="0" /></label>
             <label>风险<select class="mm-pf-risk"><option value="">无</option><option value="low" ${m.risk === "low" ? "selected" : ""}>低</option><option value="med" ${m.risk === "med" ? "selected" : ""}>中</option><option value="high" ${m.risk === "high" ? "selected" : ""}>高</option></select></label>
@@ -11207,6 +11270,12 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
           </div>
           <label>自检标准<textarea class="mm-pf-verify" rows="1" placeholder="完成标准…">${escapeHtml(m.verify || "")}</textarea></label>
           <label>为什么必要<textarea class="mm-pf-why" rows="1" placeholder="为什么…">${escapeHtml(m.why || "")}</textarea></label>
+          <label>关联到（虚线连接，表达依赖/关联）
+            <select class="mm-pf-link">
+              <option value="">（无关联）</option>
+              ${this._allNodesExcept(id).map((x) => `<option value="${x.id}" ${m.link === x.id ? "selected" : ""}>${escapeHtml(trunc(x.text, 18))}</option>`).join("")}
+            </select>
+          </label>
           <label>图标（节点前缀 emoji）
             <div class="mm-pf-icons">
               <button type="button" data-i="" class="${!m.icon ? "on" : ""}" title="无图标">无</button>
@@ -11226,11 +11295,16 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         if (ev.target.classList.contains("mm-pf-why")) m.why = ev.target.value;
         if (ev.target.classList.contains("mm-pf-color")) m.color = ev.target.value || "";
         if (ev.target.classList.contains("mm-pf-note")) m.note = ev.target.value;
+        if (ev.target.classList.contains("mm-pf-done")) m.done = !!ev.target.checked;
+        if (ev.target.classList.contains("mm-pf-link")) { if (ev.target.value) m.link = ev.target.value; else delete m.link; }
       });
       panel.querySelectorAll("textarea, select, input[type=number], input[type=color]").forEach((inp) => {
         inp.addEventListener("change", onCommit);
         if (inp.tagName === "TEXTAREA") inp.addEventListener("blur", onCommit);
       });
+      // 完成状态 checkbox：change 即提交
+      const doneCb = panel.querySelector(".mm-pf-done");
+      if (doneCb) doneCb.addEventListener("change", onCommit);
       // 图标选择：点击即切换
       panel.querySelectorAll(".mm-pf-icons button").forEach((b) => {
         b.addEventListener("click", () => commit(() => {
@@ -11639,11 +11713,12 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
             </div>`;
           }).join("")
         : `<div class="mm-lib-empty">暂无导图 · 点下方「＋ 新建」创建一张空白导图</div>`;
-      this.els.library.innerHTML = `<div class="mm-lib-head"><span>📚 导图库（${list.length}）</span><button id="mmLibNew" class="mm-tb">＋ 新建空白</button><button id="mmLibClose" class="icon-btn">✕</button></div>
+      this.els.library.innerHTML = `<div class="mm-lib-head"><span>📚 导图库（${list.length}）</span><button id="mmLibTpl" class="mm-tb">📄 模板</button><button id="mmLibNew" class="mm-tb">＋ 新建空白</button><button id="mmLibClose" class="icon-btn">✕</button></div>
         <div class="mm-lib-list">${items}</div>`;
       const lib = this.els.library;
       lib.querySelector("#mmLibClose").addEventListener("click", () => this.closeLibrary());
       lib.querySelector("#mmLibNew").addEventListener("click", () => { this.closeLibrary(); this.openBlank(); });
+      lib.querySelector("#mmLibTpl").addEventListener("click", () => this.showTemplates());
       lib.querySelectorAll(".mm-lib-item").forEach((el) => {
         const id = el.dataset.id;
         el.querySelector('[data-a="open"]').addEventListener("click", () => {
@@ -11670,6 +11745,34 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
             save(MINDMAP_KEY, list);
             this.renderLibrary();
             toast("已删除", "info");
+          }
+        });
+      });
+    }
+    // 📄 模板选择（在导图库浮层内渲染）
+    showTemplates() {
+      if (!this.els.library) return;
+      const tpls = [
+        { id: "goal", icon: "🎯", name: "目标拆解", desc: "目标 → 子目标 → 行动 → 验收 → 复盘" },
+        { id: "study", icon: "📚", name: "学习计划", desc: "目标 → 资料 → 路径 → 打卡 → 复习 → 输出" },
+        { id: "project", icon: "🚀", name: "项目规划", desc: "需求 → 设计 → 拆分 → 执行 → 里程碑" },
+      ];
+      this.els.library.innerHTML = `<div class="mm-lib-head"><span>📄 选择模板</span><button id="mmLibBack" class="mm-tb">← 返回</button><button id="mmLibClose2" class="icon-btn">✕</button></div>
+        <div class="mm-lib-list">
+          ${tpls.map((t) => `<div class="mm-lib-item mm-tpl-item" data-tpl="${t.id}">
+            <div class="mm-tpl-icon">${t.icon}</div>
+            <div class="mm-lib-main"><div class="mm-lib-title">${t.name}</div><div class="mm-lib-meta">${t.desc}</div></div>
+            <button class="mm-tb" data-a="use">套用</button>
+          </div>`).join("")}
+        </div>`;
+      const lib = this.els.library;
+      lib.querySelector("#mmLibClose2").addEventListener("click", () => this.closeLibrary());
+      lib.querySelector("#mmLibBack").addEventListener("click", () => this.renderLibrary());
+      lib.querySelectorAll(".mm-tpl-item").forEach((el) => {
+        el.addEventListener("click", (e) => {
+          if (e.target.closest('[data-a="use"]')) {
+            this.closeLibrary();
+            this.applyTemplate(el.dataset.tpl);
           }
         });
       });
@@ -11772,6 +11875,31 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       hatchState.taskHash = hashTaskText("新思维导图");
       hatchState.result = { steps: [], est_total_min: null };
       this._open();
+    }
+    // 📄 导图模板：预设结构骨架，一键套用
+    applyTemplate(name) {
+      const templates = {
+        goal: { root: "🎯 目标拆解", children: ["明确最终目标", "拆分子目标", "制定行动计划", "设定验收标准", "执行与复盘"] },
+        study: { root: "📚 学习计划", children: ["明确学习目标", "收集学习资料", "制定学习路径", "每日学习打卡", "定期复习巩固", "实践输出检验"] },
+        project: { root: "🚀 项目规划", children: ["需求分析", "方案设计", "任务拆分", "执行推进", "里程碑复盘"] },
+      };
+      const t = templates[name];
+      if (!t) return;
+      const root = this.newNode(t.root, {});
+      root._isRoot = true;
+      t.children.forEach((c) => {
+        const n = this.newNode(c, { est_min: 30 });
+        n.type = "main";
+        root.children.push(n);
+      });
+      this.root = root;
+      this.layout = "lr";
+      this._openedFrom = { mode: "blank" };
+      hatchState.taskText = t.root;
+      hatchState.taskHash = hashTaskText(t.root);
+      hatchState.result = { steps: [], est_total_min: null };
+      this._open();
+      toast(`已套用「${t.root}」模板（${t.children.length} 条主线，双击编辑细节）`, "success");
     }
     _findSavedMindmap(taskHash) {
       try {

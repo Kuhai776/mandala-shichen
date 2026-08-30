@@ -10481,3 +10481,9 @@ dialog.qa-dialog-fullscreen::backdrop { background: rgba(0, 0, 0, 0.5); }
 .mm-lib-actions button[data-a="del"]:hover { background: rgba(248,113,113,.2); color: #f87171; border-color: #f87171; }
 .mm-lib-empty { text-align: center; padding: 20px; font-size: 12px; color: var(--text-muted, #6a6a8a); }
 @media (max-width: 720px) { .mm-library { width: calc(100vw - 16px); max-height: 80%; } }
+
+/* 导图模板选择项 */
+.mm-tpl-item { cursor: pointer; }
+.mm-tpl-item:hover { border-color: rgba(124,92,255,.6); background: rgba(124,92,255,.08); }
+.mm-tpl-icon { font-size: 22px; flex-shrink: 0; }
+/* 关联线相关（无额外样式，仅说明） */
