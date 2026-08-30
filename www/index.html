@@ -86,7 +86,7 @@
       } catch (e) { console.warn("[polyfill] dialog 降级失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260827b" />
+  <link rel="stylesheet" href="styles.css?v=20260905" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
   <script src="lib/mermaid.min.js"></script>
@@ -1244,6 +1244,7 @@
             <button class="tool-btn" id="hatchRegen">🔄 重新生成</button>
             <span class="hatch-spacer"></span>
             <button class="tool-btn" id="hatchHistoryBtn" title="查看过往孵化记录">🕰️ 历史</button>
+            <button class="tool-btn hatch-mm-btn" id="hatchMindmap" title="把当前孵化结果渲染为可编辑思维导图（双击编辑/拖拽改隶属/导出）">🧠 思维导图</button>
             <button class="danger-btn" id="hatchCancelBtn">取消</button>
             <button class="tool-btn hatch-grid-btn" id="hatchToGrid" title="把选中步骤按预估时长智能安排到时间格子">📋 安排到格子</button>
             <button class="tool-btn hatch-save-habit" id="hatchSaveHabit" hidden title="把当前习惯方案保存为一个可打卡的习惯（四大定律计划自动带入）">💾 保存为习惯</button>
@@ -1316,6 +1317,66 @@
       <button class="icon-btn" id="closeMermaidLightbox" aria-label="关闭">✕</button>
     </div>
     <div class="mlb-body" id="mermaidLightboxBody"></div>
+  </dialog>
+
+  <!-- 🧠 孵化思维导图（可编辑）：层级布局 / 双击编辑 / 拖拽改隶属 / 折叠 / 导出 -->
+  <dialog class="mm-dialog" id="mindmapDialog">
+    <div class="mm-wrap">
+      <div class="mm-head">
+        <div class="mm-title">
+          <span class="mm-logo">🧠</span>
+          <div class="mm-title-text">
+            <span class="mm-task-title" id="mmTaskTitle">孵化思维导图</span>
+            <small class="mm-task-sub" id="mmTaskSub">双击节点编辑 · 拖拽节点到另一节点改隶属 · Tab 加子节点 · Delete 删除</small>
+          </div>
+        </div>
+        <div class="mm-toolbar">
+          <button type="button" class="tool-btn mm-tb" id="mmUndo" title="撤销 (Ctrl+Z)">↩</button>
+          <button type="button" class="tool-btn mm-tb" id="mmRedo" title="重做 (Ctrl+Y)">↪</button>
+          <span class="mm-sep"></span>
+          <button type="button" class="tool-btn mm-tb" id="mmLayout" title="切换布局方向（左右 ↔ 上下）">⇄ 布局</button>
+          <button type="button" class="tool-btn mm-tb" id="mmOutlineToggle" title="显示/隐藏文本大纲">☰ 大纲</button>
+          <span class="mm-sep"></span>
+          <input type="search" id="mmSearch" class="mm-search" placeholder="🔍 搜索节点…" autocomplete="off" />
+          <span class="mm-sep"></span>
+          <button type="button" class="tool-btn mm-tb" id="mmZoomOut" title="缩小 (−)">−</button>
+          <span class="mm-zoom-label" id="mmZoomLabel">100%</span>
+          <button type="button" class="tool-btn mm-tb" id="mmZoomIn" title="放大 (+)">＋</button>
+          <button type="button" class="tool-btn mm-tb" id="mmFit" title="适应画布 (0)">⛶</button>
+          <span class="mm-sep"></span>
+          <button type="button" class="tool-btn mm-tb" id="mmExportPng" title="导出当前思维导图为 PNG 图片">🖼 PNG</button>
+          <button type="button" class="tool-btn mm-tb" id="mmExportText" title="复制文本大纲到剪贴板">📋 复制大纲</button>
+          <button type="button" class="tool-btn mm-tb" id="mmExportMmd" title="复制 Mermaid 流程图语法">📜 Mermaid</button>
+          <button type="button" class="tool-btn mm-tb" id="mmExportMd" title="复制 Markdown 大纲（含图标/时长/维度/备注）">📘 Markdown</button>
+          <span class="mm-sep"></span>
+          <button type="button" class="tool-btn mm-tb mm-apply" id="mmApply" title="把编辑后的导图同步回步骤列表（保持主线/支线/子步结构）">✓ 应用到列表</button>
+          <button type="button" class="tool-btn mm-tb mm-save" id="mmSave" title="保存思维导图（随本任务孵化记录保存，可随时回看编辑）">💾 保存</button>
+          <button type="button" class="icon-btn" id="mmClose" aria-label="关闭">✕</button>
+        </div>
+      </div>
+      <div class="mm-body">
+        <div class="mm-canvas" id="mmCanvas">
+          <svg id="mmSvg" xmlns="http://www.w3.org/2000/svg">
+            <g id="mmCanvasG"></g>
+          </svg>
+          <div class="mm-hint" id="mmHint">🖱 滚轮缩放 · 拖动空白平移 · 点击选中节点 · 双击编辑文本</div>
+          <div class="mm-stats" id="mmStats"></div>
+          <div class="mm-legend" id="mmLegend"></div>
+          <div class="mm-node-panel" id="mmNodePanel" hidden></div>
+          <div class="mm-outline" id="mmOutline" hidden></div>
+          <div class="mm-search-res" id="mmSearchRes" hidden></div>
+          <div class="mm-float-edit" id="mmFloatEdit" hidden><textarea id="mmFloatInput" rows="2"></textarea><div class="mm-fe-actions"><span class="mm-fe-hint">Enter 保存 · Esc 取消</span><button type="button" class="tool-btn mm-fe-ok" id="mmFloatOk">✓</button></div></div>
+          <div class="mm-float-bar" id="mmFloatBar" hidden>
+            <button type="button" data-a="child" title="添加子节点 (Tab)">➕</button>
+            <button type="button" data-a="edit" title="编辑文本 (Enter)">✏️</button>
+            <button type="button" data-a="up" title="上移">↑</button>
+            <button type="button" data-a="down" title="下移">↓</button>
+            <button type="button" data-a="promote" title="提升为兄弟节点">⇄</button>
+            <button type="button" data-a="del" title="删除节点 (Del)">🗑</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </dialog>
 
   <!-- ❓ 提问解析库：问题库导入解析 → 表格/看板展示 → 逐问作答 -->
@@ -1576,6 +1637,7 @@
             <span class="inbox-batch-count" id="inboxBatchCount">已选 0 项</span>
             <button class="tool-btn" id="inboxBatchAssign" title="归属到主线/支线">📂 归组</button>
             <button class="tool-btn" id="inboxBatchPriority" title="设置优先级">⭐ 优先级</button>
+            <button class="tool-btn" id="inboxBatchTag" title="批量添加/清空标签">🏷 标签</button>
             <button class="tool-btn" id="inboxBatchSchedule" title="批量安排到时间格子">📋 安排</button>
             <button class="tool-btn" id="inboxBatchDone" title="标记完成">✓ 完成</button>
             <button class="danger-btn" id="inboxBatchDel">🗑 删除</button>
@@ -1790,6 +1852,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=20260827b" defer></script>
+  <script src="app.js?v=20260905" defer></script>
 </body>
 </html>
