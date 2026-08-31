@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260911";
+const SW_VER = "20260912";
 
 (function () {
   "use strict";
@@ -10666,6 +10666,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         exportText: document.getElementById("mmExportText"),
         exportMmd: document.getElementById("mmExportMmd"),
         exportMd: document.getElementById("mmExportMd"),
+        exportHtml: document.getElementById("mmExportHtml"),
         apply: document.getElementById("mmApply"),
         save: document.getElementById("mmSave"),
         libraryBtn: document.getElementById("mmLibraryBtn"),
@@ -11155,8 +11156,36 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
               path.setAttribute("stroke-width", 1.6);
               path.setAttribute("stroke-dasharray", "5 4");
               path.setAttribute("opacity", "0.75");
-              path.setAttribute("pointer-events", "none");
+              path.setAttribute("pointer-events", "stroke");
+              path.setAttribute("stroke-width", 8);
+              path.setAttribute("stroke-opacity", "0"); // 透明加粗命中区
+              path.style.cursor = "pointer";
+              path.dataset.linkFrom = n.id;
+              path.dataset.linkTo = t.id;
+              // 点击关联线 → 删除该关联（可视化闭环）
+              path.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const f = this.findNode(path.dataset.linkFrom);
+                if (f && f.meta) {
+                  if (confirm(`删除「${trunc(f.text, 16)}」与「${trunc(t.text, 16)}」的关联？`)) {
+                    delete f.meta.link;
+                    this.pushHistory();
+                    this.render();
+                    toast("已删除关联", "info");
+                  }
+                }
+              });
               this.els.g.appendChild(path);
+              // 可见细虚线（覆盖在命中区上）
+              const vis = document.createElementNS(NS, "path");
+              vis.setAttribute("d", path.getAttribute("d"));
+              vis.setAttribute("fill", "none");
+              vis.setAttribute("stroke", "#ffa94d");
+              vis.setAttribute("stroke-width", 1.6);
+              vis.setAttribute("stroke-dasharray", "5 4");
+              vis.setAttribute("opacity", "0.75");
+              vis.setAttribute("pointer-events", "none");
+              this.els.g.appendChild(vis);
               // 目标端小圆点
               const dot = document.createElementNS(NS, "circle");
               dot.setAttribute("cx", x2); dot.setAttribute("cy", y2); dot.setAttribute("r", 3.5);
@@ -11693,6 +11722,24 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       copyText(lines.join("\n"));
       toast("已复制 Markdown 大纲（含图标/时长/维度/备注）", "success");
     }
+    // 导出为独立 HTML 文件（浏览器直接打开即可查看导图，可分享）
+    exportHtml() {
+      if (!this.root) return;
+      const data = JSON.stringify({ root: this.root, taskText: this.root.text || "思维导图", exportedAt: new Date().toISOString() });
+      const html = `<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(this.root.text || "思维导图")}</title><style>
+body{font-family:system-ui,sans-serif;background:#0f0f1e;color:#e8e8f0;margin:0;padding:20px}h1{font-size:20px;margin:0 0 16px}.node{position:absolute;background:#1e1e38;border:1px solid #7c5cff;border-radius:10px;padding:8px 12px;font-size:13px;white-space:nowrap}.node.root{background:linear-gradient(135deg,#7c5cff,#5b8cff);font-weight:700;color:#fff}.node .meta{font-size:10px;color:#9a9ab8;margin-top:3px}svg{position:absolute;top:0;left:0;z-index:-1}
+</style></head><body><h1>${escapeHtml(this.root.text || "思维导图")}</h1><div id="w" style="position:relative"></div><script>
+const DATA=${data};const root=DATA.root;const w=document.getElementById('w');const svgNS='http://www.w3.org/2000/svg';const svg=document.createElementNS(svgNS,'svg');w.appendChild(svg);const pos=new Map();let slot=0;function calc(n,d){if(!n.children.length||n.collapsed){n._s=slot++}else{n.children.forEach(c=>calc(c,d+1));n._s=(n.children[0]._s+n.children[n.children.length-1]._s)/2}}calc(root,0);function place(n,d){const x=d*250,y=n._s*60;pos.set(n.id,{x,y,w:200,h:44});n.children.forEach(c=>place(c,d+1))}place(root,0);let maxW=0,maxH=0;pos.forEach(p=>{maxW=Math.max(maxW,p.x+p.w);maxH=Math.max(maxH,p.y+p.h)});svg.setAttribute('width',maxW+20);svg.setAttribute('height',maxH+20);function walk(n){const p=pos.get(n.id);n.children.forEach(c=>{const cp=pos.get(c.id);const ln=document.createElementNS(svgNS,'path');ln.setAttribute('d','M '+(p.x+p.w)+' '+(p.y+p.h/2)+' C '+(p.x+40)+' '+(p.y+p.h/2)+', '+(cp.x-40)+' '+(cp.y+cp.h/2)+', '+cp.x+' '+(cp.y+cp.h/2));ln.setAttribute('stroke','rgba(124,92,255,.5)');ln.setAttribute('stroke-width','2');ln.setAttribute('fill','none');svg.appendChild(ln);walk(c)});const d=document.createElement('div');d.className='node'+(n._isRoot?' root':'');d.style.left=p.x+'px';d.style.top=p.y+'px';d.style.width=p.w+'px';d.style.minHeight=p.h+'px';d.innerHTML=n.text+(n.meta&&n.meta.est_min?'<div class="meta">⏱'+n.meta.est_min+'min'+(n.meta.done?' · ✅':'' )+'</div>':'');w.appendChild(d)}walk(root);
+</script></body></html>`;
+      const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${(this.root.text || "mindmap").replace(/[\\/:*?"<>|]/g, "")}.html`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      toast("已导出交互式 HTML（浏览器打开即可查看/分享）", "success");
+    }
 
     // ---------- 保存 / 应用 ----------
     save() {
@@ -12101,6 +12148,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       els.exportText.addEventListener("click", () => this.exportText());
       els.exportMmd.addEventListener("click", () => this.exportMermaid());
       els.exportMd.addEventListener("click", () => this.exportMarkdown());
+      if (els.exportHtml) els.exportHtml.addEventListener("click", () => this.exportHtml());
       els.apply.addEventListener("click", () => this.applyToList());
       els.save.addEventListener("click", () => this.save());
       if (els.libraryBtn) els.libraryBtn.addEventListener("click", () => this.openLibrary());
