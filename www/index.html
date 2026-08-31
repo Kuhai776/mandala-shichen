@@ -86,7 +86,7 @@
       } catch (e) { console.warn("[polyfill] dialog 降级失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260912" />
+  <link rel="stylesheet" href="styles.css?v=20260913" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
   <script src="lib/mermaid.min.js"></script>
@@ -429,6 +429,12 @@
     </button>
     <button class="realm-fab-btn realm-fab-mm" id="realmFabMindmap" title="🧠 思维导图 · 独立编辑器（最近导图/历史/空白新建）">
       <span class="rf-icon">🧠</span><span class="rf-name">思维导图</span>
+    </button>
+    <button class="realm-fab-btn realm-fab-graph" id="realmFabGraph" title="🔗 关系图谱 · 全局任务/节点关系网络（Obsidian 风格）">
+      <span class="rf-icon">🔗</span><span class="rf-name">关系图</span>
+    </button>
+    <button class="realm-fab-btn realm-fab-ai" id="realmFabAI" title="🤖 AI 规划助手 · 对话式任务拆解与安排">
+      <span class="rf-icon">🤖</span><span class="rf-name">AI 助手</span>
     </button>
   </div>
 
@@ -1396,6 +1402,27 @@
     </div>
   </dialog>
 
+  <!-- 🔗 关系图谱：全局任务/节点关系网络（Obsidian 风格，节点可拖拽、边可编辑） -->
+  <dialog class="graph-dialog" id="graphDialog">
+    <div class="graph-wrap">
+      <div class="graph-head">
+        <span class="graph-title">🔗 关系图谱 · 全局任务网络</span>
+        <span class="graph-hint">节点=任务/节点 · 连线=关联（标签/相似/导图关联）· 拖节点调整 · 点连线删除 · 点节点跳转</span>
+        <button class="icon-btn" id="graphClose" aria-label="关闭">✕</button>
+      </div>
+      <div class="graph-body">
+        <div class="graph-canvas" id="graphCanvas">
+          <svg id="graphSvg" xmlns="http://www.w3.org/2000/svg">
+            <g id="graphEdges"></g>
+            <g id="graphNodes"></g>
+          </svg>
+          <div class="graph-legend" id="graphLegend"></div>
+          <div class="graph-empty" id="graphEmpty" hidden>暂无任务数据，先去收集箱/孵化添加任务吧</div>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
   <!-- ❓ 提问解析库：问题库导入解析 → 表格/看板展示 → 逐问作答 -->
   <dialog class="qa-dialog-fullscreen" id="qaDialog">
     <div class="qa-fs-content">
@@ -1869,6 +1896,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=20260912" defer></script>
+  <script src="app.js?v=20260913" defer></script>
 </body>
 </html>

@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260912";
+const SW_VER = "20260913";
 
 (function () {
   "use strict";
@@ -2199,6 +2199,8 @@ const SW_VER = "20260912";
     realmFabHatch: document.getElementById("realmFabHatch"),
     realmFabBasic: document.getElementById("realmFabBasic"),
     realmFabMindmap: document.getElementById("realmFabMindmap"),
+    realmFabGraph: document.getElementById("realmFabGraph"),
+    realmFabAI: document.getElementById("realmFabAI"),
     hatchBasicBtn: document.getElementById("hatchBasicBtn"),
     hatchSaveHabit: document.getElementById("hatchSaveHabit"),
     hatchMode: document.getElementById("hatchMode"),
@@ -12428,6 +12430,199 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
     toast("已新建空白思维导图 · 双击根节点命名，选中后 Tab 添加节点", "info");
   }
 
+  // ============================================================
+  // 🔗 关系图谱（Obsidian 风格）：全局任务/节点关系网络
+  // ============================================================
+  const graphState = { nodes: [], edges: [], drag: null };
+
+  // 收集全局节点：收集箱任务 + 孵化历史 + 导图
+  function collectGraphNodes() {
+    const nodes = [];
+    const seen = new Set();
+    const push = (n) => { if (n && n.label && !seen.has(n.id)) { seen.add(n.id); nodes.push(n); } };
+    // 收集箱任务
+    inboxItems.forEach((it) => {
+      const label = (it.text || "").replace(/\s*#\w+(→\d+)?#\s*$/, "").trim();
+      push({ id: "inb_" + (it.id || Math.random().toString(36).slice(2)), label, type: "inbox", tags: it.tags || [], done: it.done, ref: it });
+    });
+    // 孵化历史
+    (loadHatchHistory() || []).forEach((h) => {
+      push({ id: "hatch_" + (h.task_hash || Math.random().toString(36).slice(2)), label: h.task_text, type: "hatch", tags: [h.tag].filter(Boolean), ref: h });
+    });
+    // 导图（任务级）
+    (load(MINDMAP_KEY, []) || []).forEach((m) => {
+      push({ id: "mm_" + (m.id || Math.random().toString(36).slice(2)), label: m.taskText || m.root.text, type: "mindmap", tags: [], ref: m, mmRoot: m.root });
+    });
+    return nodes;
+  }
+
+  // 建边：相同 tag / 文本相似 / 导图关联线
+  function buildGraphEdges(nodes) {
+    const edges = [];
+    const seen = new Set();
+    const add = (a, b, type) => {
+      if (!a || !b || a === b) return;
+      const key = [a, b].sort().join("|");
+      if (seen.has(key)) return;
+      seen.add(key);
+      edges.push({ a, b, type });
+    };
+    // 相同 tag
+    const byTag = new Map();
+    nodes.forEach((n) => (n.tags || []).forEach((t) => { if (t) { if (!byTag.has(t)) byTag.set(t, []); byTag.get(t).push(n.id); } }));
+    byTag.forEach((list) => { for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) add(list[i], list[j], "tag"); });
+    // 文本相似（中文 2-gram + 英文词 token 重叠）
+    const grams = (s) => { const t = String(s || "").toLowerCase(); const g = new Set(); for (let i = 0; i < t.length - 1; i++) g.add(t.slice(i, i + 2)); return g; };
+    for (let i = 0; i < nodes.length; i++) {
+      const gi = grams(nodes[i].label);
+      for (let j = i + 1; j < nodes.length; j++) {
+        const gj = grams(nodes[j].label);
+        let inter = 0; gi.forEach((x) => { if (gj.has(x)) inter++; });
+        const denom = Math.min(gi.size, gj.size) || 1;
+        if (inter / denom > 0.35) add(nodes[i].id, nodes[j].id, "similar");
+      }
+    }
+    // 导图内 meta.link 关联（节点级 → 任务级连线）
+    nodes.forEach((n) => {
+      if (n.type !== "mindmap" || !n.mmRoot) return;
+      const links = new Set();
+      const walk = (x) => { if (x.meta && x.meta.link) links.add(x.meta.link); (x.children || []).forEach(walk); };
+      walk(n.mmRoot);
+      links.forEach((targetId) => {
+        // 目标节点在同导图内，映射到任务级连线（同导图内不画，跨导图才画）
+        const t = nodes.find((m) => m.id === targetId);
+        if (t && t.id !== n.id) add(n.id, t.id, "link");
+      });
+    });
+    return edges;
+  }
+
+  // 打开关系图谱
+  function openGraph() {
+    const dlg = document.getElementById("graphDialog");
+    if (!dlg) return;
+    graphState.nodes = collectGraphNodes();
+    graphState.edges = buildGraphEdges(graphState.nodes);
+    renderGraph();
+    dlg.showModal();
+  }
+
+  // 环形布局 + 渲染
+  function renderGraph() {
+    const nodes = graphState.nodes, edges = graphState.edges;
+    const svg = document.getElementById("graphSvg");
+    const gEdges = document.getElementById("graphEdges");
+    const gNodes = document.getElementById("graphNodes");
+    const empty = document.getElementById("graphEmpty");
+    const legend = document.getElementById("graphLegend");
+    if (!svg || !gEdges || !gNodes) return;
+    const W = 1000, H = 700, cx = W / 2, cy = H / 2;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.setAttribute("width", "100%"); svg.setAttribute("height", "100%");
+    // 空态
+    if (!nodes.length) { empty.hidden = false; gEdges.innerHTML = ""; gNodes.innerHTML = ""; legend.innerHTML = ""; return; }
+    empty.hidden = true;
+    // 节点环形定位（按类型分组）
+    const groups = { inbox: [], hatch: [], mindmap: [] };
+    nodes.forEach((n) => { (groups[n.type] || (groups[n.type] = [])).push(n); });
+    const ordered = [...groups.inbox, ...groups.hatch, ...groups.mindmap];
+    const R = Math.min(W, H) / 2 - 90;
+    const colors = { inbox: "#7c5cff", hatch: "#ffa94d", mindmap: "#4dc3ff" };
+    graphState.pos = {};
+    ordered.forEach((n, i) => {
+      const angle = (i / Math.max(1, ordered.length)) * Math.PI * 2 - Math.PI / 2;
+      graphState.pos[n.id] = { x: cx + Math.cos(angle) * R, y: cy + Math.sin(angle) * R, color: colors[n.type] || "#999" };
+    });
+    // 边
+    gEdges.innerHTML = edges.map((e) => {
+      const pa = graphState.pos[e.a], pb = graphState.pos[e.b];
+      if (!pa || !pb) return "";
+      const typeColor = { tag: "rgba(124,92,255,.5)", similar: "rgba(160,160,200,.35)", link: "#ffa94d" };
+      return `<line x1="${pa.x}" y1="${pa.y}" x2="${pb.x}" y2="${pb.y}" stroke="${typeColor[e.type] || "#999"}" stroke-width="${e.type === "link" ? 2 : 1.2}" stroke-dasharray="${e.type === "link" ? "5 4" : ""}" opacity="0.7" data-a="${e.a}" data-b="${e.b}" data-type="${e.type}" class="graph-edge" />`;
+    }).join("");
+    // 节点
+    gNodes.innerHTML = nodes.map((n) => {
+      const p = graphState.pos[n.id];
+      const label = trunc(n.label, 12);
+      return `<g class="graph-node" data-id="${n.id}" transform="translate(${p.x},${p.y})" cursor="grab">
+        <circle r="${n.type === "mindmap" ? 16 : 13}" fill="${p.color}" fill-opacity="0.85" stroke="#fff" stroke-width="1.5" />
+        <text y="-20" text-anchor="middle" fill="#e8e8f0" font-size="11">${escapeHtml(label)}</text>
+        ${n.done ? '<text y="4" text-anchor="middle" font-size="9" fill="#4ade80">✓</text>' : ""}
+      </g>`;
+    }).join("");
+    // 图例
+    legend.innerHTML = `<span class="graph-leg-item"><span class="dot" style="background:#7c5cff"></span>收集箱</span>
+      <span class="graph-leg-item"><span class="dot" style="background:#ffa94d"></span>孵化</span>
+      <span class="graph-leg-item"><span class="dot" style="background:#4dc3ff"></span>导图</span>
+      <span class="graph-leg-item"><span class="line" style="background:rgba(124,92,255,.5)"></span>同标签</span>
+      <span class="graph-leg-item"><span class="line dash" style="background:#ffa94d"></span>导图关联</span>`;
+    bindGraphInteractions();
+  }
+
+  function bindGraphInteractions() {
+    const svg = document.getElementById("graphSvg");
+    if (!svg || svg.dataset.bound) return;
+    svg.dataset.bound = "1";
+    // 拖拽节点
+    svg.addEventListener("mousedown", (e) => {
+      const g = e.target.closest ? e.target.closest(".graph-node") : null;
+      if (!g) return;
+      const id = g.dataset.id;
+      graphState.drag = { id, dx: e.clientX, dy: e.clientY, moved: false };
+      e.preventDefault();
+    });
+    window.addEventListener("mousemove", (e) => {
+      if (!graphState.drag) return;
+      const d = graphState.drag;
+      const p = graphState.pos[d.id];
+      if (!p) return;
+      // 屏幕坐标 → viewBox 坐标（近似）
+      const rect = svg.getBoundingClientRect();
+      const scale = 1000 / rect.width;
+      p.x += (e.clientX - d.dx) * scale * 2;
+      p.y += (e.clientY - d.dy) * scale * 2;
+      d.dx = e.clientX; d.dy = e.clientY; d.moved = true;
+      renderGraph();
+    });
+    window.addEventListener("mouseup", () => { graphState.drag = null; });
+    // 点击节点跳转 / 点击边删除
+    svg.addEventListener("click", (e) => {
+      const nodeEl = e.target.closest ? e.target.closest(".graph-node") : null;
+      if (nodeEl) {
+        const n = graphState.nodes.find((x) => x.id === nodeEl.dataset.id);
+        if (!n) return;
+        if (n.type === "inbox") { el.inboxDialog && el.inboxDialog.showModal(); renderInboxList(); toast(`已定位收集箱任务「${trunc(n.label, 16)}」`, "info"); }
+        else if (n.type === "hatch") { openHatchHistoryDialog && openHatchHistoryDialog(); toast(`已打开孵化历史（${trunc(n.label, 16)}）`, "info"); }
+        else if (n.type === "mindmap") { if (!mmEditor) mmEditor = new MindMapEditor(); mmEditor.openSavedMindmap(n.ref); document.getElementById("graphDialog").close(); }
+        return;
+      }
+      const edgeEl = e.target.closest ? e.target.closest(".graph-edge") : null;
+      if (edgeEl && edgeEl.dataset.type === "link") {
+        if (confirm("删除这条导图关联线？")) {
+          const mm = graphState.nodes.find((n) => n.type === "mindmap" && n.mmRoot);
+          if (mm && mm.mmRoot) {
+            const remove = (x) => { if (x.meta && x.meta.link) { if (x.id === edgeEl.dataset.a || x.id === edgeEl.dataset.b) delete x.meta.link; } (x.children || []).forEach(remove); };
+            remove(mm.mmRoot);
+            // 保存
+            const list = load(MINDMAP_KEY, []);
+            const t = list.find((r) => r.id === mm.ref.id);
+            if (t) { t.root = mm.mmRoot; save(MINDMAP_KEY, list); }
+            openGraph(); // 重渲染
+            toast("已删除关联线", "info");
+          }
+        }
+      }
+    });
+  }
+
+  // AI 规划助手：聚焦到主页 AI 对话区
+  function focusAiAssistant() {
+    const sec = document.querySelector(".chat-section");
+    if (sec) { sec.scrollIntoView({ behavior: "smooth", block: "start" }); }
+    if (el.chatInput) setTimeout(() => el.chatInput.focus(), 400);
+    toast("🤖 AI 规划助手：描述任务，我会帮你拆解并安排", "info");
+  }
+
   // 剪贴板复制工具（带 toast 反馈）
   function copyText(text) {
     const done = () => toast("已复制到剪贴板", "success");
@@ -12469,6 +12664,10 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
   };
   if (el.realmFabBasic) el.realmFabBasic.addEventListener("click", startBasicHatch);
   if (el.realmFabMindmap) el.realmFabMindmap.addEventListener("click", openMindmapStandalone);
+  if (el.realmFabGraph) el.realmFabGraph.addEventListener("click", openGraph);
+  if (el.realmFabAI) el.realmFabAI.addEventListener("click", focusAiAssistant);
+  const graphClose = document.getElementById("graphClose");
+  if (graphClose) graphClose.addEventListener("click", () => document.getElementById("graphDialog") && document.getElementById("graphDialog").close());
   if (el.hatchBasicBtn) el.hatchBasicBtn.addEventListener("click", startBasicHatch);
   if (el.hatchGenBtn) el.hatchGenBtn.addEventListener("click", generateOnboardQuestions);
   if (el.hatchStartBtn) el.hatchStartBtn.addEventListener("click", startHatchFromForm);
@@ -18721,36 +18920,14 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         <input id="kceTags" list="kceTagList" placeholder="如：工作,学习,健康（可直接选已有标签）" value="${escapeHtml((it.tags || []).join(","))}" style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-primary);color:var(--text-primary);font-size:13px;" />
         <datalist id="kceTagList">${getInboxTags().map((t) => `<option value="${escapeHtml(t)}">`).join("")}</datalist>
       </div>
-      <div class="assign-form">
-        <label>归属主线</label>
-        <select id="kceMl" style="flex:1;">
-          <option value="">— 不归属（移出主线）—</option>
-          ${inboxMainlines.map((ml) => `<option value="${ml.id}" ${it.mainline === ml.id ? "selected" : ""}>${escapeHtml(ml.name)}</option>`).join("")}
-        </select>
-      </div>
-      <div class="assign-form">
-        <label>支线</label>
-        <select id="kceSl" style="flex:1;">
-          <option value="">无支线</option>
-          ${(curMl ? curMl.sidelines : []).map((sl) => `<option value="${sl.id}" ${it.sideline === sl.id ? "selected" : ""}>${escapeHtml(sl.name)}</option>`).join("")}
-        </select>
-      </div>
-      <div class="assign-form">
-        <label>收纳到任务</label>
-        <select id="kceParent" style="flex:1;">
-          <option value="">— 独立任务（不收纳）—</option>
-          ${candidates.map((c) => `<option value="${c.id}" ${it.parentId === c.id ? "selected" : ""}>${escapeHtml((c.text || "").slice(0, 36))}${c.parentId ? "（子任务）" : ""}</option>`).join("")}
-        </select>
-      </div>
       <div class="assign-form kce-note-form">
         <label>备注</label>
-        <textarea id="kceNote" rows="3" placeholder="组块备注：补充说明、上下文、检查清单…（看板卡片下方展示，点击可折叠）" style="flex:1;">${escapeHtml(it.note || "")}</textarea>
+        <textarea id="kceNote" rows="3" placeholder="补充说明、上下文、检查清单…（看板卡片下方展示，点击可折叠）" style="flex:1;">${escapeHtml(it.note || "")}</textarea>
       </div>
       <div class="assign-form">
         <label>↔ 关联任务（平级互链）</label>
         <button type="button" class="tool-btn" id="kceRelate" style="flex:1;">↔ 管理关联（${taskLinkCount(it.id)} 个）</button>
       </div>
-      <p style="margin:2px 0 12px;color:var(--text-muted);font-size:11px;">提示：「归属主线/支线」与「收纳到任务」两套归属互斥——选了父任务则以任务级收纳为准（主线/支线会被清空），反之亦然。「关联」为平级互链，不影响两套归属。</p>
       <div class="assign-actions">
         <button class="tool-btn" id="kceDelete" style="color:var(--danger, #ff6b6b);" title="删除该任务（5 秒内可撤销）">删除</button>
         <button class="tool-btn" id="assignCancel">取消</button>
@@ -18772,13 +18949,6 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       });
     });
     // 主线联动支线
-    document.getElementById("kceMl").addEventListener("change", (e) => {
-      const ml = getMainline(e.target.value);
-      const slSel = document.getElementById("kceSl");
-      slSel.innerHTML = ml && ml.sidelines.length
-        ? '<option value="">无支线</option>' + ml.sidelines.map((sl) => `<option value="${sl.id}">${escapeHtml(sl.name)}</option>`).join("")
-        : '<option value="">无支线</option>';
-    });
     document.getElementById("assignCancel").addEventListener("click", () => el.assignDialog.close());
     // 删除（可撤销）：与表格视图删除一致的 toast 撤销模式
     document.getElementById("kceDelete").addEventListener("click", () => {
@@ -18815,24 +18985,11 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     });
     document.getElementById("assignOk").addEventListener("click", () => {
       it.priority = prioVal;
-      const mlId = document.getElementById("kceMl").value;
-      const slId = document.getElementById("kceSl").value;
-      const parentId = document.getElementById("kceParent").value;
       it.note = (document.getElementById("kceNote").value || "").trim();
       // 标签：逗号/顿号/空格分隔，去重、最多 6 个
       const tagInput = document.getElementById("kceTags");
       if (tagInput) {
         it.tags = tagInput.value.split(/[,，、\s]+/).map((t) => t.trim()).filter(Boolean).filter((t, i, a) => a.indexOf(t) === i).slice(0, 6);
-      }
-      if (parentId) {
-        // 任务级收纳优先：清空主线/支线（与收纳弹窗逻辑一致）
-        it.parentId = parentId;
-        it.mainline = null;
-        it.sideline = null;
-      } else {
-        it.parentId = null;
-        it.mainline = mlId || null;
-        it.sideline = slId || null;
       }
       saveInbox();
       updateInboxTagDatalist();
