@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260910";
+const SW_VER = "20260911";
 
 (function () {
   "use strict";
@@ -10785,6 +10785,38 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     doLayout(root) {
       root = root || this.root;
       this._slot = 0;
+      // 放射状布局：根居中，一级均匀分布一圈，更深层沿父角度向外延伸
+      if (this.layout === "radial") {
+        this._nodePos = new Map();
+        const sizes = this._collectSizes(root);
+        const R1 = 270, levelGap = 230;
+        const place = (n, angle, radius, depth) => {
+          const sz = sizes.get(n.id) || { w: 220, h: 44 };
+          const x = Math.cos(angle) * radius - sz.w / 2;
+          const y = Math.sin(angle) * radius - sz.h / 2;
+          this._nodePos.set(n.id, { x, y, w: sz.w, h: sz.h, depth, angle, radius });
+          const cnt = n.children.length;
+          n.children.forEach((c, i) => {
+            const ca = cnt > 1 ? angle + (i - (cnt - 1) / 2) * 0.55 : angle;
+            place(c, ca, radius + levelGap, depth + 1);
+          });
+        };
+        const sz0 = sizes.get(root.id) || { w: 220, h: 44 };
+        this._nodePos.set(root.id, { x: -sz0.w / 2, y: -sz0.h / 2, w: sz0.w, h: sz0.h, depth: 0, angle: 0, radius: 0 });
+        const top = root.children.length;
+        root.children.forEach((c, i) => {
+          const angle = -Math.PI / 2 + (i - (top - 1) / 2) * (2 * Math.PI / Math.max(1, top));
+          place(c, angle, R1, 1);
+        });
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        this._nodePos.forEach((p) => {
+          minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+          maxX = Math.max(maxX, p.x + p.w); maxY = Math.max(maxY, p.y + p.h);
+        });
+        if (!isFinite(minX)) { minX = -200; minY = -100; maxX = 200; maxY = 100; }
+        this._bbox = { minX, minY, maxX, maxY };
+        return;
+      }
       const NODE_W = 0, NODE_H = 0; // 占位（实际在渲染时用节点尺寸）
       const hGap = this.layout === "lr" ? 72 : 30;
       const vGap = this.layout === "lr" ? 22 : 72;
@@ -10917,11 +10949,18 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         if (!cp) return;
         const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
         const dir = this.layout === "lr" ? 1 : 0;
-        const sx = p.x + p.w, sy = p.y + p.h / 2;
-        const tx = cp.x, ty = cp.y + cp.h / 2;
-        path.setAttribute("d", dir
-          ? `M ${sx} ${sy} C ${sx + 34} ${sy}, ${tx - 34} ${ty}, ${tx} ${ty}`
-          : `M ${sx} ${sy} C ${sx} ${sy + 26}, ${tx} ${ty - 26}, ${tx} ${ty}`);
+        let sx = p.x + p.w, sy = p.y + p.h / 2;
+        let tx = cp.x, ty = cp.y + cp.h / 2;
+        if (this.layout === "radial") {
+          // 放射状：父中心 → 子中心直线（轻微曲率）
+          sx = p.x + p.w / 2; sy = p.y + p.h / 2;
+          tx = cp.x + cp.w / 2; ty = cp.y + cp.h / 2;
+          path.setAttribute("d", `M ${sx} ${sy} L ${tx} ${ty}`);
+        } else {
+          path.setAttribute("d", dir
+            ? `M ${sx} ${sy} C ${sx + 34} ${sy}, ${tx - 34} ${ty}, ${tx} ${ty}`
+            : `M ${sx} ${sy} C ${sx} ${sy + 26}, ${tx} ${ty - 26}, ${tx} ${ty}`);
+        }
         path.setAttribute("fill", "none");
         const isSide = c.type === "side";
         const isChild = c.type === "child";
@@ -11010,6 +11049,16 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         bar.setAttribute("rx", 2);
         bar.setAttribute("fill", risk === "high" ? "#ff5470" : "#ffb020");
         group.appendChild(bar);
+      }
+      // 优先级顶条（🔴高 / 🔶中，红黄横条）
+      const prio = n.meta && n.meta.priority;
+      if (prio === 1 || prio === 2) {
+        const pb = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        pb.setAttribute("x", 4); pb.setAttribute("y", 0);
+        pb.setAttribute("width", Math.min(pos.w - 8, 26)); pb.setAttribute("height", 3);
+        pb.setAttribute("rx", 1.5);
+        pb.setAttribute("fill", prio === 1 ? "#ff5470" : "#ffb020");
+        group.appendChild(pb);
       }
       // 文本（可多行）
       const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
@@ -11265,6 +11314,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
           <div class="mm-pf-grid">
             <label>时长(分)<input type="number" class="mm-pf-min" value="${m.est_min || ""}" min="0" /></label>
             <label>风险<select class="mm-pf-risk"><option value="">无</option><option value="low" ${m.risk === "low" ? "selected" : ""}>低</option><option value="med" ${m.risk === "med" ? "selected" : ""}>中</option><option value="high" ${m.risk === "high" ? "selected" : ""}>高</option></select></label>
+            <label>优先级<select class="mm-pf-prio"><option value="">无</option><option value="1" ${m.priority === 1 ? "selected" : ""}>🔴 高</option><option value="2" ${m.priority === 2 ? "selected" : ""}>🔶 中</option></select></label>
             <label>维度<select class="mm-pf-dim">${dimOpts}</select></label>
             <label>颜色<input type="color" class="mm-pf-color" value="${m.color || "#7c5cff"}" /><button type="button" class="tool-btn mm-pf-clr">清除</button></label>
           </div>
@@ -11296,6 +11346,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         if (ev.target.classList.contains("mm-pf-color")) m.color = ev.target.value || "";
         if (ev.target.classList.contains("mm-pf-note")) m.note = ev.target.value;
         if (ev.target.classList.contains("mm-pf-done")) m.done = !!ev.target.checked;
+        if (ev.target.classList.contains("mm-pf-prio")) { if (ev.target.value) m.priority = parseInt(ev.target.value, 10); else delete m.priority; }
         if (ev.target.classList.contains("mm-pf-link")) { if (ev.target.value) m.link = ev.target.value; else delete m.link; }
       });
       panel.querySelectorAll("textarea, select, input[type=number], input[type=color]").forEach((inp) => {
@@ -11653,6 +11704,10 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       if (this._openedFrom && this._openedFrom.mode === "saved" && this._openedFrom.id) {
         rec = list.find((r) => r.id === this._openedFrom.id) || null;
         if (rec) {
+          // 存档旧版本（保留最近 10 版，可回退）
+          if (!rec.history) rec.history = [];
+          rec.history.push({ savedAt: rec.updatedAt || Date.now(), root: rec.root, layout: rec.layout });
+          if (rec.history.length > 10) rec.history.shift();
           rec.taskText = taskText;
           rec.layout = this.layout;
           rec.root = this.root;
@@ -11706,6 +11761,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
               <div class="mm-lib-meta">${cnt} 节点 · 更新于 ${fmt(r.updatedAt || r.createdAt)}</div></div>
               <div class="mm-lib-actions">
                 <button data-a="open" title="打开编辑">打开</button>
+                <button data-a="hist" title="历史版本（回退）">历史</button>
                 <button data-a="rename" title="重命名">改名</button>
                 <button data-a="export" title="导出为 JSON 文件">导出</button>
                 <button data-a="del" title="删除（不可恢复）">删</button>
@@ -11731,6 +11787,10 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
           if (!rec) return;
           const name = prompt("导图名称：", rec.taskText || "");
           if (name && name.trim()) { rec.taskText = name.trim(); save(MINDMAP_KEY, list); this.renderLibrary(); }
+        });
+        el.querySelector('[data-a="hist"]').addEventListener("click", () => {
+          const rec = list.find((r) => r.id === id);
+          if (rec) this.showHistory(rec);
         });
         el.querySelector('[data-a="export"]').addEventListener("click", () => {
           const rec = list.find((r) => r.id === id);
@@ -11774,6 +11834,49 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
             this.closeLibrary();
             this.applyTemplate(el.dataset.tpl);
           }
+        });
+      });
+    }
+    // 🕰 版本历史：浏览/回退到某次保存的旧版本
+    showHistory(rec) {
+      if (!this.els.library) return;
+      const hist = (rec.history || []).slice().reverse();
+      const fmt = (ts) => { const t = new Date(ts); return `${t.getMonth() + 1}月${t.getDate()}日 ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`; };
+      const items = hist.length
+        ? hist.map((h, i) => {
+            const cnt = h.root ? this._countNodes(h.root) : 0;
+            const ver = hist.length - i;
+            return `<div class="mm-lib-item" data-ver="${i}">
+              <div class="mm-lib-main"><div class="mm-lib-title">版本 ${ver}</div>
+              <div class="mm-lib-meta">${cnt} 节点 · ${fmt(h.savedAt)}</div></div>
+              <div class="mm-lib-actions"><button data-a="restore">恢复此版本</button></div>
+            </div>`;
+          }).join("")
+        : `<div class="mm-lib-empty">暂无历史版本 · 每次「💾 保存」都会留档上一版（最多 10 版）</div>`;
+      this.els.library.innerHTML = `<div class="mm-lib-head"><span>🕰 版本历史：${escapeHtml(rec.taskText || "未命名")}</span><button id="mmLibBack" class="mm-tb">← 返回</button><button id="mmLibClose2" class="icon-btn">✕</button></div>
+        <div class="mm-lib-list">${items}</div>`;
+      const lib = this.els.library;
+      lib.querySelector("#mmLibClose2").addEventListener("click", () => this.closeLibrary());
+      lib.querySelector("#mmLibBack").addEventListener("click", () => this.renderLibrary());
+      lib.querySelectorAll(".mm-lib-item").forEach((el) => {
+        const vi = parseInt(el.dataset.ver, 10);
+        el.querySelector('[data-a="restore"]').addEventListener("click", () => {
+          const h = hist[vi];
+          if (!h || !h.root) return;
+          if (!confirm(`恢复到版本 ${hist.length - vi}（${fmt(h.savedAt)}）？当前内容会先留档。`)) return;
+          // 当前版本留档
+          if (!rec.history) rec.history = [];
+          rec.history.push({ savedAt: Date.now(), root: rec.root, layout: rec.layout });
+          rec.root = h.root;
+          rec.layout = h.layout || "lr";
+          rec.updatedAt = Date.now();
+          const list = load(MINDMAP_KEY, []);
+          const target = list.find((r) => r.id === rec.id);
+          if (target) { target.root = rec.root; target.layout = rec.layout; target.updatedAt = rec.updatedAt; target.history = rec.history; }
+          save(MINDMAP_KEY, list);
+          this.closeLibrary();
+          this.openSavedMindmap(rec);
+          toast(`已恢复到版本 ${hist.length - vi}`, "success");
         });
       });
     }
@@ -11981,7 +12084,9 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       els.undo.addEventListener("click", () => this.undo());
       els.redo.addEventListener("click", () => this.redo());
       els.layout.addEventListener("click", () => {
-        this.layout = this.layout === "lr" ? "tb" : "lr";
+        // 三态循环：左右 → 上下 → 放射
+        this.layout = this.layout === "lr" ? "tb" : (this.layout === "tb" ? "radial" : "lr");
+        els.layout.textContent = this.layout === "lr" ? "⇄ 布局" : (this.layout === "tb" ? "⇅ 布局" : "☀ 放射");
         this.render();
         setTimeout(() => this.fit(), 30);
       });
