@@ -10559,3 +10559,136 @@ dialog.qa-dialog-fullscreen::backdrop { background: rgba(0, 0, 0, 0.5); }
 @media (prefers-reduced-motion: reduce) {
   .mm-node-in, .mm-edge-draw, .mm-edge-in { animation: none !important; }
 }
+
+/* ============================================================
+ * ⏱ 正计时系统（Round 3）：底部常驻计时条 + 格子计时按钮
+ * ============================================================ */
+.running-timer-bar {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: 92px;
+  z-index: 900; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+  max-width: 96vw; pointer-events: auto;
+}
+.running-timer-bar[hidden] { display: none; }
+.timer-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: linear-gradient(135deg, rgba(124,92,255,.95), rgba(91,140,255,.95));
+  color: #fff; padding: 6px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  box-shadow: 0 6px 20px rgba(124,92,255,.45);
+}
+.timer-pulse { animation: timerPulse 1.4s ease-in-out infinite; }
+@keyframes timerPulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+.timer-task { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timer-clock { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .5px; }
+.timer-stop {
+  background: rgba(255,255,255,.22); border: none; color: #fff; width: 20px; height: 20px;
+  border-radius: 50%; cursor: pointer; font-size: 10px; line-height: 1; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.timer-stop:hover { background: rgba(255,255,255,.42); }
+/* 格子上的计时按钮（悬停显现，触屏常驻） */
+.cell-timer-btn {
+  position: absolute; top: 2px; right: 2px; z-index: 4;
+  width: 18px; height: 18px; border-radius: 50%; border: none; padding: 0;
+  background: rgba(124,92,255,.85); color: #fff; font-size: 9px; line-height: 1; cursor: pointer;
+  opacity: 0; transition: opacity .15s, transform .15s;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.cell:hover .cell-timer-btn { opacity: .9; }
+.cell-timer-btn:hover { opacity: 1; transform: scale(1.18); }
+.cell-timer-btn.running { opacity: 1; background: #ff6b6b; animation: timerPulse 1.4s ease-in-out infinite; }
+@media (hover: none) { .cell-timer-btn { opacity: .8; } }
+/* 计时中的格子：脉动描边 */
+.cell.timing { animation: cellTiming 1.8s ease-in-out infinite; }
+@keyframes cellTiming {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(255,107,107,.7), 0 0 12px rgba(255,107,107,.32); }
+  50%      { box-shadow: 0 0 0 2px rgba(255,107,107,.95), 0 0 20px rgba(255,107,107,.6); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .timer-pulse, .cell.timing, .cell-timer-btn.running { animation: none !important; }
+}
+
+/* ============================================================
+ * 🏷 收集箱底部标签 dock + 🔗 导图导入文章对话框
+ * ============================================================ */
+.inbox-tag-dock {
+  position: sticky; bottom: 0; z-index: 6; margin-top: 10px; padding: 8px 10px;
+  background: var(--bg-secondary, #1a1a2e);
+  border-top: 1px solid var(--border, rgba(128,128,160,.25));
+  box-shadow: 0 -6px 18px rgba(0,0,0,.28);
+}
+.inbox-tag-dock[hidden] { display: none; }
+.itd-inner { display: flex; align-items: center; gap: 10px; }
+.itd-label { font-size: 11px; color: var(--text-muted, #6a6a8a); white-space: nowrap; font-weight: 600; }
+.itd-chips { display: flex; gap: 6px; overflow-x: auto; flex: 1; padding-bottom: 2px; scrollbar-width: thin; }
+.itd-chips::-webkit-scrollbar { height: 4px; }
+.itd-chips::-webkit-scrollbar-thumb { background: rgba(128,128,160,.35); border-radius: 2px; }
+.itd-chip {
+  flex: 0 0 auto; padding: 5px 11px; border-radius: 999px; font-size: 12px; cursor: pointer;
+  border: 1px solid var(--border, rgba(128,128,160,.3));
+  background: var(--bg-tertiary, #252544); color: var(--text-secondary, #a0a0c0);
+  transition: all .15s; white-space: nowrap;
+}
+.itd-chip:hover { border-color: var(--accent, #7c5cff); color: var(--text-primary, #f0f0ff); }
+.itd-chip.active {
+  background: var(--accent, #7c5cff); border-color: var(--accent, #7c5cff);
+  color: #fff; font-weight: 600; box-shadow: 0 2px 10px rgba(124,92,255,.4);
+}
+/* 导入文章对话框 */
+.mm-import-dlg {
+  width: min(680px, 94vw); border: none; border-radius: 16px; padding: 0;
+  background: var(--bg-card, #1e1e38); color: var(--text-primary, #f0f0ff);
+  box-shadow: 0 20px 60px rgba(0,0,0,.6);
+}
+.mm-import-dlg::backdrop { background: rgba(0,0,0,.68); }
+.mmi-head { font-size: 16px; font-weight: 700; padding: 16px 18px 4px; }
+.mmi-tip { font-size: 12px; color: var(--text-muted, #6a6a8a); padding: 0 18px 12px; }
+.mmi-url-row { display: flex; gap: 8px; padding: 0 18px 6px; }
+.mmi-url {
+  flex: 1; padding: 8px 10px; border-radius: 9px; font-size: 13px;
+  border: 1px solid var(--border, rgba(128,128,160,.3));
+  background: var(--bg-primary, #0f0f1e); color: var(--text-primary, #f0f0ff);
+}
+.mmi-fetch-hint { font-size: 11px; color: var(--text-muted, #6a6a8a); padding: 0 18px 10px; min-height: 14px; }
+.mmi-text {
+  width: calc(100% - 36px); margin: 0 18px 12px; padding: 10px; border-radius: 10px; font-size: 13px;
+  line-height: 1.55; resize: vertical; font-family: inherit;
+  border: 1px solid var(--border, rgba(128,128,160,.3));
+  background: var(--bg-primary, #0f0f1e); color: var(--text-primary, #f0f0ff);
+}
+.mmi-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 18px 16px; }
+.mmi-ok { background: var(--accent, #7c5cff); color: #fff; border-color: var(--accent, #7c5cff); font-weight: 600; }
+
+/* ============================================================
+ * ⏱ 今日时间流向图 + 🗺 看板转长期任务按钮（Round 2）
+ * ============================================================ */
+.time-flow {
+  margin: 10px 12px 4px; padding: 12px 14px;
+  background: var(--bg-card, #1e1e38);
+  border: 1px solid var(--border, rgba(128,128,160,.25)); border-radius: 14px;
+}
+.time-flow[hidden] { display: none; }
+.tf-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
+.tf-title { font-size: 14px; font-weight: 700; color: var(--text-primary, #f0f0ff); }
+.tf-total { font-size: 12px; color: var(--accent, #7c5cff); font-weight: 600; font-variant-numeric: tabular-nums; }
+.tf-periods { display: flex; flex-direction: column; gap: 6px; }
+.tf-period { display: flex; align-items: center; gap: 8px; }
+.tf-period-name { flex: 0 0 30px; font-size: 11px; color: var(--text-muted, #6a6a8a); text-align: right; }
+.tf-period-bar { flex: 1; display: flex; gap: 2px; height: 34px; align-items: flex-end; }
+.tf-cell {
+  position: relative; flex: 1 1 0; height: 100%; display: flex; align-items: flex-end;
+  border-radius: 3px; overflow: hidden; background: rgba(128,128,160,.08);
+}
+.tf-fill { width: 100%; border-radius: 3px 3px 0 0; transition: height .3s; min-height: 3px; }
+.tf-dot-done { position: absolute; top: 1px; left: 50%; transform: translateX(-50%); font-size: 8px; color: #4ade80; }
+.tf-legend { display: flex; gap: 14px; margin-top: 10px; font-size: 11px; color: var(--text-secondary, #a0a0c0); flex-wrap: wrap; }
+.tf-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.tf-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+/* 看板卡片「转长期任务」按钮（与转习惯按钮并排，位于右侧） */
+.ikb-longtask {
+  position: absolute; top: 4px; right: 72px; width: 22px; height: 22px; border-radius: 6px;
+  border: none; background: rgba(251,191,36,.14); color: #fbbf24; font-size: 11px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity .2s;
+}
+.inbox-kanban-card:hover .ikb-longtask, .inbox-kanban-card:focus-within .ikb-longtask { opacity: 1; }
+.ikb-longtask:hover { background: rgba(251,191,36,.3); }
+@media (hover: none) { .ikb-longtask { opacity: 1; } }
