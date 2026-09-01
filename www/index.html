@@ -86,7 +86,7 @@
       } catch (e) { console.warn("[polyfill] dialog 降级失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260901r5" />
+  <link rel="stylesheet" href="styles.css?v=20260901r6" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
   <script src="lib/mermaid.min.js"></script>
@@ -1402,12 +1402,12 @@
           <div class="mm-float-bar" id="mmFloatBar" hidden>
             <button type="button" data-a="child" title="添加子节点 (Tab)"><i>➕</i><b>子节点</b></button>
             <button type="button" data-a="edit" title="编辑文本 (Enter)"><i>✏️</i><b>编辑</b></button>
-            <button type="button" data-a="fold" title="折叠/展开本支 (C)"><i>▾</i><b>折叠</b></button>
-            <button type="button" data-a="accordion" title="手风琴：折叠同级其他分支 (Shift+C)"><i>▤</i><b>手风琴</b></button>
+            <button type="button" data-a="fold" data-sec="1" title="折叠/展开本支 (C)"><i>▾</i><b>折叠</b></button>
+            <button type="button" data-a="accordion" data-sec="1" title="手风琴：折叠同级其他分支 (Shift+C)"><i>▤</i><b>手风琴</b></button>
             <button type="button" data-a="up" title="上移同级（Alt+↑）"><i>↑</i></button>
             <button type="button" data-a="down" title="下移同级（Alt+↓）"><i>↓</i></button>
-            <button type="button" data-a="promote" title="提升为兄弟节点"><i>⇄</i><b>提升</b></button>
-            <button type="button" data-a="focus" title="聚焦此节点（只看这一支，Esc 退出）"><i>🎯</i><b>聚焦</b></button>
+            <button type="button" data-a="promote" data-sec="1" title="提升为兄弟节点"><i>⇄</i><b>提升</b></button>
+            <button type="button" data-a="focus" data-sec="1" title="聚焦此节点（只看这一支，Esc 退出）"><i>🎯</i><b>聚焦</b></button>
             <button type="button" data-a="link" title="绘制关联线：再点另一个节点（Alt+←/→）"><i>🔗</i><b>关联</b></button>
             <button type="button" data-a="jump" title="回到时间格子（已安排）或打开待办（未安排）"><i>↩</i><b>回格子</b></button>
             <button type="button" data-a="del" title="删除节点 (Del)"><i>🗑</i><b>删除</b></button>
@@ -1931,6 +1931,6 @@
     </div>
   </aside>
 
-  <script src="app.js?v=20260901r5" defer></script>
+  <script src="app.js?v=20260901r6" defer></script>
 </body>
 </html>

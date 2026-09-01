@@ -129,9 +129,13 @@ const SW_VER = "20260923";
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
   const APP_VERSION = "2.7.23";
-  const APP_BUILD = 102; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
+  const APP_BUILD = 103; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
   const APP_VERSION_DATE = "2026-09-01";
   const APP_CHANGELOG = [
+    { v: "2.7.23·103", date: "2026-09-01", items: [
+      "Round6：导图关联线点选菜单（反转/删除）+ 关联起点高亮；主线排序位置反馈；窄屏浮动条紧凑；跳转平滑居中",
+      "Round6：流式上板一键跳过确认；命名钟 Shift+■ 秒归档；跨日钟一键带到今日；记录页双击标题开钟",
+    ]},
     { v: "2.7.23·102", date: "2026-09-01", items: [
       "Round5：导图关联线绘制模式（🔗）+ 根下主线 Alt↑↓ 排序；流式回复出现结构即显示「可上板」",
       "Round5：跨日钟带到今日可选目标格；记录页计划任务标题行内快编",
@@ -3411,12 +3415,46 @@ const SW_VER = "20260923";
     return true;
   }
   // v95 停止正计时：先弹「完成计时」命名弹窗（结束 → 命名 → 写入，步骤明确）
+  // Round6：opts.quick + 已命名 → 跳过弹窗直接记入（Shift+■）
   // 弹窗里钟保持原状态不动（该跑跑该停停），提交时取实时时长
-  function stopCellTimer(period, cell) {
+  function stopCellTimer(period, cell, opts) {
+    opts = opts || {};
     const key = timerKeyOf(state.currentDate, period, cell);
     const t = runningTimers[key];
     if (!t) return null;
     const isUnnamed = !t.taskText || t.taskText === "未命名任务";
+    const doCommit = (nameOverride) => {
+      const cur = runningTimers[key];
+      if (!cur) return;
+      const name = (nameOverride != null ? nameOverride : (cur.taskText || "")).trim();
+      const duration = timerElapsedOf(cur);
+      delete runningTimers[key];
+      save(RUNNING_TIMERS_KEY, runningTimers);
+      const spentMin = Math.max(1, Math.round(duration / 60000));
+      const rec = getCellRecord(period, cell) || {};
+      if (name) rec.actual = rec.actual ? (rec.actual + "; " + name) : name;
+      else if (!rec.actual) rec.actual = cur.taskText;
+      if (rec.spent && /^~?\d+min$/i.test(String(rec.spent).trim())) {
+        const prev = parseInt(String(rec.spent).replace(/[^\d]/g, ""), 10) || 0;
+        rec.spent = (prev + spentMin) + "min";
+      } else if (!rec.spent) {
+        rec.spent = spentMin + "min";
+      }
+      rec.timerStart = cur.startTime;
+      rec.timerEnd = Date.now();
+      rec.timerAuto = true;
+      setCellRecord(period, cell, rec);
+      if (!Object.keys(runningTimers).length) _stopTimerTick();
+      renderRunningTimerBar();
+      renderMandala();
+      renderRecord();
+      haptic(20);
+      toast("⏱️ 已记录 " + spentMin + " 分钟 → " + (PERIOD_NAMES[period] || "第" + (period + 1) + "辰") + " 第" + (cell + 1) + "格", "success");
+    };
+    if (opts.quick && !isUnnamed) {
+      doCommit(t.taskText);
+      return null;
+    }
     const mo = document.createElement("div");
     mo.className = "modal-overlay";
     mo.style.cssText = "position:fixed;inset:0;background:var(--overlay,rgba(0,0,0,.55));z-index:1300;display:flex;align-items:center;justify-content:center;padding:14px;";
@@ -3429,6 +3467,7 @@ const SW_VER = "20260923";
       </div>
       <div style="font-size:11.5px;color:var(--text-muted,#6a6a8a);margin-bottom:12px;line-height:1.6;">
         归属：<b style="color:#9d85ff;">${escapeHtml(PERIOD_NAMES[period] || "第" + (period + 1) + "辰")} 第${cell + 1}格</b> · 暂停中的钟累计不丢
+        ${!isUnnamed ? '<br><span style="color:#86efac;">已有任务名 · Enter 或点「记入」秒归档 · 下次可 Shift+■ 跳过弹窗</span>' : ""}
       </div>
       <div class="ts-clock-row">
         <span class="ts-clock" id="tsClock">${_fmtTimerDur(timerElapsedOf(t))}</span>
@@ -3445,13 +3484,15 @@ const SW_VER = "20260923";
     document.body.appendChild(mo);
     const nameInput = dlg.querySelector("#tsName");
     const clockEl = dlg.querySelector("#tsClock");
-    // 弹窗期间钟若在跑，时长实时刷新（提交取实时值）
     const tick = setInterval(() => {
       const cur = runningTimers[key];
       if (!cur || !document.body.contains(dlg)) { clearInterval(tick); return; }
       clockEl.textContent = _fmtTimerDur(timerElapsedOf(cur));
     }, 1000);
-    setTimeout(() => { nameInput.focus(); if (!isUnnamed) nameInput.select(); }, 60);
+    setTimeout(() => {
+      nameInput.focus();
+      if (!isUnnamed) nameInput.select();
+    }, 60);
     const closeDlg = () => { clearInterval(tick); mo.remove(); };
     dlg.querySelector("#tsCancel").addEventListener("click", closeDlg);
     mo.addEventListener("click", (e) => { if (e.target === mo) closeDlg(); });
@@ -3467,35 +3508,12 @@ const SW_VER = "20260923";
       toast("🗑 已丢弃该计时（未写入）", "info");
     });
     const commit = () => {
-      const cur = runningTimers[key];
-      if (!cur) { closeDlg(); return; }
+      if (!runningTimers[key]) { closeDlg(); return; }
       const name = nameInput.value.trim();
-      const duration = timerElapsedOf(cur);
-      delete runningTimers[key];
-      save(RUNNING_TIMERS_KEY, runningTimers);
-      const spentMin = Math.max(1, Math.round(duration / 60000));
-      const rec = getCellRecord(period, cell) || {};
-      // 命名写入：格子空 → 直接填；已有内容 → 分号追加（与记录合并惯例一致，不覆盖已有）
-      if (name) rec.actual = rec.actual ? (rec.actual + "; " + name) : name;
-      else if (!rec.actual) rec.actual = cur.taskText; // 未命名时用启动时的任务名兜底
-      // 已有手动时长时追加（多段累计）
-      if (rec.spent && /^~?\d+min$/i.test(String(rec.spent).trim())) {
-        const prev = parseInt(String(rec.spent).replace(/[^\d]/g, ""), 10) || 0;
-        rec.spent = (prev + spentMin) + "min";
-      } else if (!rec.spent) {
-        rec.spent = spentMin + "min";
-      }
-      rec.timerStart = cur.startTime;
-      rec.timerEnd = Date.now();
-      rec.timerAuto = true;
-      setCellRecord(period, cell, rec);
-      if (!Object.keys(runningTimers).length) _stopTimerTick();
       closeDlg();
-      renderRunningTimerBar();
-      renderMandala();
-      renderRecord();
-      haptic(20);
-      toast("⏱️ 已记录 " + spentMin + " 分钟 → " + (PERIOD_NAMES[period] || "第" + (period + 1) + "辰") + " 第" + (cell + 1) + "格", "success");
+      // 先写回名称再提交
+      if (runningTimers[key]) runningTimers[key].taskText = name || runningTimers[key].taskText;
+      doCommit(name);
     };
     dlg.querySelector("#tsSave").addEventListener("click", commit);
     nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") commit(); });
@@ -3553,12 +3571,12 @@ const SW_VER = "20260923";
       const endBtn = document.createElement("button");
       endBtn.className = "cell-timer-end";
       endBtn.type = "button";
-      endBtn.title = "■ 结束计时 → 命名任务并写入本格记录";
+      endBtn.title = "■ 结束计时 → 命名并写入（Shift+点 = 已命名秒归档）";
       endBtn.textContent = "■";
       endBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         e.preventDefault();
-        stopCellTimer(period, cell);
+        stopCellTimer(period, cell, { quick: !!e.shiftKey });
       });
       wrap.appendChild(endBtn);
     }
@@ -3614,7 +3632,7 @@ const SW_VER = "20260923";
         const stopBtn = e.target.closest("[data-timer-stop]");
         if (stopBtn) {
           e.stopPropagation();
-          stopCellTimer(parseInt(stopBtn.dataset.p, 10), parseInt(stopBtn.dataset.c, 10));
+          stopCellTimer(parseInt(stopBtn.dataset.p, 10), parseInt(stopBtn.dataset.c, 10), { quick: !!e.shiftKey });
           return;
         }
         const pauseBtn = e.target.closest("[data-timer-pause]");
@@ -3703,7 +3721,7 @@ const SW_VER = "20260923";
         + (isStale ? '<button class="timer-bring" data-timer-bring="1" data-date="' + escapeHtml(t.date || "") + '" data-p="' + t.period + '" data-c="' + t.cell + '" title="带到今日续计">→今</button>' : "")
         + (!isStale ? '<button class="timer-rename" data-timer-rename="1" data-p="' + t.period + '" data-c="' + t.cell + '" title="改名">✎</button>' : "")
         + (!isStale ? '<button class="timer-pause" data-timer-pause="1" data-p="' + t.period + '" data-c="' + t.cell + '" title="' + (paused ? "▶ 恢复" : "⏸ 暂停") + '">' + (paused ? "▶" : "⏸") + '</button>' : "")
-        + (!isStale ? '<button class="timer-stop" data-timer-stop="1" data-p="' + t.period + '" data-c="' + t.cell + '" title="■ 停止 · 命名写入">■</button>' : "")
+        + (!isStale ? '<button class="timer-stop" data-timer-stop="1" data-p="' + t.period + '" data-c="' + t.cell + '" title="■ 停止 · 命名写入（Shift+点秒归档）">■</button>' : "")
         + "</div>";
     };
     bar.innerHTML = sumHtml + opsHtml + '<div class="timer-bar-chips">'
@@ -3731,7 +3749,10 @@ const SW_VER = "20260923";
     });
     if (stale) {
       save(RUNNING_TIMERS_KEY, runningTimers);
-      toast("⏱ 发现 " + stale + " 口跨日计时已自动暂停 · 底部可「带到今日」续计或清跨日", "info", 4500);
+      toast("⏱ 发现 " + stale + " 口跨日计时已自动暂停", "info", 5200, {
+        label: "📅 带到今日",
+        onClick: () => bringStaleTimersToToday(),
+      });
     }
     const active = keys.filter((k) => runningTimers[k] && runningTimers[k].date === today);
     if (active.length || stale) _startTimerTick();
@@ -4939,12 +4960,26 @@ const SW_VER = "20260923";
           const span = document.createElement("span");
           span.className = "task-text";
           span.textContent = taskText(t);
-          span.title = "点击编辑标题";
+          span.title = "单击改标题 · 双击开钟";
           span.style.cursor = "pointer";
+          let _titleClickT = null;
           span.addEventListener("click", (e) => {
             e.stopPropagation();
             e.preventDefault();
-            editTaskTitleInline(period, cell, idx);
+            if (_titleClickT) { clearTimeout(_titleClickT); _titleClickT = null; return; }
+            _titleClickT = setTimeout(() => {
+              _titleClickT = null;
+              editTaskTitleInline(period, cell, idx);
+            }, 260);
+          });
+          span.addEventListener("dblclick", (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            if (_titleClickT) { clearTimeout(_titleClickT); _titleClickT = null; }
+            startCellTimer(period, cell, taskText(t));
+            renderRecord();
+            haptic(15);
+            toast("⏱ 已开钟 · " + trunc(taskText(t), 14), "success", 1800);
           });
           item.appendChild(cb);
           item.appendChild(bar);
@@ -11884,6 +11919,8 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       bar.style.left = left + "px";
       bar.style.top = top + "px";
       bar.hidden = false;
+      // Round6：窄屏紧凑浮动条（加大命中、隐藏次要文字）
+      bar.classList.toggle("compact", rect.width < 640);
       // Round5：关联绘制模式按钮高亮
       const linkBtn = bar.querySelector('[data-a="link"]');
       if (linkBtn) linkBtn.classList.toggle("on", !!this._linkFrom);
@@ -12075,6 +12112,8 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       if (!pos) return;
       const g = this.els.g;
       const isSel = this.selectedId === n.id;
+      const isLinkFrom = this._linkFrom === n.id;
+      const isOrderFlash = this._orderFlashId === n.id;
       const col = this._nodeColors(n);
       const lines = Math.max(1, Math.ceil(this._textWidth(n.text) / 210));
       const txtLines = [];
@@ -12087,7 +12126,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       group.setAttribute("data-node", n.id);
       // v94 task 标识：节点文本已安排到今日时间格子 → 青绿描边 + ↩ 角标（点击直达格子）
       const isTaskNode = !n._isRoot && this._taskTextSet && this._taskTextSet.has((n.text || "").trim());
-      group.setAttribute("class", "mm-node" + (isSel ? " mm-node-sel" : "") + (n._isRoot ? " mm-node-root" : "") + (isTaskNode ? " mm-node-task" : "") + (depth ? " mm-depth-" + Math.min(depth, 4) : ""));
+      group.setAttribute("class", "mm-node" + (isSel ? " mm-node-sel" : "") + (isLinkFrom ? " mm-link-from" : "") + (isOrderFlash ? " mm-order-flash" : "") + (n._isRoot ? " mm-node-root" : "") + (isTaskNode ? " mm-node-task" : "") + (depth ? " mm-depth-" + Math.min(depth, 4) : ""));
       // 入场动画：节点按层级由内向外依次「上板」（用 CSS 独立 scale 属性，避免覆盖 translate 定位）
       if (anim) {
         group.classList.add("mm-node-in");
@@ -12096,13 +12135,14 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         group.style.setProperty("--mm-rise", Math.min(18, 6 + (depth || 0) * 3) + "px");
       }
       // 底（发光）
-      if (isSel) {
+      if (isSel || isLinkFrom) {
         const glow = document.createElementNS("http://www.w3.org/2000/svg", "rect");
         glow.setAttribute("x", -5); glow.setAttribute("y", -5);
         glow.setAttribute("width", pos.w + 10); glow.setAttribute("height", pos.h + 10);
         glow.setAttribute("rx", 14); glow.setAttribute("fill", "none");
-        glow.setAttribute("stroke", col.stroke || col.fill); glow.setAttribute("stroke-width", 3);
-        glow.setAttribute("opacity", "0.55");
+        glow.setAttribute("stroke", isLinkFrom ? "#ffa94d" : (col.stroke || col.fill));
+        glow.setAttribute("stroke-width", isLinkFrom ? 3.5 : 3);
+        glow.setAttribute("opacity", isLinkFrom ? "0.85" : "0.55");
         group.appendChild(glow);
       }
       // 主体
@@ -12232,7 +12272,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         jt.textContent = "↩ 回到时间格子（此节点已安排为今日任务）";
         jg.appendChild(jt);
         const jc = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-        jc.setAttribute("cx", pos.w - 16); jc.setAttribute("cy", 14); jc.setAttribute("r", 10);
+        jc.setAttribute("cx", pos.w - 16); jc.setAttribute("cy", 14); jc.setAttribute("r", 12);
         jc.setAttribute("fill", "#2dd4bf");
         jg.appendChild(jc);
         const js = document.createElementNS("http://www.w3.org/2000/svg", "text");
@@ -12301,18 +12341,10 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
               path.style.cursor = "pointer";
               path.dataset.linkFrom = n.id;
               path.dataset.linkTo = t.id;
-              // 点击关联线 → 删除该关联（可视化闭环）
+              // Round6：点关联线 → 菜单（反转 / 删除），命中区更大
               path.addEventListener("click", (e) => {
                 e.stopPropagation();
-                const f = this.findNode(path.dataset.linkFrom);
-                if (f && f.meta) {
-                  if (confirm(`删除「${trunc(f.text, 16)}」与「${trunc(t.text, 16)}」的关联？`)) {
-                    delete f.meta.link;
-                    this.pushHistory();
-                    this.render();
-                    toast("已删除关联", "info");
-                  }
-                }
+                this._showLinkEdgeMenu(path.dataset.linkFrom, path.dataset.linkTo, e.clientX, e.clientY);
               });
               this.els.g.appendChild(path);
               // 可见细虚线（覆盖在命中区上）
@@ -12325,12 +12357,17 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
               vis.setAttribute("opacity", "0.75");
               vis.setAttribute("pointer-events", "none");
               this.els.g.appendChild(vis);
-              // 目标端小圆点
+              // 目标端小圆点 + 起点小箭头感
               const dot = document.createElementNS(NS, "circle");
               dot.setAttribute("cx", x2); dot.setAttribute("cy", y2); dot.setAttribute("r", 3.5);
               dot.setAttribute("fill", "#ffa94d"); dot.setAttribute("opacity", "0.9");
               dot.setAttribute("pointer-events", "none");
               this.els.g.appendChild(dot);
+              const sdot = document.createElementNS(NS, "circle");
+              sdot.setAttribute("cx", x1); sdot.setAttribute("cy", y1); sdot.setAttribute("r", 2.8);
+              sdot.setAttribute("fill", "#ffd8a8"); sdot.setAttribute("opacity", "0.85");
+              sdot.setAttribute("pointer-events", "none");
+              this.els.g.appendChild(sdot);
             }
           }
         }
@@ -12402,12 +12439,84 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       if (!rect.width) return;
       // Round1：节点跳转居中更稳——预留浮动操作条高度，避免选中后被顶出可视区
       const reserveTop = 56;
-      this.view.x = rect.width / 2 - (p.x + p.w / 2) * this.view.scale;
-      this.view.y = (rect.height + reserveTop) / 2 - (p.y + p.h / 2) * this.view.scale;
-      this._applyView();
+      const tx = rect.width / 2 - (p.x + p.w / 2) * this.view.scale;
+      const ty = (rect.height + reserveTop) / 2 - (p.y + p.h / 2) * this.view.scale;
+      const ox = this.view.x, oy = this.view.y;
+      // Round6：短距平滑平移，长距仍瞬移避免拖沓
+      const dist = Math.hypot(tx - ox, ty - oy);
+      if (dist < 8) {
+        this.view.x = tx; this.view.y = ty; this._applyView();
+      } else if (dist > 900 || this._prefersReducedMotion) {
+        this.view.x = tx; this.view.y = ty; this._applyView();
+      } else {
+        if (this._centerRAF) cancelAnimationFrame(this._centerRAF);
+        const t0 = performance.now();
+        const dur = Math.min(220, 90 + dist * 0.12);
+        const step = (now) => {
+          const k = Math.min(1, (now - t0) / dur);
+          const e = 1 - Math.pow(1 - k, 3);
+          this.view.x = ox + (tx - ox) * e;
+          this.view.y = oy + (ty - oy) * e;
+          this._applyView();
+          this._updateFloatBar && this._updateFloatBar();
+          if (k < 1) this._centerRAF = requestAnimationFrame(step);
+          else this._centerRAF = 0;
+        };
+        this._centerRAF = requestAnimationFrame(step);
+      }
       this._focusedNode = id;
       this._updateFloatBar && this._updateFloatBar();
       setTimeout(() => { this._focusedNode = null; this.render(); }, 1200);
+    }
+    // Round6：关联线点选菜单（反转 / 删除）
+    _showLinkEdgeMenu(fromId, toId, cx, cy) {
+      document.querySelectorAll(".mm-link-menu").forEach((el) => el.remove());
+      const from = this.findNode(fromId);
+      const to = this.findNode(toId);
+      if (!from || !to) return;
+      const menu = document.createElement("div");
+      menu.className = "mm-link-menu";
+      menu.innerHTML =
+        '<div class="mm-lm-title">🔗 ' + escapeHtml(trunc(from.text, 10)) + " → " + escapeHtml(trunc(to.text, 10)) + "</div>"
+        + '<button type="button" data-a="rev">⇄ 反转方向</button>'
+        + '<button type="button" data-a="del" class="danger">🗑 删除关联</button>'
+        + '<button type="button" data-a="cancel">取消</button>';
+      const canvas = this.els.canvas;
+      const rect = canvas.getBoundingClientRect();
+      menu.style.left = Math.max(8, Math.min(rect.width - 180, cx - rect.left - 70)) + "px";
+      menu.style.top = Math.max(8, Math.min(rect.height - 130, cy - rect.top + 8)) + "px";
+      canvas.appendChild(menu);
+      const close = () => menu.remove();
+      menu.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-a]");
+        if (!btn) return;
+        e.stopPropagation();
+        const a = btn.dataset.a;
+        if (a === "cancel") { close(); return; }
+        if (a === "del") {
+          this.pushHistory();
+          if (from.meta) delete from.meta.link;
+          this.render();
+          toast("已删除关联", "info");
+          close();
+          return;
+        }
+        if (a === "rev") {
+          this.pushHistory();
+          if (from.meta) delete from.meta.link;
+          const tm = to.meta || (to.meta = {});
+          tm.link = from.id;
+          this.render();
+          toast("⇄ 已反转关联方向", "success");
+          close();
+        }
+      });
+      setTimeout(() => {
+        const once = (ev) => {
+          if (!menu.contains(ev.target)) { close(); document.removeEventListener("pointerdown", once, true); }
+        };
+        document.addEventListener("pointerdown", once, true);
+      }, 0);
     }
     svgPointToView(e) {
       const rect = this.els.canvas.getBoundingClientRect();
@@ -12735,7 +12844,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         dlg.querySelector("#mncInput").addEventListener("keydown", (e) => { if (e.key === "Enter") this.sendNodeChat(); });
         dlg.querySelectorAll("#mncChips button").forEach((b) => {
           b.addEventListener("click", () => {
-            if (b.dataset.a === "incubate") { this.incubateChatOntoMap(); return; }
+            if (b.dataset.a === "incubate") { this.incubateChatOntoMap({ skipConfirm: b.classList.contains("ready") }); return; }
             const inp = dlg.querySelector("#mncInput");
             if (inp) inp.value = b.dataset.q || "";
             this.sendNodeChat();
@@ -12848,7 +12957,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
           banner = document.createElement("button");
           banner.type = "button";
           banner.className = "mnc-stream-board";
-          banner.addEventListener("click", () => this.incubateChatOntoMap());
+          banner.addEventListener("click", () => this.incubateChatOntoMap({ skipConfirm: true }));
           const chips = dlg.querySelector("#mncChips");
           if (chips) chips.parentNode.insertBefore(banner, chips);
           else dlg.appendChild(banner);
@@ -12913,7 +13022,8 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       }
       return items.slice(0, 10);
     }
-    incubateChatOntoMap() {
+    incubateChatOntoMap(opts) {
+      opts = opts || {};
       const n = this.findNode(this._chatNodeId);
       if (!n) { toast("未选中节点", "info"); return; }
       const m = n.meta || (n.meta = {});
@@ -12931,8 +13041,8 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       }
       const items = this.parseIncubateItems(last);
       if (!items.length) { toast("未能从回复中解析出可上板的步骤", "warn"); return; }
-      // Round4：≥3 条时预览确认，避免误上板
-      if (items.length >= 3) {
+      // Round4：≥3 条时预览确认；Round6：流式条已明示结构 → 可跳过确认
+      if (items.length >= 3 && !opts.skipConfirm) {
         const preview = items.map((it, i) => (i + 1) + ". " + it.text + (it.children && it.children.length ? "（+" + it.children.length + "）" : "")).join("\n");
         if (!confirm("将上板 " + items.length + " 项到「" + trunc(n.text || "节点", 16) + "」：\n\n" + preview + "\n\n确认？")) return;
       }
@@ -12957,9 +13067,22 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       this.centerOn(n.id);
       this._showNodePanel(n.id);
       haptic(20);
-      toast("🥚 已孵化上板 " + added + " 个节点", "success");
+      // Round6：清流式提示，对话窗保持打开便于继续追问
+      this._pendingIncubateText = "";
       const dlg = document.getElementById("mmNodeChatDlg");
-      if (dlg && dlg.open) dlg.close();
+      this._nudgeStreamIncubate("", dlg);
+      if (dlg) {
+        let done = dlg.querySelector(".mnc-boarded");
+        if (!done) {
+          done = document.createElement("div");
+          done.className = "mnc-boarded";
+          const chips = dlg.querySelector("#mncChips");
+          if (chips) chips.parentNode.insertBefore(done, chips);
+        }
+        done.hidden = false;
+        done.textContent = "✅ 已上板 " + added + " 步 · 可继续追问或关闭";
+      }
+      toast("🥚 已孵化上板 " + added + " 个节点", "success");
     }
     // Round4：按布局方向导航（lr/tb/radial）
     navigateRelative(dir) {
@@ -13091,7 +13214,17 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       this.pushHistory();
       const [n] = parent.children.splice(idx, 1);
       parent.children.splice(to, 0, n);
+      this._orderFlashId = id;
       this.render();
+      this.centerOn(id);
+      const label = parent._isRoot ? "主线" : "同级";
+      toast(label + " 第 " + (to + 1) + " / " + parent.children.length, "success", 1400);
+      haptic(12);
+      clearTimeout(this._orderFlashTimer);
+      this._orderFlashTimer = setTimeout(() => {
+        this._orderFlashId = null;
+        this.render();
+      }, 700);
     }
     promote(id) {
       // 提升：上移为父节点的兄弟（插到父节点之后）
@@ -13750,15 +13883,18 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
           if (arr.some((t) => (t.text || "").trim() === text)) { found = { p, c }; break outer; }
         }
       }
+      // Round6：先关导图再跳格，用 rAF 减少闪一下空白
       this.close();
-      if (found) {
-        jumpToCell(found.p, found.c);
-        toast("🔗 已定位到 " + (PERIOD_NAMES[found.p] || ("第" + (found.p + 1) + "辰")) + " 第" + (found.c + 1) + "格", "success");
-      } else {
-        const ib = document.getElementById("realmFabInbox");
-        if (ib) ib.click();
-        toast("🔗 该节点未安排到格子 · 已打开待办", "info");
-      }
+      requestAnimationFrame(() => {
+        if (found) {
+          jumpToCell(found.p, found.c);
+          toast("↩ " + (PERIOD_NAMES[found.p] || "") + " · 第" + (found.c + 1) + "格", "success", 1800);
+        } else {
+          const ib = document.getElementById("realmFabInbox");
+          if (ib) ib.click();
+          toast("↩ 未上格子 · 已打开待办", "info");
+        }
+      });
     }
 
     applyToList() {

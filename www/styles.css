@@ -11171,3 +11171,46 @@ body.side-drawer-open .side-handle { opacity: 0; pointer-events: none; transform
 .mnc-stream-board:hover { filter: brightness(1.08); }
 .task-text[title="点击编辑标题"]:hover { text-decoration: underline; text-underline-offset: 2px; }
 
+/* ============================================================
+ * Round6 (v103): link menu, order flash, compact float, boarded
+ * ============================================================ */
+.mm-float-bar.compact {
+  max-width: min(96vw, 420px);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  flex-wrap: nowrap;
+}
+.mm-float-bar.compact button b { display: none; }
+.mm-float-bar.compact button[data-sec="1"] { opacity: 0.72; }
+.mm-float-bar.compact button {
+  min-width: 42px; height: 42px; padding: 4px 6px;
+}
+.mm-link-menu {
+  position: absolute; z-index: 40; min-width: 160px;
+  background: rgba(28,28,48,.97); border: 1px solid rgba(255,169,77,.45);
+  border-radius: 12px; padding: 8px; box-shadow: 0 10px 28px rgba(0,0,0,.55);
+  display: flex; flex-direction: column; gap: 4px;
+}
+.mm-lm-title {
+  font-size: 11px; color: var(--text-muted, #9a9ab8); margin-bottom: 4px; padding: 0 4px;
+}
+.mm-link-menu button {
+  border: 1px solid var(--border, rgba(128,128,160,.3)); background: rgba(255,255,255,.04);
+  color: var(--text-primary, #eee); border-radius: 8px; padding: 8px 10px;
+  font-size: 12.5px; text-align: left; cursor: pointer;
+}
+.mm-link-menu button:hover { background: rgba(255,169,77,.18); }
+.mm-link-menu button.danger:hover { background: rgba(248,113,113,.2); color: #fca5a5; }
+.mm-node.mm-order-flash rect:first-of-type,
+.mm-node.mm-order-flash > rect {
+  filter: drop-shadow(0 0 8px rgba(124,92,255,.65));
+}
+.mm-node.mm-link-from { cursor: crosshair; }
+.mnc-boarded {
+  margin: 6px 8px 0; padding: 7px 10px; border-radius: 8px;
+  background: rgba(74,222,128,.12); border: 1px solid rgba(74,222,128,.35);
+  color: #86efac; font-size: 12px; font-weight: 600;
+}
+.task-text:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+
