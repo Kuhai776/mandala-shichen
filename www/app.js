@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260921";
+const SW_VER = "20260922";
 
 (function () {
   "use strict";
@@ -20438,7 +20438,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   function inboxKanbanCardHTML(item, opts) {
     const idx = inboxItems.indexOf(item);
     const { showGroupBadge = true, groupKey = "tag" } = opts || {};
-    const extraTags = (item.tags || []).slice(1).map((t) => `<span class="ikb-tag-mini" style="background:${tagColor(t)}20;color:${tagColor(t)};">${escapeHtml(t)}</span>`).join("");
+    const extraTags = (item.tags || []).slice(1).map((t) => `<span class="ikb-tag-mini" style="background:${tagColor(t)}1a;color:${tagColor(t)}d9;border:1px solid ${tagColor(t)}2e;box-shadow:0 0 10px ${tagColor(t)}1f,0 0 2px ${tagColor(t)}33;">${escapeHtml(t)}</span>`).join("");
     const prio = item.priority === 2 ? '<span class="ikb-prio" title="紧急">⚡</span>'
       : item.priority === 1 ? '<span class="ikb-prio" title="重要">★</span>' : "";
     const dueStr = item.due ? (() => {
@@ -21067,7 +21067,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     // 互链徽标：正向 + 反向关联数（点击可打开互链管理）
     const relCount = taskLinkCount(item.id);
     const relBadge = relCount ? `<span class="it-rel-count" data-act="relate" data-idx="${idx}" title="${relCount} 个关联任务（点击管理）">↔${relCount}</span>` : "";
-    const tags = (item.tags || []).map((t) => `<span class="it-tag" style="background:${tagColor(t)}20;color:${tagColor(t)};">${escapeHtml(t)}</span>`).join("");
+    const tags = (item.tags || []).map((t) => `<span class="it-tag" style="background:${tagColor(t)}1a;color:${tagColor(t)}d9;border:1px solid ${tagColor(t)}2e;box-shadow:0 0 10px ${tagColor(t)}1f,0 0 2px ${tagColor(t)}33;">${escapeHtml(t)}</span>`).join("");
     const prio = item.priority === 2 ? '<span class="it-prio urgent" title="紧急">⚡</span>'
       : item.priority === 1 ? '<span class="it-prio imp" title="重要">★</span>' : "";
     const dateHtml = (() => {

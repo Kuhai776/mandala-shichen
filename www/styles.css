@@ -8842,7 +8842,8 @@ dialog.inbox-dialog-fullscreen::backdrop {
 /* 任务名：横向宽度固定（列宽内），过长自动换行撑高卡片 */
 .ikb-card-text { flex:1; min-width:0; font-size:13px; line-height:1.45; color:var(--text-primary); word-break:break-word; overflow-wrap:anywhere; white-space:normal; }
 .ikb-card-meta { margin-top:5px; display:flex; flex-wrap:wrap; gap:3px; align-items:center; }
-.ikb-tag-mini { font-size:9px; padding:0 4px; border-radius:6px; }
+/* v95 虚化毛玻璃 tag：半透明底 + 背后模糊 + 同色柔光晕，替代硬边色块 */
+.ikb-tag-mini { font-size:9px; padding:0 4px; border-radius:6px; backdrop-filter:blur(5px); -webkit-backdrop-filter:blur(5px); }
 .ikb-prio { font-size:11px; }
 .ikb-due { font-size:9px; padding:0 4px; border-radius:6px; background:var(--input-bg); color:var(--text-secondary); }
 .ikb-due.is-due { background:#ffd93d20; color:#ffd93d; }
@@ -9015,7 +9016,7 @@ dialog.inbox-dialog-fullscreen::backdrop {
   cursor: pointer;
 }
 .tl-rev:hover { color: var(--danger, #ff6b6b); border-color: var(--danger, #ff6b6b); }
-.it-tag { display:inline-block; font-size:9px; padding:1px 5px; border-radius:6px; margin:1px 2px 1px 0; }
+.it-tag { display:inline-block; font-size:9px; padding:1px 5px; border-radius:6px; margin:1px 2px 1px 0; backdrop-filter:blur(5px); -webkit-backdrop-filter:blur(5px); }
 .it-prio { font-size:11px; }
 .it-prio.urgent { color:#ff6b6b; }
 .it-prio.imp { color:#ffd93d; }
@@ -10783,7 +10784,9 @@ dialog.qa-dialog-fullscreen::backdrop { background: rgba(0, 0, 0, 0.5); }
 .sd-task-meta { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .sd-task-tagpill {
   font-size: 10px; line-height: 1.5; padding: 1px 8px; border-radius: 999px;
-  background: rgba(124,92,255,.16); border: 1px solid rgba(124,92,255,.35); color: #9d85ff;
+  background: rgba(124,92,255,.14); border: 1px solid rgba(124,92,255,.28); color: #9d85ff;
+  backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
+  box-shadow: 0 0 8px rgba(124,92,255,.12);
 }
 .sd-task-tagpill.hit { background: var(--accent, #7c5cff); border-color: var(--accent, #7c5cff); color: #fff; font-weight: 700; }
 .sd-task-loc { font-size: 10.5px; color: var(--accent, #9d85ff); margin-left: auto; }
