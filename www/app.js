@@ -129,9 +129,34 @@ const SW_VER = "20260923";
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
   const APP_VERSION = "2.7.23";
-  const APP_BUILD = 97; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
+  const APP_BUILD = 102; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
   const APP_VERSION_DATE = "2026-09-01";
   const APP_CHANGELOG = [
+    { v: "2.7.23·102", date: "2026-09-01", items: [
+      "Round5：导图关联线绘制模式（🔗）+ 根下主线 Alt↑↓ 排序；流式回复出现结构即显示「可上板」",
+      "Round5：跨日钟带到今日可选目标格；记录页计划任务标题行内快编",
+    ]},
+    { v: "2.7.23·101", date: "2026-09-01", items: [
+      "Round4：导图方向感知兄弟导航 + 折叠/手风琴策略 + 浮动条折叠按钮；对话上板优先解析 JSON 并预览确认",
+      "Round4：跨日钟一键「带到今日」续计（保留累计）；待办滚动后不再误触完成；悬浮滚动条更醒目",
+    ]},
+    { v: "2.7.23·100", date: "2026-09-01", items: [
+      "Round3：导图自由摆放吸附网格 + 改隶属逻辑修复；节点对话可一键「孵化上板」为子节点",
+      "Round3：AI/孵化自动上板 toast 带「打开导图」动作；节点跳转面包屑样式补齐",
+      "Round3：多钟跨日条可点跳转对应日；侧栏搜索/计时协作样式补齐；看板轴锁手势巩固",
+    ]},
+    { v: "2.7.23·99", date: "2026-09-01", items: [
+      "Round2：正计时跨日清理（过期钟自动暂停并提示）+ 多钟条「全暂停/全结束」协作操作 + chip 内联改名",
+      "Round2：左侧侧栏增加搜索（滤 tag/任务）+ 置顶常用 tag；任务层级展示更清晰",
+      "Round2：思维导图根节点层级强化、节点导航面包屑、上板动效抛光、AI/孵化上板后一键打开",
+      "Round2：待办看板手势轴锁定（横滑列 / 竖滑列表 / 长按拖卡分离）+ 悬浮滚动条抛光",
+    ]},
+    { v: "2.7.23·98", date: "2026-09-01", items: [
+      "Round1：记录页全格正计时锚点（启动/暂停/结束■）+ 空格也可开钟，结束→命名归档；多钟协作提示条",
+      "Round1：左侧标签侧栏改为竖向条状 tag，选中后折叠 tag 层只看任务（可换标签），任务/标签 autowrap",
+      "Round1：记录页计划任务条状 tag + 可点备注编辑；便利贴「已贴」标识；任务编辑光标定位修复",
+      "Round1：待办滑动更丝滑 + 滚动悬浮指示条增强；思维导图浮动条点击修复（去掉误伤 preventDefault）+ 工具栏触控加大",
+    ]},
     { v: "2.7.23·97", date: "2026-09-01", items: [
       "修复：版本徽标显示构建号（v2.7.23·97），打开即知自己跑的是哪个版本，新版本自动脉冲提示",
       "修复：Service Worker 启动时主动检查更新，新版本代码更快生效",
@@ -1933,6 +1958,7 @@ const SW_VER = "20260923";
     sdTags: document.getElementById("sdTags"),
     sdTasks: document.getElementById("sdTasks"),
     sdTaskLabel: document.getElementById("sdTaskLabel"),
+    sdSearch: document.getElementById("sdSearch"),
     settingsDialog: document.getElementById("settingsDialog"),
     closeSettings: document.getElementById("closeSettings"),
     apiUrl: document.getElementById("apiUrl"),
@@ -2763,11 +2789,11 @@ const SW_VER = "20260923";
           stickyRow.className = "cell-sticky-row";
           stickies.forEach(({ t, i }) => {
             const chip = document.createElement("div");
-            chip.className = "sticky-chip" + stickyColorCss(t.stickyColor) + (t.done ? " done" : "");
+            chip.className = "sticky-chip sticky-on-task" + stickyColorCss(t.stickyColor) + (t.done ? " done" : "");
             chip.dataset.idx = i;
             chip.draggable = true;
-            chip.title = "点击切换完成 · 拖到其他格子移动 · ✎ 编辑 · ✕ 移除";
-            chip.innerHTML = `<span class="sticky-pin">📌</span><span class="sticky-text">${escapeHtml((t.text || "").slice(0, 24))}</span><button class="sticky-edit" title="编辑文字/颜色">✎</button><button class="sticky-del" title="移除便利贴">✕</button>`;
+            chip.title = "已贴本格 · 点击切换完成 · 拖到其他格子移动 · ✎ 编辑 · ✕ 移除";
+            chip.innerHTML = `<span class="sticky-pin">📌</span><span class="sticky-attached-badge">已贴</span><span class="sticky-text">${escapeHtml((t.text || "").slice(0, 24))}</span><button class="sticky-edit" title="编辑文字/颜色">✎</button><button class="sticky-del" title="移除便利贴">✕</button>`;
             chip.addEventListener("dragstart", (e) => {
               e.stopPropagation();
               draggingTaskSource = { period, cell, idx: i };
@@ -2960,27 +2986,13 @@ const SW_VER = "20260923";
           count.textContent = tasks.length;
           cellEl.appendChild(count);
         }
-        // ⏱ 正计时按钮（三态）：⏱启动 → ⏸暂停 → ▶恢复；停止写入入口在底部计时条 ■
-        const _rt = getRunningTimer(period, cell);
-        const _rtPaused = !!(_rt && _rt.pausedAt);
-        const timerBtn = document.createElement("button");
-        timerBtn.className = "cell-timer-btn" + (_rt ? (_rtPaused ? " paused" : " running") : "");
-        timerBtn.dataset.timerBtn = "1";
-        timerBtn.title = !_rt
-          ? "启动正计时（来了别的事 → 开新钟自动暂停这口钟；■ 停止时命名并写入记录页）"
-          : _rtPaused
-            ? "▶ 恢复计时（累计不丢，恢复时其他在跑的钟自动暂停）"
-            : "⏸ 暂停计时（保留累计；去底部计时条点 ■ 停止 → 命名 → 写入记录）";
-        timerBtn.textContent = !_rt ? "⏱" : (_rtPaused ? "▶" : "⏸");
-        timerBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          toggleCellTimer(period, cell, tasks[0] ? tasks[0].text : "");
-        });
-        cellEl.appendChild(timerBtn);
+        // ⏱ 正计时锚点（三态 + ■结束）——有任务时用首条任务名
+        attachCellTimerControls(cellEl, period, cell, tasks[0] ? tasks[0].text : "未命名任务");
       } else {
         contentEl.className = "cell-content cell-empty";
         contentEl.textContent = "—";
+        // Round1：空格也可开正计时（结束时命名写入）
+        attachCellTimerControls(cellEl, period, cell, "未命名任务");
       }
 
       const mark = document.createElement("div");
@@ -3495,11 +3507,93 @@ const SW_VER = "20260923";
     const hh = Math.floor(el / 3600), mm = Math.floor((el % 3600) / 60), ss = el % 60;
     return hh ? hh + " 小时 " + mm + " 分" : (mm ? mm + " 分 " : "") + ss + " 秒";
   }
-  // 格子按钮三态：无钟=启动 / 在跑=暂停 / 暂停中=恢复（停止入口在底部计时条 ■）
+  // 格子按钮三态：无钟=启动 / 在跑=暂停 / 暂停中=恢复（停止入口在底部计时条 ■ 与格子 ■）
   function toggleCellTimer(period, cell, taskText) {
     const t = getRunningTimer(period, cell);
     if (t && !t.pausedAt) { pauseCellTimer(period, cell); return false; }
     return startCellTimer(period, cell, taskText);
+  }
+  // Round1：统一正计时锚点控件（计划页/记录页共用）——⏱启动 / ⏸暂停 / ▶恢复 + ■结束命名
+  function attachCellTimerControls(cellEl, period, cell, taskTextHint) {
+    if (!cellEl) return;
+    const _rt = getRunningTimer(period, cell);
+    const _rtPaused = !!(_rt && _rt.pausedAt);
+    const wrap = document.createElement("div");
+    wrap.className = "cell-timer-controls";
+    wrap.dataset.timerControls = "1";
+    if (_rt) {
+      const badge = document.createElement("span");
+      badge.className = "cell-timer-elapsed" + (_rtPaused ? " paused" : "");
+      const elMs = timerElapsedOf(_rt);
+      const mm = Math.floor(elMs / 60000), ss = Math.floor((elMs % 60000) / 1000);
+      badge.textContent = String(mm).padStart(2, "0") + ":" + String(ss).padStart(2, "0");
+      badge.title = _rtPaused ? "已暂停累计" : "正计时进行中";
+      wrap.appendChild(badge);
+    }
+    const timerBtn = document.createElement("button");
+    timerBtn.className = "cell-timer-btn" + (_rt ? (_rtPaused ? " paused" : " running") : "");
+    timerBtn.dataset.timerBtn = "1";
+    timerBtn.type = "button";
+    timerBtn.title = !_rt
+      ? "⏱ 启动正计时（来了别的事 → 开新钟会自动暂停这口；■ 结束时命名并写入记录）"
+      : _rtPaused
+        ? "▶ 恢复计时（累计不丢；恢复时其他在跑的钟自动暂停）"
+        : "⏸ 暂停计时（保留累计；点 ■ 结束 → 命名 → 写入）";
+    timerBtn.textContent = !_rt ? "⏱" : (_rtPaused ? "▶" : "⏸");
+    timerBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const hint = taskTextHint || (_rt && _rt.taskText) || "未命名任务";
+      toggleCellTimer(period, cell, hint);
+      if (state.realm === "record") renderRecord();
+      else renderMandala();
+    });
+    wrap.appendChild(timerBtn);
+    if (_rt) {
+      const endBtn = document.createElement("button");
+      endBtn.className = "cell-timer-end";
+      endBtn.type = "button";
+      endBtn.title = "■ 结束计时 → 命名任务并写入本格记录";
+      endBtn.textContent = "■";
+      endBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        stopCellTimer(period, cell);
+      });
+      wrap.appendChild(endBtn);
+    }
+    cellEl.appendChild(wrap);
+    if (_rt) cellEl.classList.add(_rtPaused ? "timing-paused" : "timing");
+  }
+  // 就地编辑格子任务备注（记录页/计划页共用）
+  function editTaskNoteInline(period, cell, idx) {
+    const tasks = getCellTasks(period, cell).slice();
+    const t = tasks[idx];
+    if (!t || t.sticky) return;
+    const next = prompt("编辑任务备注（可留空清除）", t.note || "");
+    if (next === null) return;
+    t.note = String(next).trim();
+    setCellTasks(period, cell, tasks);
+    if (state.realm === "record") renderRecord();
+    renderMandala();
+    haptic(12);
+    toast(t.note ? "备注已更新" : "备注已清除", "success");
+  }
+  // Round5：记录页计划任务标题行内快编
+  function editTaskTitleInline(period, cell, idx) {
+    const tasks = getCellTasks(period, cell).slice();
+    const t = tasks[idx];
+    if (!t || t.sticky) return;
+    const next = prompt("编辑任务标题", t.text || "");
+    if (next === null) return;
+    const v = String(next).trim();
+    if (!v) { toast("标题不能为空", "warn"); return; }
+    t.text = v;
+    setCellTasks(period, cell, tasks);
+    if (state.realm === "record") renderRecord();
+    renderMandala();
+    haptic(12);
+    toast("标题已更新", "success");
   }
   function _startTimerTick() {
     if (_timerTick) return;
@@ -3533,49 +3627,330 @@ const SW_VER = "20260923";
           else pauseCellTimer(p, c);
           return;
         }
-        // 点计时条主体 → 跳到对应时间格子
+        const renameBtn = e.target.closest("[data-timer-rename]");
+        if (renameBtn) {
+          e.stopPropagation();
+          renameRunningTimer(parseInt(renameBtn.dataset.p, 10), parseInt(renameBtn.dataset.c, 10));
+          return;
+        }
+        const act = e.target.closest("[data-timer-act]");
+        if (act) {
+          e.stopPropagation();
+          const a = act.dataset.timerAct;
+          if (a === "pause-all") pauseAllTodayTimers();
+          else if (a === "stop-all") stopAllTodayTimers();
+          else if (a === "discard-stale") discardStaleTimers();
+          else if (a === "bring-today") bringStaleTimersToToday();
+          return;
+        }
+        const bringBtn = e.target.closest("[data-timer-bring]");
+        if (bringBtn) {
+          e.stopPropagation();
+          openBringTimerCellPicker(bringBtn.dataset.date, parseInt(bringBtn.dataset.p, 10), parseInt(bringBtn.dataset.c, 10));
+          return;
+        }
+        // 点计时条主体 → 跳到对应时间格子（跨日钟跳日期）
         const chip = e.target.closest(".timer-chip");
         if (chip && chip.dataset.p != null) {
+          if (chip.dataset.date && chip.dataset.date !== state.currentDate) {
+            state.currentDate = chip.dataset.date;
+            if (el.datePicker) el.datePicker.value = chip.dataset.date;
+            renderAll();
+          }
           jumpToCell(parseInt(chip.dataset.p, 10), parseInt(chip.dataset.c, 10));
         }
       });
     }
-    const active = Object.keys(runningTimers).map((k) => runningTimers[k]).filter((t) => t.date === state.currentDate);
-    if (!active.length) { bar.hidden = true; bar.innerHTML = ""; return; }
+    const today = state.currentDate;
+    const todayTimers = Object.keys(runningTimers).map((k) => runningTimers[k]).filter((t) => t && t.date === today);
+    const staleTimers = Object.keys(runningTimers).map((k) => runningTimers[k]).filter((t) => t && t.date !== today);
+    if (!todayTimers.length && !staleTimers.length) { bar.hidden = true; bar.innerHTML = ""; return; }
     bar.hidden = false;
-    // v95：在跑的钟排前面，暂停中的排后面（多钟状态一目了然）
-    active.sort((a, b) => (!!a.pausedAt === !!b.pausedAt) ? 0 : (a.pausedAt ? 1 : -1));
-    // v95：多钟（≥2）时顶部加汇总行——多时钟协作状态直观可读
+    todayTimers.sort((a, b) => (!!a.pausedAt === !!b.pausedAt) ? 0 : (a.pausedAt ? 1 : -1));
     let sumHtml = "";
-    if (active.length >= 2) {
-      const runN = active.filter((t) => !t.pausedAt).length;
-      const pauseN = active.length - runN;
-      sumHtml = '<div class="timer-bar-sum">⏱ ' + active.length + ' 钟'
-        + ' · <b class="tbs-run">' + runN + ' 在跑</b>'
-        + (pauseN ? ' · <b class="tbs-pause">' + pauseN + ' 暂停中</b>' : "")
-        + ' · 开新钟自动暂停当前钟</div>';
+    if (todayTimers.length >= 2 || staleTimers.length) {
+      const runN = todayTimers.filter((t) => !t.pausedAt).length;
+      const pauseN = todayTimers.length - runN;
+      sumHtml = '<div class="timer-bar-sum">'
+        + (todayTimers.length ? ('⏱ ' + todayTimers.length + ' 钟'
+          + ' · <b class="tbs-run">' + runN + ' 在跑</b>'
+          + (pauseN ? ' · <b class="tbs-pause">' + pauseN + ' 暂停</b>' : "")
+          + ' · 开新钟自动暂停') : "")
+        + (staleTimers.length ? (' · <b class="tbs-stale">' + staleTimers.length + ' 跨日</b>') : "")
+        + '</div>';
     }
-    bar.innerHTML = sumHtml + '<div class="timer-bar-chips">' + active.map((t) => {
-      const el = Math.floor(timerElapsedOf(t) / 1000);
-      const hh = String(Math.floor(el / 3600)).padStart(2, "0");
-      const mm = String(Math.floor((el % 3600) / 60)).padStart(2, "0");
-      const ss = String(el % 60).padStart(2, "0");
+    // Round2 协作操作行
+    let opsHtml = "";
+    if (todayTimers.length >= 1 || staleTimers.length) {
+      opsHtml = '<div class="timer-bar-ops">'
+        + (todayTimers.some((t) => !t.pausedAt) ? '<button type="button" class="timer-op" data-timer-act="pause-all" title="暂停今日全部在跑的钟">⏸ 全暂停</button>' : "")
+        + (todayTimers.length ? '<button type="button" class="timer-op" data-timer-act="stop-all" title="结束今日全部钟并写入">■ 全结束</button>' : "")
+        + (staleTimers.length ? '<button type="button" class="timer-op accent" data-timer-act="bring-today" title="把跨日钟带到今日并保留累计">📅 带到今日</button>' : "")
+        + (staleTimers.length ? '<button type="button" class="timer-op danger" data-timer-act="discard-stale" title="丢弃跨日残留钟">🗑 清跨日</button>' : "")
+        + '</div>';
+    }
+    const chipHtml = (t, isStale) => {
+      const elSec = Math.floor(timerElapsedOf(t) / 1000);
+      const hh = String(Math.floor(elSec / 3600)).padStart(2, "0");
+      const mm = String(Math.floor((elSec % 3600) / 60)).padStart(2, "0");
+      const ss = String(elSec % 60).padStart(2, "0");
       const clock = hh !== "00" ? hh + ":" + mm + ":" + ss : mm + ":" + ss;
       const paused = !!t.pausedAt;
-      return '<div class="timer-chip' + (paused ? " paused" : "") + '" data-p="' + t.period + '" data-c="' + t.cell + '" title="' + (PERIOD_NAMES[t.period] || "第" + (t.period + 1) + "辰") + ' 第' + (t.cell + 1) + '格 · 点此跳转格子 · ⏸/▶ 暂停恢复 · ■ 停止并命名写入">'
-        + '<span class="timer-pulse">' + (paused ? "⏸" : "⏱") + '</span>'
+      return '<div class="timer-chip' + (paused ? " paused" : "") + (isStale ? " stale" : "") + '" data-p="' + t.period + '" data-c="' + t.cell + '" data-date="' + escapeHtml(t.date || "") + '" title="' + (isStale ? ("跨日 " + t.date + " · ") : "") + (PERIOD_NAMES[t.period] || "第" + (t.period + 1) + "辰") + ' 第' + (t.cell + 1) + '格">'
+        + '<span class="timer-pulse">' + (isStale ? "📅" : (paused ? "⏸" : "⏱")) + '</span>'
         + '<span class="timer-task">' + escapeHtml(trunc(t.taskText, 12)) + '</span>'
         + '<span class="timer-clock">' + clock + '</span>'
-        + '<button class="timer-pause" data-timer-pause="1" data-p="' + t.period + '" data-c="' + t.cell + '" title="' + (paused ? "▶ 恢复计时（其他在跑的钟自动暂停）" : "⏸ 暂停计时（保留累计，不写入记录）") + '">' + (paused ? "▶" : "⏸") + '</button>'
-        + '<button class="timer-stop" data-timer-stop="1" data-p="' + t.period + '" data-c="' + t.cell + '" title="■ 停止 · 命名并写入记录页">■</button>'
+        + (isStale ? '<button class="timer-bring" data-timer-bring="1" data-date="' + escapeHtml(t.date || "") + '" data-p="' + t.period + '" data-c="' + t.cell + '" title="带到今日续计">→今</button>' : "")
+        + (!isStale ? '<button class="timer-rename" data-timer-rename="1" data-p="' + t.period + '" data-c="' + t.cell + '" title="改名">✎</button>' : "")
+        + (!isStale ? '<button class="timer-pause" data-timer-pause="1" data-p="' + t.period + '" data-c="' + t.cell + '" title="' + (paused ? "▶ 恢复" : "⏸ 暂停") + '">' + (paused ? "▶" : "⏸") + '</button>' : "")
+        + (!isStale ? '<button class="timer-stop" data-timer-stop="1" data-p="' + t.period + '" data-c="' + t.cell + '" title="■ 停止 · 命名写入">■</button>' : "")
         + "</div>";
-    }).join("") + "</div>";
+    };
+    bar.innerHTML = sumHtml + opsHtml + '<div class="timer-bar-chips">'
+      + todayTimers.map((t) => chipHtml(t, false)).join("")
+      + staleTimers.map((t) => chipHtml(t, true)).join("")
+      + "</div>";
   }
-  // 启动时恢复未结束的计时（刷新/重进不丢）
+  // 启动时恢复未结束的计时（刷新/重进不丢）+ Round2 跨日清理
   function initRunningTimers() {
-    const active = Object.keys(runningTimers).filter((k) => runningTimers[k].date === state.currentDate);
-    if (active.length) _startTimerTick();
+    const today = state.currentDate;
+    const keys = Object.keys(runningTimers);
+    let stale = 0;
+    keys.forEach((k) => {
+      const t = runningTimers[k];
+      if (!t) return;
+      // 跨日：自动冻结并提示（不丢累计；用户可跳到对应日结束，或在此丢弃）
+      if (t.date && t.date !== today) {
+        if (!t.pausedAt) {
+          t.accumMs = (t.accumMs || 0) + Math.max(0, Date.now() - t.startTime);
+          t.pausedAt = Date.now();
+        }
+        t._staleCrossDay = true;
+        stale++;
+      }
+    });
+    if (stale) {
+      save(RUNNING_TIMERS_KEY, runningTimers);
+      toast("⏱ 发现 " + stale + " 口跨日计时已自动暂停 · 底部可「带到今日」续计或清跨日", "info", 4500);
+    }
+    const active = keys.filter((k) => runningTimers[k] && runningTimers[k].date === today);
+    if (active.length || stale) _startTimerTick();
     renderRunningTimerBar();
+  }
+  // Round2：暂停今日全部在跑的钟
+  function pauseAllTodayTimers() {
+    const today = state.currentDate;
+    let n = 0;
+    Object.keys(runningTimers).forEach((k) => {
+      const t = runningTimers[k];
+      if (!t || t.date !== today || t.pausedAt) return;
+      t.accumMs = (t.accumMs || 0) + (Date.now() - t.startTime);
+      t.pausedAt = Date.now();
+      n++;
+    });
+    if (!n) { toast("没有在跑的钟", "info"); return; }
+    save(RUNNING_TIMERS_KEY, runningTimers);
+    renderRunningTimerBar();
+    renderMandala();
+    if (state.realm === "record") renderRecord();
+    haptic(18);
+    toast("⏸ 已暂停 " + n + " 口在跑的钟", "success");
+  }
+  // Round2：批量结束今日所有钟（逐个弹命名；≥3 口时确认后静默用原名写入）
+  function stopAllTodayTimers() {
+    const today = state.currentDate;
+    const list = Object.keys(runningTimers).map((k) => runningTimers[k]).filter((t) => t && t.date === today);
+    if (!list.length) { toast("没有进行中的计时", "info"); return; }
+    if (list.length >= 3 && !confirm("将结束今日 " + list.length + " 口钟，并用各自任务名写入对应格子。继续？")) return;
+    if (list.length === 1) {
+      stopCellTimer(list[0].period, list[0].cell);
+      return;
+    }
+    // 多钟：静默按原名写入（快速执行）
+    list.forEach((t) => {
+      const key = timerKeyOf(t.date, t.period, t.cell);
+      const duration = timerElapsedOf(t);
+      delete runningTimers[key];
+      const spentMin = Math.max(1, Math.round(duration / 60000));
+      const rec = getCellRecord(t.period, t.cell) || {};
+      const name = (t.taskText && t.taskText !== "未命名任务") ? t.taskText : "";
+      if (name) rec.actual = rec.actual ? (rec.actual + "; " + name) : name;
+      else if (!rec.actual) rec.actual = "未命名计时";
+      if (rec.spent && /^~?\d+min$/i.test(String(rec.spent).trim())) {
+        const prev = parseInt(String(rec.spent).replace(/[^\d]/g, ""), 10) || 0;
+        rec.spent = (prev + spentMin) + "min";
+      } else if (!rec.spent) {
+        rec.spent = spentMin + "min";
+      }
+      rec.timerAuto = true;
+      setCellRecord(t.period, t.cell, rec);
+    });
+    save(RUNNING_TIMERS_KEY, runningTimers);
+    if (!Object.keys(runningTimers).length) _stopTimerTick();
+    renderRunningTimerBar();
+    renderMandala();
+    renderRecord();
+    haptic(25);
+    toast("✓ 已结束并写入 " + list.length + " 口钟", "success");
+  }
+  // Round2：丢弃全部跨日钟
+  function discardStaleTimers() {
+    let n = 0;
+    Object.keys(runningTimers).forEach((k) => {
+      if (runningTimers[k] && runningTimers[k].date !== state.currentDate) {
+        delete runningTimers[k];
+        n++;
+      }
+    });
+    if (!n) { toast("没有跨日钟", "info"); return; }
+    save(RUNNING_TIMERS_KEY, runningTimers);
+    if (!Object.keys(runningTimers).length) _stopTimerTick();
+    renderRunningTimerBar();
+    haptic(15);
+    toast("🗑 已丢弃 " + n + " 口跨日钟", "info");
+  }
+  // Round4：把跨日钟带到「真实今日」同格续计（保留累计；冲突则合并累计）
+  function bringOneTimerToToday(fromDate, period, cell, opts) {
+    opts = opts || {};
+    const today = dateToStr(new Date());
+    const oldKey = timerKeyOf(fromDate, period, cell);
+    const t = runningTimers[oldKey];
+    if (!t || t.date === today) {
+      if (!opts.silent) toast("不是跨日钟", "info");
+      return false;
+    }
+    if (!t.pausedAt) {
+      t.accumMs = (t.accumMs || 0) + Math.max(0, Date.now() - t.startTime);
+      t.pausedAt = Date.now();
+    }
+    const toP = (opts.toPeriod != null && !isNaN(opts.toPeriod)) ? opts.toPeriod : period;
+    const toC = (opts.toCell != null && !isNaN(opts.toCell)) ? opts.toCell : cell;
+    const newKey = timerKeyOf(today, toP, toC);
+    const exist = runningTimers[newKey];
+    const name = t.taskText || "任务";
+    if (exist && exist !== t) {
+      exist.accumMs = (exist.accumMs || 0) + (t.accumMs || 0);
+      if ((!exist.taskText || exist.taskText === "未命名任务") && t.taskText) exist.taskText = t.taskText;
+      delete runningTimers[oldKey];
+    } else {
+      delete runningTimers[oldKey];
+      t.date = today;
+      t.period = toP;
+      t.cell = toC;
+      t._staleCrossDay = false;
+      t.pausedAt = Date.now();
+      runningTimers[newKey] = t;
+    }
+    save(RUNNING_TIMERS_KEY, runningTimers);
+    const moved = (toP !== period || toC !== cell);
+    if (!opts.silent) {
+      if (state.currentDate !== today) {
+        state.currentDate = today;
+        if (el.datePicker) el.datePicker.value = today;
+        renderAll();
+      } else {
+        renderRunningTimerBar();
+        renderMandala();
+        if (state.realm === "record") renderRecord();
+      }
+      haptic(18);
+      toast("📅 已带到今日" + (moved ? (" · " + (PERIOD_NAMES[toP] || "") + "第" + (toC + 1) + "格") : "") + " · " + trunc(name, 14) + "（暂停中，点 ▶ 续计）", "success", 2800);
+    } else if (opts.refresh) {
+      if (state.currentDate !== today) {
+        state.currentDate = today;
+        if (el.datePicker) el.datePicker.value = today;
+        renderAll();
+      } else {
+        renderRunningTimerBar();
+        renderMandala();
+        if (state.realm === "record") renderRecord();
+      }
+      haptic(18);
+      toast("📅 已带到今日" + (moved ? (" · " + (PERIOD_NAMES[toP] || "") + "第" + (toC + 1) + "格") : "") + " · " + trunc(name, 14), "success", 2800);
+    }
+    return true;
+  }
+  function bringStaleTimersToToday() {
+    const today = dateToStr(new Date());
+    const stale = Object.keys(runningTimers).map((k) => ({ k, t: runningTimers[k] }))
+      .filter((x) => x.t && x.t.date && x.t.date !== today);
+    if (!stale.length) { toast("没有跨日钟", "info"); return; }
+    let n = 0;
+    stale.forEach((x) => {
+      if (bringOneTimerToToday(x.t.date, x.t.period, x.t.cell, { silent: true })) n++;
+    });
+    if (!n) return;
+    if (state.currentDate !== today) {
+      state.currentDate = today;
+      if (el.datePicker) el.datePicker.value = today;
+      renderAll();
+    } else {
+      renderRunningTimerBar();
+      renderMandala();
+      if (state.realm === "record") renderRecord();
+    }
+    haptic(20);
+    toast("📅 已将 " + n + " 口跨日钟带到今日同格（均暂停，可逐个 ▶；单口可点 →今 选格）", "success", 3600);
+  }
+  // Round5：带到今日时可选目标时辰/格子
+  function openBringTimerCellPicker(fromDate, fromP, fromC) {
+    const today = dateToStr(new Date());
+    const oldKey = timerKeyOf(fromDate, fromP, fromC);
+    const t = runningTimers[oldKey];
+    if (!t || t.date === today) { toast("不是跨日钟", "info"); return; }
+    const mo = document.createElement("div");
+    mo.className = "modal-overlay";
+    mo.style.cssText = "position:fixed;inset:0;background:var(--overlay,rgba(0,0,0,.55));z-index:1400;display:flex;align-items:center;justify-content:center;padding:14px;";
+    const dlg = document.createElement("div");
+    dlg.style.cssText = "background:var(--bg-card,#1e1e38);border:1px solid var(--border);border-radius:14px;padding:16px;max-width:440px;width:100%;max-height:86vh;overflow:auto;";
+    let periodOpts = "";
+    for (let p = 0; p < PERIOD_COUNT; p++) {
+      periodOpts += '<option value="' + p + '"' + (p === fromP ? " selected" : "") + ">" + (PERIOD_NAMES[p] || ("第" + (p + 1) + "辰")) + "</option>";
+    }
+    let cellOpts = "";
+    for (let c = 0; c < CELLS_PER_PERIOD; c++) {
+      cellOpts += '<option value="' + c + '"' + (c === fromC ? " selected" : "") + ">第 " + (c + 1) + " 格</option>";
+    }
+    dlg.innerHTML =
+      '<div style="font-size:14px;font-weight:700;margin-bottom:8px;">📅 带到今日 · 选择格子</div>'
+      + '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.5;">任务：<b style="color:#c9bfff;">' + escapeHtml(trunc(t.taskText || "未命名", 24)) + "</b><br>来自 " + escapeHtml(fromDate) + " · 累计保留 · 到今日后暂停待 ▶</div>"
+      + '<label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">时辰</label>'
+      + '<select id="btPeriod" style="width:100%;padding:8px;margin-bottom:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-tertiary);color:var(--text-primary);">' + periodOpts + "</select>"
+      + '<label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">格子</label>'
+      + '<select id="btCell" style="width:100%;padding:8px;margin-bottom:14px;border-radius:8px;border:1px solid var(--border);background:var(--bg-tertiary);color:var(--text-primary);">' + cellOpts + "</select>"
+      + '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">'
+      + '<button type="button" id="btSame" class="ts-btn-ghost">用原格</button>'
+      + '<button type="button" id="btCancel" class="ts-btn-ghost">取消</button>'
+      + '<button type="button" id="btOk" class="ts-btn-main">带到今日</button>'
+      + "</div>";
+    mo.appendChild(dlg);
+    document.body.appendChild(mo);
+    const close = () => mo.remove();
+    dlg.querySelector("#btCancel").addEventListener("click", close);
+    mo.addEventListener("click", (e) => { if (e.target === mo) close(); });
+    const doBring = (p, c) => {
+      close();
+      bringOneTimerToToday(fromDate, fromP, fromC, { silent: true, refresh: true, toPeriod: p, toCell: c });
+    };
+    dlg.querySelector("#btSame").addEventListener("click", () => doBring(fromP, fromC));
+    dlg.querySelector("#btOk").addEventListener("click", () => {
+      const p = parseInt(dlg.querySelector("#btPeriod").value, 10);
+      const c = parseInt(dlg.querySelector("#btCell").value, 10);
+      doBring(p, c);
+    });
+  }
+  // Round2：计时条内联改名（不弹结束窗）
+  function renameRunningTimer(period, cell) {
+    const key = timerKeyOf(state.currentDate, period, cell);
+    const t = runningTimers[key];
+    if (!t) return;
+    const next = prompt("修改计时任务名", t.taskText || "");
+    if (next === null) return;
+    t.taskText = String(next).trim() || "未命名任务";
+    save(RUNNING_TIMERS_KEY, runningTimers);
+    renderRunningTimerBar();
+    haptic(12);
+    toast("已改名 · " + trunc(t.taskText, 16), "success");
   }
 
   // ---------- 持续记录 ----------
@@ -4528,9 +4903,9 @@ const SW_VER = "20260923";
           stickyRow.className = "cell-sticky-row";
           planStickies.forEach((t) => {
             const chip = document.createElement("div");
-            chip.className = "sticky-chip" + stickyColorCss(t.stickyColor) + (t.done ? " done" : "");
-            chip.title = "便利贴 · 点击切换完成";
-            chip.innerHTML = `<span class="sticky-pin">📌</span><span class="sticky-text">${escapeHtml((t.text || "").slice(0, 24))}</span>`;
+            chip.className = "sticky-chip sticky-on-task" + stickyColorCss(t.stickyColor) + (t.done ? " done" : "");
+            chip.title = "便利贴（已贴本格）· 点击切换完成";
+            chip.innerHTML = `<span class="sticky-pin">📌</span><span class="sticky-attached-badge">已贴</span><span class="sticky-text">${escapeHtml((t.text || "").slice(0, 24))}</span>`;
             chip.addEventListener("click", (ev) => {
               ev.stopPropagation();
               if (swipeRecordItem) return; // 滑动记录模式下不响应点击
@@ -4564,9 +4939,47 @@ const SW_VER = "20260923";
           const span = document.createElement("span");
           span.className = "task-text";
           span.textContent = taskText(t);
+          span.title = "点击编辑标题";
+          span.style.cursor = "pointer";
+          span.addEventListener("click", (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            editTaskTitleInline(period, cell, idx);
+          });
           item.appendChild(cb);
           item.appendChild(bar);
           item.appendChild(span);
+          // Round1：条状 tag（记录页计划继承）
+          if (t.tag) {
+            const tagStrip = document.createElement("span");
+            tagStrip.className = "task-tag-strip";
+            tagStrip.textContent = "#" + t.tag;
+            tagStrip.title = "标签 #" + t.tag;
+            item.appendChild(tagStrip);
+          }
+          // Round1：可编辑备注（缺备注时显示 ✎ 入口）
+          const noteBtn = document.createElement("button");
+          noteBtn.type = "button";
+          noteBtn.className = "task-note-edit-btn" + (t.note ? " has-note" : "");
+          noteBtn.title = t.note ? "编辑备注：" + t.note : "添加备注";
+          noteBtn.textContent = t.note ? "📝" : "✎";
+          noteBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            editTaskNoteInline(period, cell, idx);
+          });
+          item.appendChild(noteBtn);
+          if (t.note) {
+            const noteEl = document.createElement("div");
+            noteEl.className = "task-note-inline";
+            noteEl.textContent = t.note;
+            noteEl.title = "点击编辑备注";
+            noteEl.addEventListener("click", (e) => {
+              e.stopPropagation();
+              editTaskNoteInline(period, cell, idx);
+            });
+            item.appendChild(noteEl);
+          }
           // v94 拖拽：记录页任务条 → 其他格子（桌面 HTML5 DnD；触屏用长按拖拽同款）
           item.addEventListener("dragstart", (e) => {
             e.stopPropagation();
@@ -4650,27 +5063,8 @@ const SW_VER = "20260923";
 
       // v94：记录页格子接收任务拖拽（拖动其他格子的任务条到此 → 移动；收集箱卡片拖入 → 安排）
       attachDragHandlers(cellEl, period, cell);
-      // v94：记录页也加正计时按钮（记录时发现做的是别的事，直接开钟跟踪，停止自动写回该格）
-      if (planTasks.length) {
-        const _rt = getRunningTimer(period, cell);
-        const _rtPaused = !!(_rt && _rt.pausedAt);
-        const timerBtn = document.createElement("button");
-        timerBtn.className = "cell-timer-btn" + (_rt ? (_rtPaused ? " paused" : " running") : "");
-        timerBtn.dataset.timerBtn = "1";
-        timerBtn.title = !_rt
-          ? "启动正计时（■ 停止时命名并写入本格记录）"
-          : _rtPaused
-            ? "▶ 恢复计时"
-            : "⏸ 暂停计时（去底部计时条点 ■ 停止 → 命名 → 写入）";
-        timerBtn.textContent = !_rt ? "⏱" : (_rtPaused ? "▶" : "⏸");
-        timerBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          toggleCellTimer(period, cell, planTasks[0] ? planTasks[0].text : "");
-        });
-        cellEl.appendChild(timerBtn);
-        if (_rt) cellEl.classList.add(_rtPaused ? "timing-paused" : "timing");
-      }
+      // Round1：记录页全格正计时锚点（有无计划均可开钟；■ 结束→命名写入）
+      attachCellTimerControls(cellEl, period, cell, planTasks[0] ? planTasks[0].text : (record && record.actual) || "未命名任务");
 
       // 点击编辑记录（滑动记录模式下：格子只用于滑动批量记录，点击不打开编辑器）
       cellEl.addEventListener("click", () => {
@@ -6265,12 +6659,17 @@ ${noteSection}
     // 渲染详情面板
     renderTaskDetailPanel(first, period, cell);
     el.taskDialog.showModal();
-    // 光标定位修复：聚焦正文并落到末尾（多行任务可直接续写/回改）
+    // Round1 光标定位：等 dialog 布局稳定后再 focus，落到末尾且不 select-all（避免安卓 WebView 光标错位）
     setTimeout(() => {
-      el.taskContent.focus();
-      const len = el.taskContent.value.length;
-      try { el.taskContent.setSelectionRange(len, len); } catch (e) { /* 忽略 */ }
-    }, 60);
+      const ta = el.taskContent;
+      if (!ta) return;
+      try { ta.focus({ preventScroll: true }); } catch (e) { ta.focus(); }
+      const len = ta.value.length;
+      try { ta.setSelectionRange(len, len); } catch (e) { /* 忽略 */ }
+      requestAnimationFrame(() => {
+        try { ta.setSelectionRange(len, len); } catch (e) { /* 忽略 */ }
+      });
+    }, 80);
   }
 
   // 渲染任务详情面板（主线/支线/孵化/附件/位置）
@@ -6352,7 +6751,7 @@ ${noteSection}
     const tasks = getCellTasks(period, cell);
     const stickies = tasks.map((t, i) => ({ t, i })).filter((x) => x.t.sticky);
     el.taskStickyList.innerHTML = stickies.length
-      ? stickies.map(({ t, i }) => `<div class="sticky-chip dlg${stickyColorCss(t.stickyColor)}${t.done ? " done" : ""}" data-idx="${i}"><span class="sticky-pin">📌</span><span class="sticky-text">${escapeHtml((t.text || "").slice(0, 30))}</span><button class="sticky-edit" title="编辑文字/颜色">✎</button><button class="sticky-del" title="移除便利贴">✕</button></div>`).join("")
+      ? stickies.map(({ t, i }) => `<div class="sticky-chip dlg sticky-on-task${stickyColorCss(t.stickyColor)}${t.done ? " done" : ""}" data-idx="${i}"><span class="sticky-pin">📌</span><span class="sticky-attached-badge">已贴</span><span class="sticky-text">${escapeHtml((t.text || "").slice(0, 30))}</span><button class="sticky-edit" title="编辑文字/颜色">✎</button><button class="sticky-del" title="移除便利贴">✕</button></div>`).join("")
       : '<small style="color:var(--text-muted);">本格还没有便利贴——写一句贴上，格子会显示贴纸，随时可拖到其他时间格子。</small>';
   }
   if (el.taskStickyList) {
@@ -8662,7 +9061,16 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
     // 🧠 孵化结果自动上板为思维导图（无需再手动点「🧠 思维导图」按钮）
     if (result && result.steps && result.steps.length) {
       const _mm = syncMindmapFromHatch();
-      if (_mm && !opts.keepChat) toast("🧠 思维导图已自动上板 · 底部「思维导图」查看", "success");
+      if (_mm && !opts.keepChat) {
+        toast("🧠 思维导图已自动上板", "success", 5200, {
+          label: "打开导图",
+          timeout: 5200,
+          onClick: () => {
+            if (!mmEditor) mmEditor = new MindMapEditor();
+            mmEditor.openSavedMindmap(_mm);
+          },
+        });
+      }
     }
     // 习惯场景：显示「保存为习惯」按钮
     if (el.hatchSaveHabit) el.hatchSaveHabit.hidden = !(hatchState.scene === "habit" || result.habitType || (result.steps || []).some((s) => s.law));
@@ -11414,6 +11822,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       this._renderLegend();
       this._applyView();
       this._updateFloatBar();
+      this._updateNavCrumb && this._updateNavCrumb();
       // 描边动画结束后移除 class，避免 dasharray 常量残留影响后续渲染样式
       if (_animIn) {
         setTimeout(() => {
@@ -11475,6 +11884,100 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       bar.style.left = left + "px";
       bar.style.top = top + "px";
       bar.hidden = false;
+      // Round5：关联绘制模式按钮高亮
+      const linkBtn = bar.querySelector('[data-a="link"]');
+      if (linkBtn) linkBtn.classList.toggle("on", !!this._linkFrom);
+      this._updateNavCrumb && this._updateNavCrumb();
+    }
+    // Round5：进入/退出关联线绘制模式
+    beginLinkMode(fromId) {
+      if (!fromId || this.findNode(fromId)?._isRoot) {
+        toast("请先选中非根节点再画关联", "info");
+        return;
+      }
+      if (this._linkFrom === fromId) {
+        this.cancelLinkMode();
+        return;
+      }
+      this._linkFrom = fromId;
+      this._updateFloatBar && this._updateFloatBar();
+      toast("🔗 再点另一个节点建立关联（Esc 取消）", "info", 2800);
+      haptic(12);
+    }
+    cancelLinkMode() {
+      if (!this._linkFrom) return;
+      this._linkFrom = null;
+      this._updateFloatBar && this._updateFloatBar();
+      toast("已取消关联绘制", "info");
+    }
+    completeLinkTo(toId) {
+      const fromId = this._linkFrom;
+      if (!fromId || !toId || fromId === toId) {
+        this.cancelLinkMode();
+        return false;
+      }
+      const from = this.findNode(fromId);
+      const to = this.findNode(toId);
+      if (!from || !to || from._isRoot) {
+        this.cancelLinkMode();
+        toast("无法建立关联", "warn");
+        return false;
+      }
+      this.pushHistory();
+      const m = from.meta || (from.meta = {});
+      if (m.link === toId) {
+        delete m.link;
+        this._linkFrom = null;
+        this.render();
+        toast("已清除关联", "info");
+        return true;
+      }
+      m.link = toId;
+      this._linkFrom = null;
+      this.selectedId = fromId;
+      this.render();
+      this._showNodePanel && this._showNodePanel(fromId);
+      toast("🔗 已关联 → " + trunc(to.text || "节点", 16), "success");
+      haptic(18);
+      return true;
+    }
+    // Round2：节点路径面包屑（根 › … › 当前），点击可跳父级
+    _updateNavCrumb() {
+      if (!this.els || !this.els.canvas) return;
+      let crumb = this.els.canvas.querySelector(".mm-nav-crumb");
+      if (!crumb) {
+        crumb = document.createElement("div");
+        crumb.className = "mm-nav-crumb";
+        this.els.canvas.appendChild(crumb);
+        crumb.addEventListener("click", (e) => {
+          const b = e.target.closest("[data-mm-nav]");
+          if (!b) return;
+          const id = b.getAttribute("data-mm-nav");
+          if (!id) return;
+          this.selectedId = id;
+          this._showNodePanel && this._showNodePanel(id);
+          this.render();
+          this.centerOn(id);
+          haptic(12);
+        });
+      }
+      const id = this.selectedId;
+      if (!id || !this.root) { crumb.hidden = true; return; }
+      const path = [];
+      let cur = this.findNode(id);
+      const guard = new Set();
+      while (cur && !guard.has(cur.id)) {
+        guard.add(cur.id);
+        path.unshift(cur);
+        if (cur._isRoot) break;
+        cur = this.findParent(cur.id);
+      }
+      if (!path.length) { crumb.hidden = true; return; }
+      crumb.hidden = false;
+      crumb.innerHTML = path.map((n, i) => {
+        const label = trunc(n._isRoot ? ("根：" + (n.text || "导图")) : (n.text || "节点"), 14);
+        return '<button type="button" class="mm-nav-seg' + (i === path.length - 1 ? " cur" : "") + '" data-mm-nav="' + n.id + '">' + escapeHtml(label) + "</button>";
+      }).join('<span class="mm-nav-sep">›</span>');
     }
     _applyView() {
       const { x, y, scale } = this.view;
@@ -11584,11 +12087,13 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       group.setAttribute("data-node", n.id);
       // v94 task 标识：节点文本已安排到今日时间格子 → 青绿描边 + ↩ 角标（点击直达格子）
       const isTaskNode = !n._isRoot && this._taskTextSet && this._taskTextSet.has((n.text || "").trim());
-      group.setAttribute("class", "mm-node" + (isSel ? " mm-node-sel" : "") + (n._isRoot ? " mm-node-root" : "") + (isTaskNode ? " mm-node-task" : ""));
+      group.setAttribute("class", "mm-node" + (isSel ? " mm-node-sel" : "") + (n._isRoot ? " mm-node-root" : "") + (isTaskNode ? " mm-node-task" : "") + (depth ? " mm-depth-" + Math.min(depth, 4) : ""));
       // 入场动画：节点按层级由内向外依次「上板」（用 CSS 独立 scale 属性，避免覆盖 translate 定位）
       if (anim) {
         group.classList.add("mm-node-in");
-        group.style.setProperty("--mm-delay", ((depth || 0) * 80 + 40) + "ms");
+        group.style.setProperty("--mm-delay", ((depth || 0) * 70 + 30) + "ms");
+        // Round2：上板抛光——轻微上浮 + 淡入
+        group.style.setProperty("--mm-rise", Math.min(18, 6 + (depth || 0) * 3) + "px");
       }
       // 底（发光）
       if (isSel) {
@@ -11628,6 +12133,27 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         }
       }
       group.appendChild(rect);
+      // Round2：根节点「根」徽章 + 非根层级小标（强化层级可读）
+      if (n._isRoot) {
+        const rb = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        rb.setAttribute("x", 10); rb.setAttribute("y", 14);
+        rb.setAttribute("fill", "rgba(255,255,255,.85)");
+        rb.setAttribute("font-size", "9");
+        rb.setAttribute("font-weight", "800");
+        rb.setAttribute("style", "pointer-events:none");
+        rb.textContent = "根 · ROOT";
+        group.appendChild(rb);
+      } else if (depth > 0) {
+        const db = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        db.setAttribute("x", pos.w - 6); db.setAttribute("y", 11);
+        db.setAttribute("text-anchor", "end");
+        db.setAttribute("fill", "rgba(200,200,230,.55)");
+        db.setAttribute("font-size", "8");
+        db.setAttribute("font-weight", "700");
+        db.setAttribute("style", "pointer-events:none");
+        db.textContent = "L" + depth;
+        group.appendChild(db);
+      }
       // 风险左边条
       const risk = n.meta && n.meta.risk;
       if (risk === "high" || risk === "med") {
@@ -11873,10 +12399,14 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       const p = this._nodePos && this._nodePos.get(id);
       if (!p) return;
       const rect = this.els.canvas.getBoundingClientRect();
+      if (!rect.width) return;
+      // Round1：节点跳转居中更稳——预留浮动操作条高度，避免选中后被顶出可视区
+      const reserveTop = 56;
       this.view.x = rect.width / 2 - (p.x + p.w / 2) * this.view.scale;
-      this.view.y = rect.height / 2 - (p.y + p.h / 2) * this.view.scale;
+      this.view.y = (rect.height + reserveTop) / 2 - (p.y + p.h / 2) * this.view.scale;
       this._applyView();
       this._focusedNode = id;
+      this._updateFloatBar && this._updateFloatBar();
       setTimeout(() => { this._focusedNode = null; this.render(); }, 1200);
     }
     svgPointToView(e) {
@@ -12193,6 +12723,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
           +   '<button type="button" data-q="补充执行细节">补充细节</button>'
           +   '<button type="button" data-q="指出可能踩的坑">指出风险</button>'
           +   '<button type="button" data-q="给出完成验收标准">完成标准</button>'
+          +   '<button type="button" data-a="incubate" class="mnc-incubate" title="把最近一条 AI 回复解析为子节点上板">🥚 孵化上板</button>'
           + '</div>'
           + '<div class="mnc-input-row">'
           +   '<input type="text" id="mncInput" class="mnc-input" placeholder="问这个节点…" />'
@@ -12204,6 +12735,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         dlg.querySelector("#mncInput").addEventListener("keydown", (e) => { if (e.key === "Enter") this.sendNodeChat(); });
         dlg.querySelectorAll("#mncChips button").forEach((b) => {
           b.addEventListener("click", () => {
+            if (b.dataset.a === "incubate") { this.incubateChatOntoMap(); return; }
             const inp = dlg.querySelector("#mncInput");
             if (inp) inp.value = b.dataset.q || "";
             this.sendNodeChat();
@@ -12269,10 +12801,15 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
             this._chatRAF = 0;
             if (botEl) botEl.innerHTML = mdLite(escapeHtml(full));
             if (log) log.scrollTop = log.scrollHeight;
+            // Round5：流式中识别可上板结构 → 高亮孵化按钮
+            this._pendingIncubateText = full;
+            this._nudgeStreamIncubate(full, dlg);
           });
         });
         if (botEl) botEl.innerHTML = mdLite(escapeHtml(raw || "（无回复）"));
         chat.push({ role: "assistant", content: raw || "" });
+        this._pendingIncubateText = raw || "";
+        this._nudgeStreamIncubate(raw || "", dlg);
       } catch (err) {
         const aborted = err && (err.name === "AbortError" || /abort/i.test(err.message || ""));
         const msg = aborted ? "⚠ 请求超时，请重试" : "⚠ " + (err.message || "请求失败");
@@ -12281,6 +12818,206 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       } finally {
         if (send) { send.disabled = false; send.textContent = "发送"; }
       }
+    }
+    // Round5：流式回复出现结构列表时点亮「可上板」提示
+    _nudgeStreamIncubate(text, dlg) {
+      dlg = dlg || document.getElementById("mmNodeChatDlg");
+      if (!dlg) return;
+      const chip = dlg.querySelector(".mnc-incubate");
+      if (!chip) return;
+      const items = this.parseIncubateItems(text);
+      const ready = items.length >= 2;
+      chip.classList.toggle("ready", ready);
+      if (ready) {
+        chip.textContent = "🥚 可上板 · " + items.length;
+        chip.title = "检测到 " + items.length + " 条可上板步骤，点击孵化";
+      } else {
+        chip.textContent = "🥚 孵化上板";
+        chip.title = "把最近一条 AI 回复解析为子节点上板";
+      }
+      let banner = dlg.querySelector(".mnc-stream-board");
+      if (ready) {
+        if (!banner) {
+          banner = document.createElement("button");
+          banner.type = "button";
+          banner.className = "mnc-stream-board";
+          banner.addEventListener("click", () => this.incubateChatOntoMap());
+          const chips = dlg.querySelector("#mncChips");
+          if (chips) chips.parentNode.insertBefore(banner, chips);
+          else dlg.appendChild(banner);
+        }
+        banner.hidden = false;
+        banner.textContent = "📋 检测到 " + items.length + " 步结构 · 点此上板";
+      } else if (banner) {
+        banner.hidden = true;
+      }
+    }
+    // Round3/4：把节点 AI 对话最近助手回复解析为子节点并上板（优先 JSON）
+    parseIncubateItems(raw) {
+      const text = String(raw || "");
+      const items = [];
+      const push = (t, kids) => {
+        t = String(t || "").replace(/\*\*|__/g, "").trim();
+        if (!t || t.length < 2 || t.length > 80) return;
+        if (/^(注意|总结|综上|参考|建议|以下|如上|好的|可以)/.test(t)) return;
+        if (items.some((x) => x.text === t)) return;
+        items.push({ text: t, children: kids || [] });
+      };
+      // 1) fenced JSON / bare JSON
+      let jsonStr = null;
+      const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+      if (fence) jsonStr = fence[1].trim();
+      else {
+        const bare = text.match(/(\[[\s\S]*\]|\{[\s\S]*\})/);
+        if (bare) jsonStr = bare[1].trim();
+      }
+      if (jsonStr) {
+        try {
+          const data = JSON.parse(jsonStr);
+          const arr = Array.isArray(data) ? data
+            : (data.children || data.steps || data.items || data.nodes || []);
+          if (Array.isArray(arr) && arr.length) {
+            arr.forEach((it) => {
+              if (typeof it === "string") push(it);
+              else if (it && typeof it === "object") {
+                const kids = [];
+                (it.children || it.steps || []).forEach((c) => {
+                  const ct = typeof c === "string" ? c : (c.text || c.title || c.name || "");
+                  if (ct) kids.push(String(ct).trim());
+                });
+                push(it.text || it.title || it.name || it.label || "", kids.filter(Boolean).slice(0, 4));
+              }
+            });
+          }
+        } catch (e) { /* fall through */ }
+      }
+      // 2) line heuristic
+      if (!items.length) {
+        text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).forEach((l) => {
+          let t = l
+            .replace(/^#{1,6}\s+/, "")
+            .replace(/^[-*+•]\s+/, "")
+            .replace(/^\d+[.)、]\s*/, "")
+            .replace(/^\(?\d+\)?[.)、]\s*/, "")
+            .replace(/\*\*|__/g, "")
+            .trim();
+          push(t);
+        });
+      }
+      return items.slice(0, 10);
+    }
+    incubateChatOntoMap() {
+      const n = this.findNode(this._chatNodeId);
+      if (!n) { toast("未选中节点", "info"); return; }
+      const m = n.meta || (n.meta = {});
+      const chat = m.chat || (m.chat = []);
+      let last = this._pendingIncubateText || null;
+      if (!last) {
+        for (let i = chat.length - 1; i >= 0; i--) {
+          if (chat[i].role === "assistant" && chat[i].content) { last = chat[i].content; break; }
+        }
+      }
+      if (!last) { toast("先和 AI 对话（如点「拆解子步骤」），再点孵化上板", "info"); return; }
+      // 流式中途点上板：确保回复已写入 chat
+      if (this._pendingIncubateText && !chat.some((msg) => msg.role === "assistant" && msg.content === this._pendingIncubateText)) {
+        chat.push({ role: "assistant", content: this._pendingIncubateText });
+      }
+      const items = this.parseIncubateItems(last);
+      if (!items.length) { toast("未能从回复中解析出可上板的步骤", "warn"); return; }
+      // Round4：≥3 条时预览确认，避免误上板
+      if (items.length >= 3) {
+        const preview = items.map((it, i) => (i + 1) + ". " + it.text + (it.children && it.children.length ? "（+" + it.children.length + "）" : "")).join("\n");
+        if (!confirm("将上板 " + items.length + " 项到「" + trunc(n.text || "节点", 16) + "」：\n\n" + preview + "\n\n确认？")) return;
+      }
+      this.pushHistory();
+      if (n.collapsed) n.collapsed = false;
+      let added = 0;
+      items.forEach((it) => {
+        if ((n.children || []).some((c) => c.text === it.text)) return;
+        const child = this.newNode(it.text, { source: "chat-incubate" });
+        child.type = (n._isRoot || n.type === "main") ? "side" : "child";
+        (it.children || []).forEach((ct) => {
+          const gc = this.newNode(ct, { source: "chat-incubate" });
+          gc.type = "child";
+          child.children.push(gc);
+        });
+        n.children.push(child);
+        added++;
+      });
+      if (!added) { toast("解析结果与现有子节点重复", "info"); return; }
+      this.save();
+      this.render();
+      this.centerOn(n.id);
+      this._showNodePanel(n.id);
+      haptic(20);
+      toast("🥚 已孵化上板 " + added + " 个节点", "success");
+      const dlg = document.getElementById("mmNodeChatDlg");
+      if (dlg && dlg.open) dlg.close();
+    }
+    // Round4：按布局方向导航（lr/tb/radial）
+    navigateRelative(dir) {
+      const id = this.selectedId;
+      if (!id) return;
+      const n = this.findNode(id);
+      if (!n) return;
+      const parent = this.findParent(id);
+      const layout = this.layout || "lr";
+      const go = (nid) => {
+        if (!nid) return;
+        this.selectedId = nid;
+        this._showNodePanel(nid);
+        this.render();
+        this.centerOn(nid);
+        haptic(10);
+      };
+      // tb：上下深入/返回，左右兄弟；lr/radial：左右深入/返回，上下兄弟
+      const deepAxis = (layout === "tb")
+        ? { parent: "up", child: "down", prev: "left", next: "right" }
+        : { parent: "left", child: "right", prev: "up", next: "down" };
+      if (dir === deepAxis.parent) {
+        if (parent) go(parent.id);
+        return;
+      }
+      if (dir === deepAxis.child) {
+        if (n.collapsed && n.children && n.children.length) {
+          n.collapsed = false;
+          this.pushHistory();
+        }
+        if (n.children && n.children.length) go(n.children[0].id);
+        return;
+      }
+      if (!parent) return;
+      const idx = parent.children.findIndex((c) => c.id === id);
+      if (dir === deepAxis.prev && idx > 0) go(parent.children[idx - 1].id);
+      if (dir === deepAxis.next && idx < parent.children.length - 1) go(parent.children[idx + 1].id);
+    }
+    toggleFold(id) {
+      const n = this.findNode(id || this.selectedId);
+      if (!n || n._isRoot) { toast("根节点请用手风琴折叠各主线", "info"); return; }
+      if (!(n.children || []).length) { toast("无子节点可折叠", "info"); return; }
+      this.pushHistory();
+      n.collapsed = !n.collapsed;
+      this.render();
+      this.centerOn(n.id);
+      toast(n.collapsed ? "已折叠本支" : "已展开本支", "info", 1400);
+    }
+    // Round4：手风琴——折叠同级其他分支，只展开当前
+    accordionSiblings(id) {
+      const n = this.findNode(id || this.selectedId);
+      if (!n) return;
+      const parent = this.findParent(n.id) || (n._isRoot ? n : null);
+      const host = n._isRoot ? n : parent;
+      if (!host || !(host.children || []).length) return;
+      this.pushHistory();
+      const keepId = n._isRoot ? null : n.id;
+      host.children.forEach((c) => {
+        if (!(c.children || []).length) return;
+        c.collapsed = keepId ? (c.id !== keepId) : false;
+      });
+      if (!n._isRoot && (n.children || []).length) n.collapsed = false;
+      this.render();
+      this.centerOn(n.id);
+      toast("▤ 手风琴：已折叠同级其他分支", "success", 1800);
     }
     editNode(id) {
       const n = this.findNode(id);
@@ -12382,25 +13119,29 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       if (id === newParentId) return;
       const n = this.findNode(id);
       const np = this.findNode(newParentId);
-      if (!n || !np || n._isRoot || np._isRoot && n.type === "main" && np.children.length >= 20) {
-        if (n && n._isRoot) { toast("根节点不能移动", "info"); return; }
-      }
-      if (np._isRoot && n.type === "main") { toast("主线步骤已挂根节点", "info"); return; }
+      if (!n || !np) return;
+      if (n._isRoot) { toast("根节点不能移动", "info"); return; }
+      if (np._isRoot && np.children.length >= 24) { toast("根下主线过多（最多 24）", "info"); return; }
       // 防止挂到自己子孙
       let anc = np, guard = 0;
       while (anc && guard++ < 100) { if (anc.id === id) { toast("不能挂到自己的子孙节点", "info"); return; } anc = this.findParent(anc.id); }
       const parent = this.findParent(id);
       if (!parent) return;
+      if (parent.id === np.id) { toast("已在该节点下", "info"); return; }
       this.pushHistory();
       const idx = parent.children.findIndex((c) => c.id === id);
       const [node] = parent.children.splice(idx, 1);
       if (node.meta) { node.meta.dx = 0; node.meta.dy = 0; } // v94：改隶属时清手动偏移，融入新布局
+      // Round3：挂到根 → 主线；挂到主线 → 支线；其余 → 子步（层级语义清晰）
       if (np._isRoot) node.type = "main";
-      else node.type = np.children.length === 0 || np.type === "main" ? "side" : "child";
+      else if (np.type === "main" || np._isRoot) node.type = "side";
+      else node.type = "child";
       np.children.push(node);
       if (np.collapsed) np.collapsed = false;
+      this.selectedId = node.id;
       this.render();
-      toast("已移动节点", "success");
+      this.centerOn(node.id);
+      toast("已改挂到「" + trunc(np.text || "节点", 12) + "」", "success");
     }
 
     // ---------- 拖拽视觉（桌面 + 触屏共用）----------
@@ -12474,12 +13215,15 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
           const ndx = curDx + (cx - p.x), ndy = curDy + (cy - p.y);
           if (Math.abs(ndx - curDx) > 2 || Math.abs(ndy - curDy) > 2) {
             n.meta = n.meta || {};
-            n.meta.dx = Math.round(ndx);
-            n.meta.dy = Math.round(ndy);
+            // Round3：自由摆放吸附 10px 网格，减少抖动错位
+            n.meta.dx = Math.round(ndx / 10) * 10;
+            n.meta.dy = Math.round(ndy / 10) * 10;
+            this.pushHistory();
             this.save();
             this.render();
+            this.centerOn(did);
             haptic(12);
-            toast("📍 已自由摆放 · 拖到节点上=改隶属 · 工具条 ⟳ =恢复自动布局", "info", 2600);
+            toast("📍 已摆放（吸附网格）· 拖到节点=改隶属 · ⟳=恢复自动布局", "info", 2400);
           }
         }
       }
@@ -13153,14 +13897,18 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
             <div><b>Tab</b><span>添加子节点</span></div>
             <div><b>Enter</b><span>编辑选中节点</span></div>
             <div><b>Delete</b><span>删除节点（可撤销）</span></div>
-            <div><b>↑ ↓ ← →</b><span>导航节点</span></div>
+            <div><b>↑ ↓ ← →</b><span>方向感知导航（随布局）</span></div>
+            <div><b>Alt+↑↓</b><span>同级排序（根下主线）</span></div>
+            <div><b>Alt+←/→</b><span>进入关联线绘制</span></div>
+            <div><b>C</b><span>折叠/展开本支</span></div>
+            <div><b>Shift+C</b><span>手风琴折叠同级</span></div>
+            <div><b>Shift+F</b><span>聚焦当前分支</span></div>
             <div><b>F</b><span>聚焦搜索</span></div>
             <div><b>+ / −</b><span>缩放画布</span></div>
             <div><b>0</b><span>适应画布</span></div>
             <div><b>Ctrl+Z / Y</b><span>撤销 / 重做</span></div>
             <div><b>双击节点</b><span>编辑文本</span></div>
-            <div><b>拖拽节点</b><span>改隶属（挂到目标）</span></div>
-            <div><b>双击空白</b><span>收起/展开（点节点 − 号）</span></div>
+            <div><b>拖拽节点</b><span>改隶属 / 空白自由摆放</span></div>
             <div><b>?</b><span>显示/隐藏本面板</span></div>
           </div>`;
         this.els.canvas.appendChild(sc);
@@ -13255,6 +14003,10 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
         if (nodeEl) {
           const id = nodeEl.getAttribute("data-node");
           if (e.button === 0) {
+            if (this._linkFrom) {
+              this.completeLinkTo(id);
+              return;
+            }
             this.selectedId = id;
             this._showNodePanel(id);
             this.render();
@@ -13378,6 +14130,12 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
             this._endDragVisual(t.clientX, t.clientY);
             haptic(20);
           } else {
+            // Round5：关联绘制模式下点第二个节点即连线
+            if (this._linkFrom) {
+              this.completeLinkTo(tp.id);
+              tp = null;
+              return;
+            }
             // 未拖动：单击选中 + 双触（500ms 内两次点同一节点）编辑
             const now = Date.now();
             if (this._lastTap && this._lastTap.id === tp.id && now - this._lastTap.t < TAP_MS) {
@@ -13403,20 +14161,25 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
       });
       els.floatOk.addEventListener("click", () => this._finishEdit && this._finishEdit(true));
       // 浮动操作条（选中节点后出现）：增删改移，触屏/桌面通用；事件隔离画布手势
+      // Round1：pointerdown 只 stopPropagation，禁止 preventDefault——否则会吞掉后续 click，按钮点不动
       if (els.floatBar) {
-        const stop = (e) => { e.stopPropagation(); e.preventDefault(); };
-        els.floatBar.addEventListener("pointerdown", stop);
-        els.floatBar.addEventListener("touchstart", stop, { passive: false });
+        const stopBubble = (e) => { e.stopPropagation(); };
+        els.floatBar.addEventListener("pointerdown", stopBubble);
+        els.floatBar.addEventListener("touchstart", stopBubble, { passive: true });
         els.floatBar.addEventListener("click", (e) => {
+          e.stopPropagation();
           const btn = e.target.closest("[data-a]");
           if (!btn || !this.selectedId) return;
           const a = btn.dataset.a;
           if (a === "child") this.addChild(this.selectedId);
           else if (a === "edit") this.editNode(this.selectedId);
+          else if (a === "fold") this.toggleFold(this.selectedId);
+          else if (a === "accordion") this.accordionSiblings(this.selectedId);
           else if (a === "up") this.moveNode(this.selectedId, -1);
           else if (a === "down") this.moveNode(this.selectedId, 1);
           else if (a === "promote") this.promote(this.selectedId);
           else if (a === "focus") this.focusNode(this.selectedId);
+          else if (a === "link") this.beginLinkMode(this.selectedId);
           else if (a === "jump") this.jumpToTask(this.selectedId);
           else if (a === "del") this.deleteNode(this.selectedId);
         });
@@ -13429,6 +14192,10 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
         const inField = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
         if (e.key === "Escape") {
           if (editing) { e.stopPropagation(); this._finishEdit && this._finishEdit(false); }
+          else if (this._linkFrom) {
+            e.preventDefault(); e.stopPropagation();
+            this.cancelLinkMode();
+          }
           else if (this.focusId) {
             // 聚焦态：Esc 先退出聚焦返回全景
             e.preventDefault(); e.stopPropagation();
@@ -13453,18 +14220,31 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
           if (sc) sc.hidden = !sc.hidden;
           return;
         }
-        // Shift+F 聚焦选中节点分支
+        // Shift+F 聚焦；C 折叠；Shift+C 手风琴
         if (e.shiftKey && k.toLowerCase() === "f" && this.selectedId) { e.preventDefault(); this.focusNode(this.selectedId); return; }
+        if (e.shiftKey && k.toLowerCase() === "c" && this.selectedId) { e.preventDefault(); this.accordionSiblings(this.selectedId); return; }
+        if (!e.shiftKey && k.toLowerCase() === "c" && this.selectedId && !inField) { e.preventDefault(); this.toggleFold(this.selectedId); return; }
         if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? this.redo() : this.undo(); return; }
         if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === "y") { e.preventDefault(); this.redo(); return; }
         if (!this.selectedId) return;
+        // Round5：Alt+↑↓ 同级排序（根下主线顺序）
+        if (e.altKey && (k === "ArrowUp" || k === "ArrowDown")) {
+          e.preventDefault();
+          this.moveNode(this.selectedId, k === "ArrowUp" ? -1 : 1);
+          return;
+        }
+        if (e.altKey && (k === "ArrowLeft" || k === "ArrowRight")) {
+          e.preventDefault();
+          this.beginLinkMode(this.selectedId);
+          return;
+        }
         if (k === "Tab") { e.preventDefault(); this.addChild(this.selectedId); }
         else if (k === "Enter") { e.preventDefault(); this.editNode(this.selectedId); }
         else if (k === "Delete" || k === "Backspace") { e.preventDefault(); this.deleteNode(this.selectedId); }
-        else if (k === "ArrowUp") { e.preventDefault(); const p = this.findParent(this.selectedId); if (p) { const idx = p.children.findIndex((c) => c.id === this.selectedId); const t = p.children[idx - 1]; if (t) { this.selectedId = t.id; this._showNodePanel(t.id); this.render(); this.centerOn(t.id); } } }
-        else if (k === "ArrowDown") { e.preventDefault(); const p = this.findParent(this.selectedId); if (p) { const idx = p.children.findIndex((c) => c.id === this.selectedId); const t = p.children[idx + 1]; if (t) { this.selectedId = t.id; this._showNodePanel(t.id); this.render(); this.centerOn(t.id); } } }
-        else if (k === "ArrowLeft") { e.preventDefault(); const p = this.findParent(this.selectedId); if (p) { this.selectedId = p.id; this._showNodePanel(p.id); this.render(); this.centerOn(p.id); } }
-        else if (k === "ArrowRight") { e.preventDefault(); const n = this.findNode(this.selectedId); if (n && n.children.length) { this.selectedId = n.children[0].id; this._showNodePanel(n.children[0].id); this.render(); this.centerOn(n.children[0].id); } }
+        else if (k === "ArrowUp") { e.preventDefault(); this.navigateRelative("up"); }
+        else if (k === "ArrowDown") { e.preventDefault(); this.navigateRelative("down"); }
+        else if (k === "ArrowLeft") { e.preventDefault(); this.navigateRelative("left"); }
+        else if (k === "ArrowRight") { e.preventDefault(); this.navigateRelative("right"); }
         else if (k === "+" || k === "=") { this.zoom(1.25); }
         else if (k === "-" || k === "_") { this.zoom(0.8); }
         else if (k === "0") { this.fit(); }
@@ -13472,6 +14252,7 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
       });
       // dialog 关闭事件：清浮层
       els.dialog.addEventListener("close", () => {
+        this._linkFrom = null;
         if (this.els.floatEdit) this.els.floatEdit.hidden = true;
         if (this.els.nodePanel) this.els.nodePanel.hidden = true;
         if (this.els.floatBar) this.els.floatBar.hidden = true;
@@ -15686,7 +16467,16 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     if (state.breakdownContext && Array.isArray(state.breakdownContext.nodes) && state.breakdownContext.nodes.length) {
       const _first = !state.breakdownContext._mmId;
       const _rec = syncMindmapFromBreakdown(state.breakdownContext);
-      if (_rec && _first) toast("🧠 项目结构已自动上板到思维导图 · 底部「思维导图」查看", "success");
+      if (_rec && _first) {
+        toast("🧠 项目结构已自动上板到思维导图", "success", 5200, {
+          label: "打开导图",
+          timeout: 5200,
+          onClick: () => {
+            if (!mmEditor) mmEditor = new MindMapEditor();
+            mmEditor.openSavedMindmap(_rec);
+          },
+        });
+      }
     }
 
     // 状态切换后自动激活对应环节分类（保持 activePromptId 与 chatState 同步）
@@ -20172,11 +20962,14 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     });
   }
 
-  // 🎢 收集箱横向滑动悬浮指示：滚动时显示进度条，停止后淡出（看板=list 滚动，表格=内部 wrap 滚动）
+  // 🎢 收集箱滑动悬浮指示：滚动时显示进度条，停止后淡出（看板横向 + 表格横向 + 列表纵向）
   function bindInboxScrollInd() {
     const list = el.inboxList;
     if (!list || list._scrollIndBound) return;
     list._scrollIndBound = true;
+    // Round1：滑动更丝滑
+    list.style.webkitOverflowScrolling = "touch";
+    list.style.overscrollBehavior = "contain";
     const ensureInd = () => {
       let ind = list.querySelector(".inbox-scroll-ind");
       if (!ind) { ind = document.createElement("div"); ind.className = "inbox-scroll-ind"; list.appendChild(ind); }
@@ -20184,27 +20977,41 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     };
     const update = () => {
       let scroller = null;
-      if (inboxView === "kanban" && list.scrollWidth > list.clientWidth) scroller = list;
+      let axis = "x";
+      if (inboxView === "kanban" && list.scrollWidth > list.clientWidth + 2) { scroller = list; axis = "x"; }
       else if (inboxView === "table") {
         const wrap = list.querySelector(".inbox-table-wrap");
-        if (wrap && wrap.scrollWidth > wrap.clientWidth) scroller = wrap;
+        if (wrap && wrap.scrollWidth > wrap.clientWidth + 2) { scroller = wrap; axis = "x"; }
+        else if (wrap && wrap.scrollHeight > wrap.clientHeight + 2) { scroller = wrap; axis = "y"; }
+      } else if (list.scrollHeight > list.clientHeight + 2) {
+        scroller = list; axis = "y";
       }
       const ind = ensureInd();
       if (!scroller) { ind.style.width = "0"; ind.classList.remove("active"); return; }
-      const max = scroller.scrollWidth - scroller.clientWidth;
-      const pct = max > 0 ? (scroller.scrollLeft / max) * 100 : 0;
-      ind.style.width = Math.max(8, pct) + "%";
+      let pct = 0;
+      if (axis === "x") {
+        const max = scroller.scrollWidth - scroller.clientWidth;
+        pct = max > 0 ? (scroller.scrollLeft / max) * 100 : 0;
+      } else {
+        const max = scroller.scrollHeight - scroller.clientHeight;
+        pct = max > 0 ? (scroller.scrollTop / max) * 100 : 0;
+      }
+      ind.style.width = Math.max(10, Math.min(100, pct || 10)) + "%";
       ind.classList.add("active");
       clearTimeout(ind._t);
-      ind._t = setTimeout(() => ind.classList.remove("active"), 700);
+      ind._t = setTimeout(() => ind.classList.remove("active"), 1400);
     };
     list.addEventListener("scroll", update, { passive: true });
     list.addEventListener("scroll", update, { passive: true, capture: true }); // 捕获内部 wrap 滚动
     update();
   }
 
-  // ========== 🏷 左侧标签抽屉：选标签 → 显示对应 task → 跳转 ==========
+  // ========== 🏷 左侧标签抽屉：选标签 → 折叠 tag 层 → 显示对应 task → 跳转 ==========
   let sdSelectedTag = "";
+  let sdTagsCollapsed = false; // Round1：选中具体 tag 后折叠 tag 条，只看任务
+  let sdSearchQuery = ""; // Round2：侧栏搜索
+  const SD_PINNED_KEY = "mandala-sd-pinned-tags-v1";
+  let sdPinnedTags = load(SD_PINNED_KEY, []);
   function collectSideTags() {
     const tagSet = new Set();
     inboxItems.forEach((it) => (it.tags || []).forEach((t) => { if (t) tagSet.add(t); }));
@@ -20214,11 +21021,13 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   function openSideDrawer() {
     if (!el.sideDrawer) return;
     sdSelectedTag = "";
+    sdTagsCollapsed = false;
     el.sideDrawer.classList.add("open");
     if (el.sideDrawerMask) el.sideDrawerMask.hidden = false;
     document.body.classList.add("side-drawer-open"); // 隐藏左缘把手
     renderSideDrawer();
     updateSideHandleCount();
+    if (el.sdSearch) setTimeout(() => { try { el.sdSearch.focus(); } catch (e) {} }, 220);
   }
   function closeSideDrawer() {
     if (!el.sideDrawer) return;
@@ -20226,32 +21035,89 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     if (el.sideDrawerMask) el.sideDrawerMask.hidden = true;
     document.body.classList.remove("side-drawer-open");
   }
+  function toggleSdPin(tag) {
+    if (!tag) return;
+    const i = sdPinnedTags.indexOf(tag);
+    if (i >= 0) sdPinnedTags.splice(i, 1);
+    else { sdPinnedTags.unshift(tag); if (sdPinnedTags.length > 12) sdPinnedTags.length = 12; }
+    save(SD_PINNED_KEY, sdPinnedTags);
+    renderSideDrawer();
+    haptic(12);
+  }
   function renderSideDrawer() {
     if (!el.sdTags) return;
-    const tags = collectSideTags();
-    if (!tags.length) {
+    const q = (sdSearchQuery || "").trim().toLowerCase();
+    let tags = collectSideTags();
+    if (q) tags = tags.filter((t) => t.toLowerCase().includes(q));
+    // 置顶 tag 排前
+    tags.sort((a, b) => {
+      const pa = sdPinnedTags.indexOf(a), pb = sdPinnedTags.indexOf(b);
+      if (pa >= 0 && pb < 0) return -1;
+      if (pb >= 0 && pa < 0) return 1;
+      if (pa >= 0 && pb >= 0) return pa - pb;
+      return a.localeCompare(b, "zh");
+    });
+    if (!tags.length && !q) {
+      el.sdTags.className = "sd-tags sd-tags-strip";
       el.sdTags.innerHTML = '<div class="sd-empty">暂无标签。给收集箱或格子任务加 tag 后，这里自动出现。</div>';
       el.sdTasks.innerHTML = "";
       if (el.sdTaskLabel) el.sdTaskLabel.hidden = true;
       return;
     }
-    el.sdTags.innerHTML = '<button type="button" class="sd-tag' + (sdSelectedTag === "" ? " active" : "") + '" data-tag="">全部</button>'
-      + tags.map((t) => '<button type="button" class="sd-tag' + (sdSelectedTag === t ? " active" : "") + '" data-tag="' + escapeHtml(t) + '">#' + escapeHtml(t) + "</button>").join("");
-    el.sdTags.querySelectorAll(".sd-tag").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        sdSelectedTag = btn.dataset.tag || "";
-        renderSideDrawer();
-        haptic(15);
+    // Round1/2：选中具体 tag 后折叠 tag 层；搜索时强制展开
+    if (sdTagsCollapsed && sdSelectedTag && !q) {
+      el.sdTags.className = "sd-tags sd-tags-collapsed";
+      const pinned = sdPinnedTags.includes(sdSelectedTag);
+      el.sdTags.innerHTML =
+        '<button type="button" class="sd-tag active sd-tag-pill" data-tag="' + escapeHtml(sdSelectedTag) + '">#' + escapeHtml(sdSelectedTag) + "</button>"
+        + '<button type="button" class="sd-pin' + (pinned ? " on" : "") + '" data-pin="' + escapeHtml(sdSelectedTag) + '" title="' + (pinned ? "取消置顶" : "置顶此标签") + '">' + (pinned ? "★" : "☆") + "</button>"
+        + '<button type="button" class="sd-tag-change" id="sdChangeTag" title="重新选择标签">换标签 ▾</button>'
+        + '<button type="button" class="sd-tag-change ghost" data-tag="" title="显示全部任务">全部</button>';
+      const ch = el.sdTags.querySelector("#sdChangeTag");
+      if (ch) ch.addEventListener("click", () => { sdTagsCollapsed = false; renderSideDrawer(); haptic(12); });
+      el.sdTags.querySelectorAll("[data-tag=\"\"]").forEach((btn) => {
+        btn.addEventListener("click", () => { sdSelectedTag = ""; sdTagsCollapsed = false; renderSideDrawer(); haptic(12); });
       });
-    });
-    renderSideTasks(sdSelectedTag);
+      el.sdTags.querySelectorAll("[data-pin]").forEach((btn) => {
+        btn.addEventListener("click", (e) => { e.stopPropagation(); toggleSdPin(btn.dataset.pin); });
+      });
+    } else {
+      el.sdTags.className = "sd-tags sd-tags-strip";
+      if (!tags.length) {
+        el.sdTags.innerHTML = '<div class="sd-empty">无匹配标签</div>';
+      } else {
+        el.sdTags.innerHTML = '<button type="button" class="sd-tag sd-tag-pill' + (sdSelectedTag === "" ? " active" : "") + '" data-tag="">全部</button>'
+          + tags.map((t) => {
+            const pinned = sdPinnedTags.includes(t);
+            return '<div class="sd-tag-row">'
+              + '<button type="button" class="sd-tag sd-tag-pill' + (sdSelectedTag === t ? " active" : "") + '" data-tag="' + escapeHtml(t) + '">'
+              + (pinned ? "★ " : "") + "#" + escapeHtml(t) + "</button>"
+              + '<button type="button" class="sd-pin' + (pinned ? " on" : "") + '" data-pin="' + escapeHtml(t) + '" title="' + (pinned ? "取消置顶" : "置顶") + '">' + (pinned ? "★" : "☆") + "</button>"
+              + "</div>";
+          }).join("");
+        el.sdTags.querySelectorAll(".sd-tag").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            sdSelectedTag = btn.dataset.tag || "";
+            sdTagsCollapsed = !!sdSelectedTag && !q;
+            renderSideDrawer();
+            haptic(15);
+          });
+        });
+        el.sdTags.querySelectorAll("[data-pin]").forEach((btn) => {
+          btn.addEventListener("click", (e) => { e.stopPropagation(); toggleSdPin(btn.dataset.pin); });
+        });
+      }
+    }
+    renderSideTasks(sdSelectedTag, q);
   }
-  function renderSideTasks(tag) {
+  function renderSideTasks(tag, q) {
     if (!el.sdTasks) return;
+    q = (q != null ? q : sdSearchQuery || "").trim().toLowerCase();
     const rows = [];
     inboxItems.forEach((it, idx) => {
       if (tag && !(it.tags || []).includes(tag)) return;
       if (it.done) return;
+      if (q && !(String(it.text || "").toLowerCase().includes(q) || (it.tags || []).some((tg) => String(tg).toLowerCase().includes(q)))) return;
       rows.push({ kind: "inbox", idx, text: it.text, tags: (it.tags || []).filter(Boolean) });
     });
     Object.entries(state.tasks[state.currentDate] || {}).forEach(([key, arr]) => {
@@ -20260,21 +21126,24 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       (arr || []).forEach((t, ti) => {
         if (t.sticky || t.done) return;
         if (tag && t.tag !== tag) return;
-        rows.push({ kind: "cell", p, c, ti, text: t.text, tags: t.tag ? [t.tag] : [] });
+        if (q && !(String(t.text || "").toLowerCase().includes(q) || String(t.tag || "").toLowerCase().includes(q))) return;
+        rows.push({ kind: "cell", p, c, ti, text: t.text, tags: t.tag ? [t.tag] : [], note: t.note || "" });
       });
     });
     if (!rows.length) {
-      el.sdTasks.innerHTML = '<div class="sd-empty">' + (tag ? "「#" + escapeHtml(tag) + "」下暂无待办任务" : "暂无待办任务") + "</div>";
+      el.sdTasks.innerHTML = '<div class="sd-empty">' + (q ? "无匹配任务" : (tag ? "「#" + escapeHtml(tag) + "」下暂无待办任务" : "暂无待办任务")) + "</div>";
       if (el.sdTaskLabel) { el.sdTaskLabel.hidden = false; el.sdTaskLabel.textContent = "任务"; }
       return;
     }
     if (el.sdTaskLabel) { el.sdTaskLabel.hidden = false; el.sdTaskLabel.textContent = "任务（" + rows.length + "）"; }
-    // v95：文本不再截断（autowrap 完整显示），行内加 tag 徽标 + 归属位置
     el.sdTasks.innerHTML = rows.map((r, i) => {
       const loc = r.kind === "cell" ? (PERIOD_NAMES[r.p] + " 第" + (r.c + 1) + "格") : "待办 · 未安排";
+      const kindBadge = r.kind === "cell" ? '<span class="sd-kind cell">格子</span>' : '<span class="sd-kind inbox">收集</span>';
       const tagPills = r.tags.slice(0, 4).map((tg) => '<span class="sd-task-tagpill' + (tg === tag ? " hit" : "") + '">#' + escapeHtml(trunc(tg, 12)) + "</span>").join("");
+      const noteLine = r.note ? '<span class="sd-task-note">📝 ' + escapeHtml(trunc(r.note, 40)) + "</span>" : "";
       return '<button type="button" class="sd-task" data-i="' + i + '" title="点击跳转">'
-        + '<span class="sd-task-text">' + escapeHtml(r.text) + "</span>"
+        + '<span class="sd-task-top">' + kindBadge + '<span class="sd-task-text">' + escapeHtml(r.text) + "</span></span>"
+        + noteLine
         + '<span class="sd-task-meta">' + tagPills + '<span class="sd-task-loc">' + escapeHtml(loc) + "</span></span>"
         + "</button>";
     }).join("");
@@ -20323,6 +21192,22 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     if (el.sidebarToggle) el.sidebarToggle.addEventListener("click", () => { el.sideDrawer.classList.contains("open") ? closeSideDrawer() : openSideDrawer(); });
     if (el.sideDrawerClose) el.sideDrawerClose.addEventListener("click", closeSideDrawer);
     if (el.sideDrawerMask) el.sideDrawerMask.addEventListener("click", closeSideDrawer);
+    // Round2：侧栏搜索
+    if (el.sdSearch && !el.sdSearch._bound) {
+      el.sdSearch._bound = true;
+      let _sdQTimer = null;
+      el.sdSearch.addEventListener("input", () => {
+        clearTimeout(_sdQTimer);
+        _sdQTimer = setTimeout(() => {
+          sdSearchQuery = el.sdSearch.value || "";
+          sdTagsCollapsed = false; // 搜索时展开 tag 列表
+          renderSideDrawer();
+        }, 120);
+      });
+      el.sdSearch.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") { el.sdSearch.value = ""; sdSearchQuery = ""; renderSideDrawer(); }
+      });
+    }
     // ➢ 左缘圆形长条把手：点击呼出 + 按住右拖呼出（跟手）
     const handle = document.getElementById("sideHandle");
     if (handle) {
@@ -20771,30 +21656,32 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         renderInboxList();
       }, 280);
     });
-    // ---------- 触屏长按拖拽（HTML5 DnD 在触屏不可用）：长按 260ms 拖起卡片 ----------
+    // ---------- 触屏长按拖拽（HTML5 DnD 在触屏不可用）：长按 320ms 拖起卡片 ----------
+    // Round2 轴锁定：先判断主轴——竖滑=列内滚动（取消长按）；横滑=看板横向；长按未定轴前小幅移动忽略
     // 单击=完成 / 双击=编辑 / 长按=拖拽改分类或安排到格子 / 右键(桌面)=编辑
-    let kbTouch = null; // { card, idx, startX, startY, holdTimer, ghost }
+    let kbTouch = null; // { card, idx, startX, startY, holdTimer, ghost, axis }
     el.inboxList.addEventListener("touchstart", (e) => {
       if (inboxView !== "kanban") return;
       const card = e.target.closest(".inbox-kanban-card");
-      if (!card || e.target.closest(".ikb-more, .ikb-note")) return;
+      if (!card || e.target.closest(".ikb-more, .ikb-note, button, a, input")) return;
       const t = e.touches[0];
-      kbTouch = { card, idx: parseInt(card.dataset.idx, 10) || 0, startX: t.clientX, startY: t.clientY, holdTimer: null, ghost: null };
+      kbTouch = { card, idx: parseInt(card.dataset.idx, 10) || 0, startX: t.clientX, startY: t.clientY, holdTimer: null, ghost: null, axis: null };
       kbTouch.holdTimer = setTimeout(() => {
         if (!kbTouch || !inboxItems[kbTouch.idx]) { kbTouch = null; return; }
-        // 拖起：创建跟手 ghost，标记源卡片
+        if (kbTouch.axis === "y" || kbTouch.axis === "x") { kbTouch = null; return; } // 已判定为滚动，不拖卡
         const it = inboxItems[kbTouch.idx];
         const ghost = document.createElement("div");
         ghost.className = "kb-drag-ghost";
         ghost.innerHTML = `<span class="sticky-pin">🗂</span>${escapeHtml((it.text || "").slice(0, 30))}`;
         document.body.appendChild(ghost);
         kbTouch.ghost = ghost;
+        kbTouch.axis = "drag";
         kbTouch.card.classList.add("dragging");
         document.body.classList.add("kb-touch-dragging");
-        haptic(25); // 拖起震感
+        haptic(25);
         moveKbGhost(t.clientX, t.clientY);
         kbHighlightAt(t.clientX, t.clientY);
-      }, 260);
+      }, 320);
     }, { passive: true });
     function moveKbGhost(x, y) {
       if (!kbTouch || !kbTouch.ghost) return;
@@ -20845,8 +21732,14 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         kbHighlightAt(t.clientX, t.clientY);
         return;
       }
-      // 未拖起：位移超过阈值取消长按（让列表正常滚动）
-      if (kbTouch.holdTimer && Math.hypot(t.clientX - kbTouch.startX, t.clientY - kbTouch.startY) > 10) {
+      const dx = t.clientX - kbTouch.startX, dy = t.clientY - kbTouch.startY;
+      const adx = Math.abs(dx), ady = Math.abs(dy);
+      // Round2：轴锁定——超过阈值才判定；竖滑优先取消长按让列滚动
+      if (!kbTouch.axis && (adx > 12 || ady > 12)) {
+        kbTouch.axis = ady > adx * 1.15 ? "y" : (adx > ady * 1.15 ? "x" : "y");
+        if (kbTouch.holdTimer) { clearTimeout(kbTouch.holdTimer); kbTouch.holdTimer = null; }
+      }
+      if (kbTouch.holdTimer && (adx > 14 || ady > 14)) {
         clearTimeout(kbTouch.holdTimer);
         kbTouch.holdTimer = null;
       }
@@ -20854,6 +21747,13 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     const endKbTouch = (e) => {
       if (!kbTouch) return;
       if (kbTouch.holdTimer) { clearTimeout(kbTouch.holdTimer); kbTouch.holdTimer = null; }
+      // Round4：若已判定为滚动轴（非拖卡），吞掉随后 click，避免误触完成
+      if (!kbTouch.ghost && (kbTouch.axis === "y" || kbTouch.axis === "x")) {
+        kbLongPressed = true;
+        setTimeout(() => { kbLongPressed = false; }, 350);
+        kbTouch = null;
+        return;
+      }
       if (kbTouch.ghost) {
         const t = (e.changedTouches && e.changedTouches[0]) || (e.touches && e.touches[0]);
         const x = t ? t.clientX : 0, y = t ? t.clientY : 0;
