@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260917";
+const SW_VER = "20260918";
 
 (function () {
   "use strict";
@@ -11696,6 +11696,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
             ${m.article_text ? `<span class="mm-pf-art-info">📖 已抓取 ${m.article_text.length} 字</span>` : `<span class="mm-pf-art-info">未关联文章</span>`}
             <div class="mm-pf-art-btns">
               ${m.article_text ? `<button type="button" class="tool-btn mm-pf-view">查看原文</button>` : ""}
+              <button type="button" class="tool-btn mm-pf-chat">💬 AI 对话</button>
               <button type="button" class="tool-btn mm-pf-ai">🧠 AI 拆解</button>
             </div>
           </div>
@@ -11721,11 +11722,13 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         inp.addEventListener("change", onCommit);
         if (inp.tagName === "TEXTAREA") inp.addEventListener("blur", onCommit);
       });
-      // 📄 文章链接抓取 / 查看原文 / AI 拆解
+      // 📄 文章链接抓取 / 查看原文 / AI 拆解 / AI 对话
       const fetchBtn = panel.querySelector(".mm-pf-fetch");
       if (fetchBtn) fetchBtn.addEventListener("click", () => this.fetchNodeArticle(id));
       const viewBtn = panel.querySelector(".mm-pf-view");
       if (viewBtn) viewBtn.addEventListener("click", () => this.viewNodeArticle(id));
+      const chatBtn = panel.querySelector(".mm-pf-chat");
+      if (chatBtn) chatBtn.addEventListener("click", () => this.openNodeChat(id));
       const aiBtn = panel.querySelector(".mm-pf-ai");
       if (aiBtn) aiBtn.addEventListener("click", () => this.aiDecompose(id));
       // 完成状态 checkbox：change 即提交
@@ -11857,6 +11860,115 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     _briefArticle(text) {
       const clean = String(text || "").replace(/\r/g, "").replace(/\n{3,}/g, "\n\n").trim();
       return clean.slice(0, 2500);
+    }
+    // 💬 打开节点 AI 对话（围绕当前节点多轮问答）
+    openNodeChat(id) {
+      const n = this.findNode(id);
+      if (!n) return;
+      this._chatNodeId = id;
+      const m = n.meta || (n.meta = {});
+      if (!m.chat) m.chat = [];
+      let dlg = document.getElementById("mmNodeChatDlg");
+      if (!dlg) {
+        dlg = document.createElement("dialog");
+        dlg.id = "mmNodeChatDlg";
+        dlg.className = "mm-node-chat-dlg";
+        dlg.innerHTML =
+          '<div class="mnc-head"><span class="mnc-title">💬 AI 对话</span><button type="button" class="icon-btn mnc-close">✕</button></div>'
+          + '<div class="mnc-log" id="mncLog"></div>'
+          + '<div class="mnc-chips" id="mncChips">'
+          +   '<button type="button" data-q="拆解成 3-5 个可执行子步骤">拆解子步骤</button>'
+          +   '<button type="button" data-q="补充执行细节">补充细节</button>'
+          +   '<button type="button" data-q="指出可能踩的坑">指出风险</button>'
+          +   '<button type="button" data-q="给出完成验收标准">完成标准</button>'
+          + '</div>'
+          + '<div class="mnc-input-row">'
+          +   '<input type="text" id="mncInput" class="mnc-input" placeholder="问这个节点…" />'
+          +   '<button type="button" id="mncSend" class="primary-btn">发送</button>'
+          + '</div>';
+        document.body.appendChild(dlg);
+        dlg.querySelector(".mnc-close").addEventListener("click", () => dlg.close());
+        dlg.querySelector("#mncSend").addEventListener("click", () => this.sendNodeChat());
+        dlg.querySelector("#mncInput").addEventListener("keydown", (e) => { if (e.key === "Enter") this.sendNodeChat(); });
+        dlg.querySelectorAll("#mncChips button").forEach((b) => {
+          b.addEventListener("click", () => {
+            const inp = dlg.querySelector("#mncInput");
+            if (inp) inp.value = b.dataset.q || "";
+            this.sendNodeChat();
+          });
+        });
+      }
+      dlg.querySelector(".mnc-title").textContent = "💬 AI 对话 · " + String(n.text || "").slice(0, 12);
+      this._renderNodeChatLog();
+      dlg.showModal();
+      setTimeout(() => { const i = dlg.querySelector("#mncInput"); if (i) i.focus(); }, 60);
+    }
+    _renderNodeChatLog() {
+      const dlg = document.getElementById("mmNodeChatDlg");
+      if (!dlg) return;
+      const log = dlg.querySelector("#mncLog");
+      const n = this.findNode(this._chatNodeId);
+      const chat = (n && n.meta && n.meta.chat) || [];
+      if (!log) return;
+      if (!chat.length) {
+        log.innerHTML = '<div class="mnc-empty">围绕这个节点提问，AI 会结合任务内容、子节点和关联文章回答。</div>';
+        return;
+      }
+      log.innerHTML = chat.map((msg) => {
+        const cls = msg.role === "user" ? "user" : "bot";
+        return '<div class="mnc-msg ' + cls + '"><div class="mnc-bubble">' + mdLite(escapeHtml(msg.content || "")) + '</div></div>';
+      }).join("");
+      log.scrollTop = log.scrollHeight;
+    }
+    async sendNodeChat() {
+      const dlg = document.getElementById("mmNodeChatDlg");
+      if (!dlg) return;
+      const input = dlg.querySelector("#mncInput");
+      const send = dlg.querySelector("#mncSend");
+      const text = (input.value || "").trim();
+      if (!text) return;
+      const n = this.findNode(this._chatNodeId);
+      if (!n) return;
+      const m = n.meta || (n.meta = {});
+      const chat = m.chat || (m.chat = []);
+      const noApi = !state.settings.apiUrl || !state.settings.apiKey;
+      if (noApi) { toast("未配置 AI API（设置 → AI 配置）", "warn"); return; }
+      chat.push({ role: "user", content: text });
+      input.value = "";
+      if (send) { send.disabled = true; send.textContent = "…"; }
+      this._renderNodeChatLog();
+      const log = dlg.querySelector("#mncLog");
+      const botDiv = document.createElement("div");
+      botDiv.className = "mnc-msg bot";
+      botDiv.innerHTML = '<div class="mnc-bubble">⏳ AI 思考中…</div>';
+      log.appendChild(botDiv);
+      log.scrollTop = log.scrollHeight;
+      const botEl = botDiv.querySelector(".mnc-bubble");
+      // 省 token：上下文只带节点+子节点+文章摘要+最近 8 条历史
+      const childrenTxt = (n.children || []).map((c) => c.text).filter(Boolean).join("；");
+      const article = m.article_text ? this._briefArticle(m.article_text).slice(0, 1500) : "";
+      const history = chat.slice(-8).map((x) => (x.role === "user" ? "用户：" : "助手：") + x.content).join("\n");
+      const systemPrompt = "你是思维导图节点助手，围绕用户当前聚焦的任务节点回答问题或给建议。回答简洁、可执行、用中文。用户要求拆解时输出子步骤列表；要求细节/风险/标准时用要点回答。";
+      const userPrompt = `当前节点：${n.text}\n现有子节点：${childrenTxt || "无"}\n${article ? "关联文章（摘要）：\n" + article : ""}\n\n${history ? "对话历史：\n" + history + "\n\n" : ""}用户最新输入：${text}`;
+      try {
+        const raw = await callHatchLLM(systemPrompt, userPrompt, undefined, (full) => {
+          if (this._chatRAF) return;
+          this._chatRAF = requestAnimationFrame(() => {
+            this._chatRAF = 0;
+            if (botEl) botEl.innerHTML = mdLite(escapeHtml(full));
+            if (log) log.scrollTop = log.scrollHeight;
+          });
+        });
+        if (botEl) botEl.innerHTML = mdLite(escapeHtml(raw || "（无回复）"));
+        chat.push({ role: "assistant", content: raw || "" });
+      } catch (err) {
+        const aborted = err && (err.name === "AbortError" || /abort/i.test(err.message || ""));
+        const msg = aborted ? "⚠ 请求超时，请重试" : "⚠ " + (err.message || "请求失败");
+        if (botEl) botEl.textContent = msg;
+        if (!input.value.trim()) input.value = text;
+      } finally {
+        if (send) { send.disabled = false; send.textContent = "发送"; }
+      }
     }
     editNode(id) {
       const n = this.findNode(id);
