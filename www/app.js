@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260913";
+const SW_VER = "20260914";
 
 (function () {
   "use strict";
@@ -8176,6 +8176,11 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
     el.hatchResult.hidden = false;
     el.hatchError.hidden = true;
     setHatchFsStatus("done", `完成 · ${result.steps.length} 步`);
+    // 🧠 孵化结果自动上板为思维导图（无需再手动点「🧠 思维导图」按钮）
+    if (result && result.steps && result.steps.length) {
+      const _mm = syncMindmapFromHatch();
+      if (_mm && !opts.keepChat) toast("🧠 思维导图已自动上板 · 底部「思维导图」查看", "success");
+    }
     // 习惯场景：显示「保存为习惯」按钮
     if (el.hatchSaveHabit) el.hatchSaveHabit.hidden = !(hatchState.scene === "habit" || result.habitType || (result.steps || []).some((s) => s.law));
     // 自动将孵化步骤拆分进收集箱（无需手动点「加入收集箱」）
@@ -10880,13 +10885,24 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         <stop offset="0%" stop-color="#7c5cff"/><stop offset="55%" stop-color="#9d6bff"/><stop offset="100%" stop-color="#5b8cff"/>
       </linearGradient>`;
       g.appendChild(defs);
-      this._renderEdges(renderRoot);
-      this._renderNode(renderRoot, 0);
+      // 入场动画：仅导图打开/整体重建时播放一次（_open 置位），交互重绘不播
+      const _animIn = this._animateIn;
+      this._renderEdges(renderRoot, _animIn);
+      this._renderNode(renderRoot, 0, _animIn);
       this._renderLinks(renderRoot);
       this._renderStats(renderRoot);
       this._renderLegend();
       this._applyView();
       this._updateFloatBar();
+      // 描边动画结束后移除 class，避免 dasharray 常量残留影响后续渲染样式
+      if (_animIn) {
+        setTimeout(() => {
+          try {
+            this.els.g.querySelectorAll(".mm-edge-draw").forEach((p) => p.classList.remove("mm-edge-draw"));
+          } catch (e) { /* 节点已重建则忽略 */ }
+        }, 1900);
+      }
+      this._animateIn = false;
       // 聚焦状态提示
       if (this.els.hint && this.focusId) {
         this.els.hint.textContent = `🎯 已聚焦：${renderRoot.text || "节点"} · 双击编辑 · Esc 退出聚焦`;
@@ -10942,7 +10958,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       if (dir) return `M ${px} ${py} C ${px + 34} ${py}, ${cx - 34} ${cy}, ${cx} ${cy}`;
       return `M ${px} ${py} C ${px} ${py + 26}, ${cx} ${cy - 26}, ${cx} ${cy}`;
     }
-    _renderEdges(n) {
+    _renderEdges(n, anim, dep) {
       const pos = this._nodePos;
       const p = pos.get(n.id);
       if (!p) return;
@@ -10971,6 +10987,19 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         path.setAttribute("stroke-width", isSide ? 1.6 : (isChild ? 1.4 : 2));
         if (isSide || isChild) path.setAttribute("stroke-dasharray", "5 4");
         path.setAttribute("opacity", "0.7");
+        // 入场动画：连线按层级递进绘制（主线实线用描边生长，虚线用淡入以免破坏虚线样式）
+        if (anim) {
+          const d0 = ((dep || 0) * 80 + 60);
+          path.style.setProperty("--mm-delay", d0 + "ms");
+          if (!isSide && !isChild) {
+            let len = 260;
+            try { len = path.getTotalLength() || 260; } catch (e) { len = 260; }
+            path.style.setProperty("--mm-len", String(Math.max(80, Math.min(len, 900))));
+            path.classList.add("mm-edge-draw");
+          } else {
+            path.classList.add("mm-edge-in");
+          }
+        }
         this.els.g.appendChild(path);
         // 端点圆点（父端小圆，视觉锚点）
         const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
@@ -10979,7 +11008,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         dot.setAttribute("fill", isSide ? "#ffa94d" : (isChild ? "#4dc3ff" : "#7c5cff"));
         dot.setAttribute("opacity", "0.85");
         this.els.g.appendChild(dot);
-        this._renderEdges(c);
+        this._renderEdges(c, anim, (dep || 0) + 1);
       });
     }
     _nodeColors(n) {
@@ -10994,7 +11023,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       if (n.type === "child") return { fill: "#4dc3ff", text: "#06232f", stroke: "#4dc3ff" };
       return { fill: "rgba(124,92,255,0.16)", stroke: "rgba(124,92,255,0.85)", text: "#c9bfff" };
     }
-    _renderNode(n, depth) {
+    _renderNode(n, depth, anim) {
       const pos = this._nodePos.get(n.id);
       if (!pos) return;
       const g = this.els.g;
@@ -11010,6 +11039,11 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       group.setAttribute("transform", `translate(${pos.x},${pos.y})`);
       group.setAttribute("data-node", n.id);
       group.setAttribute("class", "mm-node" + (isSel ? " mm-node-sel" : "") + (n._isRoot ? " mm-node-root" : ""));
+      // 入场动画：节点按层级由内向外依次「上板」（用 CSS 独立 scale 属性，避免覆盖 translate 定位）
+      if (anim) {
+        group.classList.add("mm-node-in");
+        group.style.setProperty("--mm-delay", ((depth || 0) * 80 + 40) + "ms");
+      }
       // 底（发光）
       if (isSel) {
         const glow = document.createElementNS("http://www.w3.org/2000/svg", "rect");
@@ -11131,7 +11165,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       // 根节点省略折叠
       this.els.g.appendChild(group);
       // 递归渲染子节点
-      if (!n.collapsed) n.children.forEach((c) => this._renderNode(c, depth + 1));
+      if (!n.collapsed) n.children.forEach((c) => this._renderNode(c, depth + 1, anim));
     }
     // 跨分支关联线：节点 meta.link → 目标节点之间画橙色虚线（表达依赖/关联）
     _renderLinks(root) {
@@ -12063,6 +12097,7 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
       } catch (e) { return null; }
     }
     _open() {
+      this._animateIn = true; // 打开导图时播放一次「节点上板」动画
       this.seq = 0;
       this.history = [];
       this.histIdx = -1;
@@ -12399,6 +12434,56 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
     if (!hatchState.result) { toast("请先完成一次孵化", "info"); return; }
     if (!mmEditor) mmEditor = new MindMapEditor();
     mmEditor.openFromResult();
+  }
+  // ============================================================
+  // 🤖 自动上板：AI 对话拆解 / 孵化结果 → 思维导图（无需手动点按钮）
+  // 同一来源始终更新同一张导图（按目标文本哈希定 id），不重复堆积。
+  // 节点 id 独立生成，不复用 mmEditor.seq，避免与已打开导图冲突。
+  // ============================================================
+  let _autoSeq = Date.now() % 1000000;
+  function autoNode(text, meta, type) {
+    return { id: "au" + (++_autoSeq), text: String(text || ""), meta: meta || {}, type: type || "main", collapsed: false, children: [] };
+  }
+  // 拆解上下文 → 导图记录（存库）
+  function syncMindmapFromBreakdown(ctx) {
+    if (!ctx || !Array.isArray(ctx.nodes) || !ctx.nodes.length) return null;
+    try {
+      const root = autoNode(ctx.goal || "项目拆解", { source: "ai-breakdown" }, "main");
+      root._isRoot = true;
+      ctx.nodes.forEach((m, i) => {
+        const n = autoNode(m.title || m.name || ("模块 " + (i + 1)), { status: m.status || "pending" }, "main");
+        (m.children || []).forEach((c) => {
+          const cn = autoNode(c.title || c.name || "", { status: c.status || "pending" }, "child");
+          n.children.push(cn);
+        });
+        root.children.push(n);
+      });
+      const mmId = ctx._mmId || ("aibk-" + hashTaskText(ctx.goal || "项目拆解"));
+      const rec = { id: mmId, taskText: ctx.goal || "项目拆解", root, layout: "lr", updatedAt: Date.now(), source: "ai-breakdown" };
+      const saved = load(MINDMAP_KEY, []);
+      const idx = saved.findIndex((x) => x.id === mmId);
+      if (idx >= 0) saved[idx] = rec; else saved.push(rec);
+      save(MINDMAP_KEY, saved.slice(-100));
+      ctx._mmId = mmId;
+      return rec;
+    } catch (e) { console.warn("[自动上板] 拆解同步失败", e); return null; }
+  }
+  // 孵化结果 → 导图记录（存库）
+  function syncMindmapFromHatch() {
+    if (!hatchState.result || !hatchState.result.steps || !hatchState.result.steps.length) return null;
+    try {
+      if (!mmEditor) mmEditor = new MindMapEditor();
+      const root = mmEditor.stepsToTree({ steps: hatchState.result.steps, est_total_min: hatchState.result.est_total_min, taskText: hatchState.taskText });
+      if (!root || !root.children || !root.children.length) return null;
+      root._isRoot = true;
+      const mmId = "aibt-" + (hatchState.taskHash || hashTaskText(hatchState.taskText || "孵化任务"));
+      const rec = { id: mmId, taskText: hatchState.taskText || "孵化任务", root, layout: "lr", updatedAt: Date.now(), source: "hatch" };
+      const saved = load(MINDMAP_KEY, []);
+      const idx = saved.findIndex((x) => x.id === mmId);
+      if (idx >= 0) saved[idx] = rec; else saved.push(rec);
+      save(MINDMAP_KEY, saved.slice(-100));
+      return rec;
+    } catch (e) { console.warn("[自动上板] 孵化同步失败", e); return null; }
   }
   // 打开思维导图（从历史记录）
   function openMindmapFromHistory(rec) {
@@ -14545,6 +14630,12 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       state.breakdownStep = Math.max(1, Math.min(6, parseInt(result.breakdownStep, 10) || 1));
     } else if (state.chatState !== "project_breakdown") {
       state.breakdownStep = 1; // 离开拆解环节时重置
+    }
+    // 🧠 拆解结构自动上板：随对话推进实时同步到思维导图（首次生成时提示一次）
+    if (state.breakdownContext && Array.isArray(state.breakdownContext.nodes) && state.breakdownContext.nodes.length) {
+      const _first = !state.breakdownContext._mmId;
+      const _rec = syncMindmapFromBreakdown(state.breakdownContext);
+      if (_rec && _first) toast("🧠 项目结构已自动上板到思维导图 · 底部「思维导图」查看", "success");
     }
 
     // 状态切换后自动激活对应环节分类（保持 activePromptId 与 chatState 同步）

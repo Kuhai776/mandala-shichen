@@ -10519,3 +10519,43 @@ dialog.qa-dialog-fullscreen::backdrop { background: rgba(0, 0, 0, 0.5); }
   .graph-hint { display: none; }
   .realm-fab-btn.realm-fab-graph .rf-name, .realm-fab-btn.realm-fab-ai .rf-name { font-size: 10.5px; }
 }
+
+/* ============================================================
+ * 🧠 思维导图「上板」入场动效（按层级递进生长）
+ * 注意：SVG <g> 的 transform attribute 会被 CSS transform 覆盖，
+ * 故此处用 CSS Transforms L2 独立属性 scale（不覆盖 translate 定位）。
+ * 不支持的旧内核自动降级为纯淡入，无副作用。
+ * ============================================================ */
+.mm-node-in {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mmNodeIn 0.52s cubic-bezier(0.34, 1.42, 0.64, 1) backwards;
+  animation-delay: var(--mm-delay, 0ms);
+}
+@keyframes mmNodeIn {
+  from { opacity: 0; scale: 0.42; }
+  to   { opacity: 1; scale: 1; }
+}
+/* 主线实线：描边生长（动画结束由 JS 移除 class，恢复原有样式） */
+.mm-edge-draw {
+  stroke-dasharray: var(--mm-len, 260);
+  stroke-dashoffset: var(--mm-len, 260);
+  animation: mmEdgeDraw 0.5s ease-out backwards;
+  animation-delay: var(--mm-delay, 0ms);
+}
+@keyframes mmEdgeDraw {
+  to { stroke-dashoffset: 0; }
+}
+/* 支线/子步虚线：淡入（避免 dasharray 动画破坏虚线样式） */
+.mm-edge-in {
+  animation: mmEdgeIn 0.42s ease-out backwards;
+  animation-delay: var(--mm-delay, 0ms);
+}
+@keyframes mmEdgeIn {
+  from { opacity: 0; }
+  to   { opacity: 0.7; }
+}
+/* 尊重系统「减少动态效果」设置 */
+@media (prefers-reduced-motion: reduce) {
+  .mm-node-in, .mm-edge-draw, .mm-edge-in { animation: none !important; }
+}
