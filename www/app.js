@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260922";
+const SW_VER = "20260923";
 
 (function () {
   "use strict";
@@ -129,8 +129,29 @@ const SW_VER = "20260922";
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
   const APP_VERSION = "2.7.23";
-  const APP_VERSION_DATE = "2026-08-27";
+  const APP_BUILD = 97; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
+  const APP_VERSION_DATE = "2026-09-01";
   const APP_CHANGELOG = [
+    { v: "2.7.23·97", date: "2026-09-01", items: [
+      "修复：版本徽标显示构建号（v2.7.23·97），打开即知自己跑的是哪个版本，新版本自动脉冲提示",
+      "修复：Service Worker 启动时主动检查更新，新版本代码更快生效",
+      "修复：更新日志补全 v94-v97 全部内容",
+      "v96：待办 tag 毛玻璃虚化——半透明底 + 柔光晕 + 背后模糊，替代生硬纯色块（看板/列表/侧栏三处统一）",
+    ]},
+    { v: "2.7.23·95", date: "2026-09-01", items: [
+      "移除：记录页「今日时间流向图」整块下线，页面更清爽",
+      "正计时停止流程明确化：点 ■ 弹「完成计时·命名并归档」弹窗——任务名可编辑、时长实时走秒、归属格展示，✓记入格子 / 🗑丢弃 / ✕继续计时 三操作，Enter 快捷提交",
+      "多时钟协作可视化：计时条在跑的钟排前、暂停的靠后；≥2 钟时顶部显示汇总行「N钟·X在跑·Y暂停中·开新钟自动暂停当前钟」",
+      "侧边栏：任务文本不再截断（autowrap 完整显示）+ 行内 tag 徽标 + 归属位置；tag 区独立上下滑动（最多占 36vh）",
+      "左缘把手新增红色计数徽标：实时显示当前标签数量",
+    ]},
+    { v: "2.7.23·94", date: "2026-09-01", items: [
+      "多时钟正计时：记录 A 时来别的事 → A 暂停、新格子开新钟，多钟独立累计互不干扰；任意时刻最多一个钟在跑",
+      "待办看板卡片 4 个悬浮按钮收进 ⋯ 菜单，task 名字零遮挡；每列上下渐隐滚动指示 + 列头 task 计数",
+      "记录页 task 移动：拖拽到其他格子，或编辑弹窗「移动」按钮 → 81 宫格选择器（支持合并）",
+      "思维导图：节点自由摆放（拖到哪停哪，⟳ 一键恢复自动布局）+ task 节点青绿描边 + ↩ 角标直达时间格子",
+      "待办编辑弹窗去掉冗余 tag 展示，降噪",
+    ]},
     { v: "2.7.23", date: "2026-08-27", items: [
       "新增：🔄 今日习惯快捷打卡条——主页「全天概览」下方常驻今日待打卡/已打卡习惯（培养🌱/纠正✂️彩色圆点 + 连续天数），点击即打卡/撤销，无需进入收集箱",
       "新增：📊 统计弹窗习惯板块——习惯统计卡片（活跃培养/纠正数、今日打卡、最长连续、累计打卡）+ 近30天每日打卡习惯数柱状图 + 🏆连续天数排行 Top5",
@@ -15326,19 +15347,20 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   function renderVersionBadge() {
     const badge = document.getElementById("versionBadge");
     if (!badge) return;
-    badge.textContent = "v" + APP_VERSION;
-    // 检测是否为新版本（首次访问该版本时高亮 3 次脉冲）
+    // v97：徽标带构建号（v2.7.23·97），每轮构建都有视觉区分；seen 判定也含 build
+    const fullVer = APP_VERSION + "·" + APP_BUILD;
+    badge.textContent = "v" + fullVer;
     const seen = localStorage.getItem(VERSION_SEEN_KEY);
-    if (seen !== APP_VERSION) {
+    if (seen !== fullVer) {
       badge.classList.add("new");
-      localStorage.setItem(VERSION_SEEN_KEY, APP_VERSION);
+      localStorage.setItem(VERSION_SEEN_KEY, fullVer);
     }
   }
   function renderChangelog() {
     const body = document.getElementById("changelogBody");
     const verEl = document.getElementById("changelogVersion");
     if (!body) return;
-    if (verEl) verEl.textContent = "v" + APP_VERSION;
+    if (verEl) verEl.textContent = "v" + APP_VERSION + "·" + APP_BUILD;
     body.innerHTML = "";
     APP_CHANGELOG.forEach((ver) => {
       const section = document.createElement("div");
@@ -22721,7 +22743,9 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     setupForegroundClipboardCheck();
     // 注册 Service Worker（PWA 离线，network-first 策略避免缓存问题）
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register(`./sw.js?v=${SW_VER}`).catch((e) => console.warn("SW 注册失败", e));
+      navigator.serviceWorker.register(`./sw.js?v=${SW_VER}`)
+        .then((reg) => { try { reg.update(); } catch (e) { /* 主动检查更新，新 SW 尽快接管 */ } })
+        .catch((e) => console.warn("SW 注册失败", e));
     }
     // 系统对接：处理 share_target 分享内容 / shortcuts 快捷入口
     handleLaunchParams();
