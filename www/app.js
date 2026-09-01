@@ -12807,9 +12807,16 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
           });
         });
         if (botEl) botEl.innerHTML = mdLite(escapeHtml(raw || "（无回复）"));
-        chat.push({ role: "assistant", content: raw || "" });
-        this._pendingIncubateText = raw || "";
-        this._nudgeStreamIncubate(raw || "", dlg);
+        // 避免流式中途上板已写入时再重复一条（末条为 raw 前缀则更新）
+        const lastMsg = chat.length ? chat[chat.length - 1] : null;
+        const finalTxt = raw || "";
+        if (lastMsg && lastMsg.role === "assistant" && (lastMsg.content === finalTxt || finalTxt.indexOf(lastMsg.content) === 0)) {
+          lastMsg.content = finalTxt;
+        } else {
+          chat.push({ role: "assistant", content: finalTxt });
+        }
+        this._pendingIncubateText = finalTxt;
+        this._nudgeStreamIncubate(finalTxt, dlg);
       } catch (err) {
         const aborted = err && (err.name === "AbortError" || /abort/i.test(err.message || ""));
         const msg = aborted ? "⚠ 请求超时，请重试" : "⚠ " + (err.message || "请求失败");
