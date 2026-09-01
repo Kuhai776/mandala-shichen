@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260918";
+const SW_VER = "20260919";
 
 (function () {
   "use strict";
@@ -5027,6 +5027,10 @@ const SW_VER = "20260918";
     // 监听备注输入（防抖保存）
     const notesEl = el.reviewBody.querySelector("#reviewUserNotes");
     if (notesEl) {
+      // 手机软键盘弹出时确保输入框滚入视野（否则下半被遮挡）
+      notesEl.addEventListener("focus", () => {
+        setTimeout(() => notesEl.scrollIntoView({ behavior: "smooth", block: "nearest" }), 300);
+      });
       let t;
       notesEl.addEventListener("input", () => {
         clearTimeout(t);
@@ -11067,7 +11071,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       if (this.layout === "radial") {
         this._nodePos = new Map();
         const sizes = this._collectSizes(root);
-        const R1 = 270, levelGap = 230;
+        const R1 = 300, levelGap = 260;
         const place = (n, angle, radius, depth) => {
           const sz = sizes.get(n.id) || { w: 220, h: 44 };
           const x = Math.cos(angle) * radius - sz.w / 2;
@@ -11096,8 +11100,8 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         return;
       }
       const NODE_W = 0, NODE_H = 0; // 占位（实际在渲染时用节点尺寸）
-      const hGap = this.layout === "lr" ? 72 : 30;
-      const vGap = this.layout === "lr" ? 22 : 72;
+      const hGap = this.layout === "lr" ? 86 : 38; // 疏朗间距（避免节点拥挤）
+      const vGap = this.layout === "lr" ? 32 : 86;
       this._calcLayout(root, 0);
       this._nodePos = new Map();
       const sizes = this._collectSizes(root);
@@ -11295,11 +11299,27 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       if (n.meta && n.meta.target_dim) {
         const dc = String(n.meta.target_dim).split(".")[0];
         const d = KNOWLEDGE_DIMENSIONS.find((x) => x.code === dc);
-        if (d) return { fill: d.color, text: "#fff", stroke: d.color, dim: d };
+        // 柔和填充 + 同色描边 + 混亮文字（降低认知负荷）
+        if (d) return { fill: this._soft(d.color, .22), text: this._dimText(d.color), stroke: d.color, dim: d };
       }
-      if (n.type === "side") return { fill: "#ffa94d", text: "#241a06", stroke: "#ffa94d" };
-      if (n.type === "child") return { fill: "#4dc3ff", text: "#06232f", stroke: "#4dc3ff" };
-      return { fill: "rgba(124,92,255,0.16)", stroke: "rgba(124,92,255,0.85)", text: "#c9bfff" };
+      if (n.type === "side") return { fill: "rgba(255,169,77,.28)", text: "#ffd9a8", stroke: "#c98a4b" };
+      if (n.type === "child") return { fill: "rgba(77,195,255,.20)", text: "#b5e3fa", stroke: "#4a9bc4" };
+      return { fill: "rgba(124,92,255,0.14)", stroke: "rgba(124,92,255,0.7)", text: "#c9bfff" };
+    }
+    // hex → 指定透明度的 rgba（柔和填充用）
+    _soft(hex, a) {
+      const m = /^#?([0-9a-f]{6})$/i.exec(hex || "");
+      if (!m) return hex;
+      const v = m[1];
+      return "rgba(" + parseInt(v.slice(0, 2), 16) + "," + parseInt(v.slice(2, 4), 16) + "," + parseInt(v.slice(4, 6), 16) + "," + a + ")";
+    }
+    // hex → 混白 72% 的亮色（浅底上的可读文字）
+    _dimText(hex) {
+      const m = /^#?([0-9a-f]{6})$/i.exec(hex || "");
+      if (!m) return "#fff";
+      const v = m[1];
+      const mix = (c) => Math.round(c + (255 - c) * 0.72);
+      return "rgb(" + mix(parseInt(v.slice(0, 2), 16)) + "," + mix(parseInt(v.slice(2, 4), 16)) + "," + mix(parseInt(v.slice(4, 6), 16)) + ")";
     }
     _renderNode(n, depth, anim) {
       const pos = this._nodePos.get(n.id);
@@ -11405,6 +11425,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       if (n.meta && n.meta.done) badges.push("✅");
       else if (n.meta && n.meta.verify) badges.push("✓");
       if (n.meta && n.meta.note) badges.push("📝");
+      if (n.meta && n.meta.link) badges.push("🔗");
       if (n.meta && n.meta.article_text) badges.push("📄");
       if (n.meta && n.meta.insight) badges.push("💡");
       if (n.meta && n.meta.target_dim) {
@@ -11471,7 +11492,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
               path.setAttribute("stroke", "#ffa94d");
               path.setAttribute("stroke-width", 1.6);
               path.setAttribute("stroke-dasharray", "5 4");
-              path.setAttribute("opacity", "0.75");
+              path.setAttribute("opacity", "0.9");
               path.setAttribute("pointer-events", "stroke");
               path.setAttribute("stroke-width", 8);
               path.setAttribute("stroke-opacity", "0"); // 透明加粗命中区
@@ -11746,6 +11767,21 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       if (clr) clr.addEventListener("click", () => commit(() => { delete m.color; }));
       const closeBtn = panel.querySelector(".mm-panel-close");
       if (closeBtn) closeBtn.addEventListener("click", () => { panel.hidden = true; });
+      // 🎨 降干扰：面板 6 秒无操作淡出（半透明仍可点）；面板内交互即重置
+      clearTimeout(this._panelIdle);
+      panel.classList.remove("idle-fade");
+      const armIdle = () => {
+        clearTimeout(this._panelIdle);
+        panel.classList.remove("idle-fade");
+        this._panelIdle = setTimeout(() => {
+          const ae = document.activeElement;
+          const editing = ae && panel.contains(ae) && ["TEXTAREA", "INPUT", "SELECT"].includes(ae.tagName);
+          if (!editing) panel.classList.add("idle-fade"); // 正在编辑则不淡出
+        }, 6000);
+      };
+      armIdle();
+      panel.onpointerdown = armIdle;
+      panel.onwheel = armIdle;
     }
     // 📄 抓取节点关联文章链接（多源降级，失败提示手动粘贴）
     async fetchNodeArticle(id) {
@@ -19864,12 +19900,14 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     sdSelectedTag = "";
     el.sideDrawer.classList.add("open");
     if (el.sideDrawerMask) el.sideDrawerMask.hidden = false;
+    document.body.classList.add("side-drawer-open"); // 隐藏左缘把手
     renderSideDrawer();
   }
   function closeSideDrawer() {
     if (!el.sideDrawer) return;
     el.sideDrawer.classList.remove("open");
     if (el.sideDrawerMask) el.sideDrawerMask.hidden = true;
+    document.body.classList.remove("side-drawer-open");
   }
   function renderSideDrawer() {
     if (!el.sdTags) return;
@@ -19951,6 +19989,27 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     if (el.sidebarToggle) el.sidebarToggle.addEventListener("click", () => { el.sideDrawer.classList.contains("open") ? closeSideDrawer() : openSideDrawer(); });
     if (el.sideDrawerClose) el.sideDrawerClose.addEventListener("click", closeSideDrawer);
     if (el.sideDrawerMask) el.sideDrawerMask.addEventListener("click", closeSideDrawer);
+    // ➢ 左缘圆形长条把手：点击呼出 + 按住右拖呼出（跟手）
+    const handle = document.getElementById("sideHandle");
+    if (handle) {
+      let hDrag = false, hStartX = 0, hStartY = 0, hMoved = false;
+      handle.addEventListener("click", () => { if (!hMoved) openSideDrawer(); hMoved = false; });
+      handle.addEventListener("pointerdown", (e) => {
+        hDrag = true; hMoved = false; hStartX = e.clientX; hStartY = e.clientY;
+        try { handle.setPointerCapture(e.pointerId); } catch (err) { /* 忽略 */ }
+      });
+      handle.addEventListener("pointermove", (e) => {
+        if (!hDrag) return;
+        const dx = e.clientX - hStartX, dy = e.clientY - hStartY;
+        if (!hMoved && Math.abs(dx) > 10) hMoved = true; // 拖动后不再触发 click
+        if (dx > 34 && Math.abs(dy) < 46) { hDrag = false; openSideDrawer(); haptic(15); }
+      });
+      const hEnd = () => { hDrag = false; };
+      handle.addEventListener("pointerup", hEnd);
+      handle.addEventListener("pointercancel", hEnd);
+      // 首次进入轻提示（3 次脉冲引导视线）
+      if (!load("__sideHandleSeen", false)) { handle.classList.add("pulse-hint"); save("__sideHandleSeen", true); setTimeout(() => handle.classList.remove("pulse-hint"), 7600); }
+    }
     // 左滑呼出：从屏幕左边缘右滑
     let sx = 0, sy = 0, tracking = false;
     document.addEventListener("touchstart", (e) => {

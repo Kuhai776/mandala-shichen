@@ -1859,11 +1859,11 @@
         <button class="icon-btn" id="closeInboxDate" aria-label="关闭">✕</button>
       </div>
       <div class="dialog-body" style="display:flex;flex-direction:column;gap:12px;padding:16px;">
-        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--text-dim);">
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--text-muted);">
           开始日期（可选）
           <input type="datetime-local" id="inboxDateStart" />
         </label>
-        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--text-dim);">
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--text-muted);">
           截止日期（可选）
           <input type="datetime-local" id="inboxDateDue" />
         </label>
@@ -1908,7 +1908,8 @@
     </div>
   </dialog>
 
-  <!-- 🏷 左侧标签抽屉：左滑/☰ 呼出 → 选标签 → 显示对应 task -->
+  <!-- 🏷 左侧标签抽屉：左缘把手 ➢ / 左滑 / ☰ 呼出 → 选标签 → 显示对应 task -->
+  <div class="side-handle" id="sideHandle" title="点我或左滑呼出标签侧边栏" role="button" aria-label="打开标签侧边栏">➢</div>
   <div class="side-drawer-mask" id="sideDrawerMask" hidden></div>
   <aside class="side-drawer" id="sideDrawer" aria-label="标签任务侧边栏">
     <div class="sd-head">
@@ -1923,6 +1924,6 @@
     </div>
   </aside>
 
-  <script src="app.js?v=20260918" defer></script>
+  <script src="app.js?v=20260919" defer></script>
 </body>
 </html>
