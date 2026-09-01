@@ -1370,6 +1370,7 @@
           <span class="mm-zoom-label" id="mmZoomLabel">100%</span>
           <button type="button" class="tool-btn mm-tb" id="mmZoomIn" title="放大 (+)">＋</button>
           <button type="button" class="tool-btn mm-tb" id="mmFit" title="适应画布 (0)">⛶</button>
+          <button type="button" class="tool-btn mm-tb" id="mmResetLayout" title="清除全部手动摆放偏移，恢复自动布局">⟳</button>
           <span class="mm-sep"></span>
           <button type="button" class="tool-btn mm-tb" id="mmExportPng" title="导出当前思维导图为 PNG 图片">🖼 PNG</button>
           <button type="button" class="tool-btn mm-tb" id="mmExportText" title="复制文本大纲到剪贴板">📋 复制大纲</button>
@@ -1404,7 +1405,7 @@
             <button type="button" data-a="down" title="下移"><i>↓</i></button>
             <button type="button" data-a="promote" title="提升为兄弟节点"><i>⇄</i><b>提升</b></button>
             <button type="button" data-a="focus" title="聚焦此节点（只看这一支，Esc 退出）"><i>🎯</i><b>聚焦</b></button>
-            <button type="button" data-a="jump" title="跳转到时间格子（已安排）或待办（未安排）"><i>🔗</i><b>跳转</b></button>
+            <button type="button" data-a="jump" title="回到时间格子（已安排）或打开待办（未安排）"><i>↩</i><b>回格子</b></button>
             <button type="button" data-a="del" title="删除节点 (Del)"><i>🗑</i><b>删除</b></button>
           </div>
         </div>
@@ -1685,7 +1686,6 @@
             <input type="text" id="inboxNewNote" placeholder="备注（可选，保存后组块显示）" maxlength="300" style="width:160px;" />
             <button class="tool-btn" id="inboxAddBtn" style="background:var(--accent);color:#fff;">＋ 添加</button>
           </div>
-          <div class="inbox-tag-chips" id="inboxTagChips"></div>
           <!-- 批量操作栏（多选模式时显示） -->
           <div class="inbox-batch-bar" id="inboxBatchBar" hidden>
             <span class="inbox-batch-count" id="inboxBatchCount">已选 0 项</span>
@@ -1924,6 +1924,6 @@
     </div>
   </aside>
 
-  <script src="app.js?v=20260919" defer></script>
+  <script src="app.js?v=20260920" defer></script>
 </body>
 </html>

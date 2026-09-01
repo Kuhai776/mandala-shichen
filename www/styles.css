@@ -6249,29 +6249,7 @@ dialog.inbox-dialog-fullscreen::backdrop {
   text-shadow: 0 1px 2px rgba(0,0,0,.45);
 }
 
-.inbox-tag-chips {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin: 6px 0 10px;
-  min-height: 4px;
-}
-.inbox-tag-chip {
-  padding: 2px 10px;
-  border-radius: 10px;
-  font-size: 11px;
-  cursor: pointer;
-  user-select: none;
-  transition: transform 0.1s, opacity 0.1s;
-  border: 1px solid currentColor;
-}
-.inbox-tag-chip:hover { transform: translateY(-1px); opacity: 0.85; }
-.inbox-tag-chip:active { transform: translateY(0); }
-.inbox-tag-chip-empty {
-  font-size: 11px;
-  color: var(--text-secondary);
-  opacity: 0.6;
-}
+/* v94：tag 快速点选 chips 区已移除（任务卡上已有 tag，避免信息繁杂） */
 .inbox-item-act {
   background: none;
   border: none;
@@ -8841,17 +8819,25 @@ dialog.inbox-dialog-fullscreen::backdrop {
 .inbox-list.inbox-kanban-view::-webkit-scrollbar-thumb { background: rgba(124,92,255,.45); border-radius: 3px; }
 .inbox-list.inbox-kanban-view::-webkit-scrollbar-thumb:hover { background: rgba(124,92,255,.7); }
 .inbox-kanban-board { display:flex; gap:10px; align-items:flex-start; min-width:max-content; }
-.inbox-kanban-col { flex:0 0 190px; background:var(--card-bg); border:1px solid var(--border); border-radius:10px; padding:8px; display:flex; flex-direction:column; max-height:50vh; }
+.inbox-kanban-col { flex:0 0 190px; background:var(--card-bg); border:1px solid var(--border); border-radius:10px; padding:8px; display:flex; flex-direction:column; max-height:56vh; }
+@media (hover: none), (max-width: 640px) { .inbox-kanban-col { max-height:62vh; flex:0 0 176px; } }
 .inbox-kanban-col-head { display:flex; align-items:center; gap:6px; padding:2px 2px 8px; }
 .inbox-kanban-col-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
 .inbox-kanban-col-name { font-size:12px; font-weight:600; color:var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:110px; }
 .inbox-kanban-col-count { margin-left:auto; font-size:10px; color:var(--text-secondary); background:var(--input-bg); padding:1px 6px; border-radius:8px; flex-shrink:0; }
-.inbox-kanban-col-body { display:flex; flex-direction:column; gap:6px; overflow-y:auto; }
+/* 列滚动容器（v94）：包住 body，承载上下渐隐覆盖层 */
+.ikb-col-scroll { position:relative; flex:1 1 auto; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
+/* 列 body：上下滚动渐隐指示（透明悬浮条——还有内容没看到时上下出现渐隐） */
+.inbox-kanban-col-body { display:flex; flex-direction:column; gap:6px; overflow-y:auto; scrollbar-width:thin; scrollbar-color:rgba(124,92,255,.4) transparent; }
+.ikb-fade { position:absolute; left:0; right:0; height:22px; pointer-events:none; z-index:3; opacity:0; transition:opacity .18s; }
+.ikb-fade-top { top:0; background:linear-gradient(to bottom, var(--card-bg) 15%, transparent); }
+.ikb-fade-bottom { bottom:0; background:linear-gradient(to top, var(--card-bg) 15%, transparent); }
+.ikb-fade-top.show, .ikb-fade-bottom.show { opacity:1; }
 .inbox-kanban-card { position:relative; background:var(--input-bg); border:1px solid var(--input-border); border-radius:8px; padding:7px 8px; cursor:pointer; transition:border-color .15s; }
 .inbox-kanban-card:hover { border-color:var(--accent); }
 .inbox-kanban-card.done { opacity:.5; }
 .inbox-kanban-card.done .ikb-card-text { text-decoration:line-through; }
-.ikb-card-main { display:flex; gap:6px; align-items:flex-start; padding-right:60px; } /* 右侧预留按钮区，hover 按钮不遮挡任务名 */
+.ikb-card-main { display:flex; gap:6px; align-items:flex-start; padding-right:26px; } /* 右侧只预留 ⋯ 一个按钮的位置，任务名最大化 */
 .ikb-card-cb { flex:0 0 13px; font-size:12px; color:var(--accent); line-height:1.4; }
 /* 任务名：横向宽度固定（列宽内），过长自动换行撑高卡片 */
 .ikb-card-text { flex:1; min-width:0; font-size:13px; line-height:1.45; color:var(--text-primary); word-break:break-word; overflow-wrap:anywhere; white-space:normal; }
@@ -8861,15 +8847,16 @@ dialog.inbox-dialog-fullscreen::backdrop {
 .ikb-due { font-size:9px; padding:0 4px; border-radius:6px; background:var(--input-bg); color:var(--text-secondary); }
 .ikb-due.is-due { background:#ffd93d20; color:#ffd93d; }
 .ikb-due.is-overdue { background:#ff6b6b20; color:#ff6b6b; font-weight:600; }
-/* 看板卡片右上角 ✎ 编辑按钮（优先级星标 / 归属主线支线 / 收纳到任务） */
-.ikb-edit { position:absolute; top:4px; right:4px; border:none; background:transparent; color:var(--text-muted); font-size:11px; line-height:1; padding:3px 4px; border-radius:4px; cursor:pointer; opacity:0; transition:opacity .15s, color .15s, background .15s; }
-.inbox-kanban-card:hover .ikb-edit, .ikb-edit:focus-visible { opacity:1; }
-.ikb-edit:hover { color:var(--accent); background:var(--hover); }
-/* 看板卡片 📌 便利贴按钮（贴到时间格子） */
-.ikb-sticky { position:absolute; top:4px; right:26px; border:none; background:transparent; color:var(--text-muted); font-size:11px; line-height:1; padding:3px 4px; border-radius:4px; cursor:pointer; opacity:0; transition:opacity .15s, color .15s, background .15s; }
-.inbox-kanban-card:hover .ikb-sticky, .ikb-sticky:focus-visible { opacity:1; }
-.ikb-sticky:hover { color:#facc15; background:var(--hover); }
-@media (hover: none) { .ikb-sticky, .ikb-edit { opacity:1; } } /* 触屏设备常显操作按钮 */
+/* ⋯ 看板卡片唯一操作按钮（v94：原 📌🔄📅✎ 四按钮收进菜单，彻底解决按钮遮挡任务名） */
+.ikb-more { position:absolute; top:3px; right:3px; width:20px; height:20px; border:none; border-radius:5px; background:transparent; color:var(--text-muted); font-size:13px; line-height:1; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; opacity:.35; transition:opacity .15s, color .15s, background .15s; }
+.inbox-kanban-card:hover .ikb-more, .ikb-more:focus-visible { opacity:1; }
+.ikb-more:hover { color:var(--accent); background:var(--hover); }
+@media (hover: none) { .ikb-more { opacity:.55; } } /* 触屏半透明常显，点按即菜单 */
+/* ⋯ 菜单浮层（贴格子/转习惯/转长期/编辑） */
+.ikb-menu { position:fixed; z-index:3200; min-width:196px; background:var(--card-bg, #23233a); border:1px solid var(--border, rgba(255,255,255,.12)); border-radius:10px; padding:5px; box-shadow:0 10px 32px rgba(0,0,0,.5); display:flex; flex-direction:column; gap:2px; animation:ikbMenuIn .14s ease; }
+@keyframes ikbMenuIn { from { opacity:0; transform:translateY(-4px) scale(.97); } to { opacity:1; transform:none; } }
+.ikb-menu-item { border:none; background:transparent; color:var(--text-primary, #e8e8f0); font-size:12.5px; text-align:left; padding:8px 10px; border-radius:7px; cursor:pointer; display:flex; align-items:center; gap:2px; white-space:nowrap; }
+.ikb-menu-item:hover { background:var(--hover, rgba(124,92,255,.14)); color:var(--accent, #7c5cff); }
 /* 看板卡片归属徽标（主线/支线 或 父任务，双链展示） */
 .ikb-group { display:inline-flex; align-items:center; gap:3px; font-size:9px; padding:0 4px; border-radius:6px; background:var(--card-bg); color:var(--text-secondary); max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .ikb-group-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
@@ -10019,12 +10006,6 @@ dialog.qa-dialog-fullscreen::backdrop { background: rgba(0, 0, 0, 0.5); }
 .habit-conv-form label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--text-muted, #888); }
 .habit-conv-form input, .habit-conv-form select { border-radius: 8px; border: 1px solid var(--border, rgba(128,128,160,.25)); background: rgba(0,0,0,.2); color: var(--text-primary, #e8e8f0); padding: 8px 10px; font-size: 13px; }
 
-/* 看板卡片 🔄 按钮 */
-.ikb-habit { position: absolute; top: 4px; right: 50px; width: 22px; height: 22px; border-radius: 6px; border: none; background: rgba(74,222,128,.14); color: #4ade80; font-size: 11px; cursor: pointer; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity .2s; }
-.inbox-kanban-card:hover .ikb-habit, .inbox-kanban-card:focus-within .ikb-habit { opacity: 1; }
-.ikb-habit:hover { background: rgba(74,222,128,.3); }
-@media (hover: none) { .ikb-habit { opacity: 1; } }
-
 /* 孵化结果 · 四大定律徽章 */
 .hatch-tag-law { font-weight: 600; }
 .hatch-save-habit { background: rgba(74,222,128,.14) !important; color: #4ade80 !important; border: 1px solid rgba(74,222,128,.35) !important; }
@@ -10603,6 +10584,19 @@ dialog.qa-dialog-fullscreen::backdrop { background: rgba(0, 0, 0, 0.5); }
 @keyframes timerPulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 .timer-task { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .timer-clock { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .5px; }
+/* v94 多时钟：暂停中的钟灰显冻结、不再脉动 */
+.timer-chip.paused {
+  background: linear-gradient(135deg, rgba(100,100,124,.92), rgba(76,76,100,.92));
+  box-shadow: 0 4px 14px rgba(0,0,0,.35);
+}
+.timer-chip.paused .timer-pulse { animation: none; opacity: .9; }
+.timer-chip.paused .timer-clock { color: #cfcfe4; }
+.timer-pause {
+  background: rgba(255,255,255,.22); border: none; color: #fff; width: 20px; height: 20px;
+  border-radius: 50%; cursor: pointer; font-size: 9px; line-height: 1; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.timer-pause:hover { background: rgba(255,255,255,.42); }
 .timer-stop {
   background: rgba(255,255,255,.22); border: none; color: #fff; width: 20px; height: 20px;
   border-radius: 50%; cursor: pointer; font-size: 10px; line-height: 1; padding: 0;
@@ -10623,12 +10617,14 @@ dialog.qa-dialog-fullscreen::backdrop { background: rgba(0, 0, 0, 0.5); }
 @media (hover: none) {
   .cell-timer-btn { opacity: .85; }
   .cell-timer-btn.running { opacity: 1; animation: timerPulseSoft 1.6s infinite; }
+  .cell-timer-btn.paused { opacity: 1; animation: none; }
 }
 @keyframes timerPulseSoft { 0%,100% { transform: scale(1); } 50% { transform: scale(1.12); } }
 .cell-timer-btn.running { opacity: 1; background: #ff6b6b; animation: timerPulse 1.4s ease-in-out infinite; }
-@media (hover: none) { .cell-timer-btn { opacity: .8; } }
-/* 计时中的格子：脉动描边 */
-.cell.timing { animation: cellTiming 1.8s ease-in-out infinite; }
+/* v94 三态：暂停中的钟（格子按钮 ▶ 琥珀色静态显示，不脉动） */
+.cell-timer-btn.paused { opacity: 1; background: #e8a33d; animation: none; }
+.cell.timing { animation: cellTiming 1.8s ease-in-out infinite; } /* 计时中的格子：脉动描边 */
+.cell.timing-paused { box-shadow: 0 0 0 2px rgba(232,163,61,.55); }
 @keyframes cellTiming {
   0%, 100% { box-shadow: 0 0 0 2px rgba(255,107,107,.7), 0 0 12px rgba(255,107,107,.32); }
   50%      { box-shadow: 0 0 0 2px rgba(255,107,107,.95), 0 0 20px rgba(255,107,107,.6); }
@@ -10711,15 +10707,6 @@ dialog.qa-dialog-fullscreen::backdrop { background: rgba(0, 0, 0, 0.5); }
 .tf-legend { display: flex; gap: 14px; margin-top: 10px; font-size: 11px; color: var(--text-secondary, #a0a0c0); flex-wrap: wrap; }
 .tf-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .tf-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
-/* 看板卡片「转长期任务」按钮（与转习惯按钮并排，位于右侧） */
-.ikb-longtask {
-  position: absolute; top: 4px; right: 72px; width: 22px; height: 22px; border-radius: 6px;
-  border: none; background: rgba(251,191,36,.14); color: #fbbf24; font-size: 11px; cursor: pointer;
-  display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity .2s;
-}
-.inbox-kanban-card:hover .ikb-longtask, .inbox-kanban-card:focus-within .ikb-longtask { opacity: 1; }
-.ikb-longtask:hover { background: rgba(251,191,36,.3); }
-@media (hover: none) { .ikb-longtask { opacity: 1; } }
 
 /* ============================================================
  * 🎢 收集箱横向滑动悬浮进度条（Round 3）
@@ -10904,3 +10891,27 @@ body.side-drawer-open .side-handle { opacity: 0; pointer-events: none; transform
 .mm-node-panel.idle-fade { opacity: .45; }
 .mm-node-panel:hover, .mm-node-panel:focus-within, .mm-node-panel.idle-fade:active { opacity: 1; }
 @media (hover: none) { .mm-node-panel.idle-fade { opacity: .8; } }
+
+/* ============================================================
+ * 🎯 v94 ⇄ 移动记录 81 宫格选择器
+ * ============================================================ */
+.rm-grid { display: flex; flex-direction: column; gap: 4px; }
+.rm-row { display: flex; align-items: center; gap: 6px; }
+.rm-row-name { flex: 0 0 34px; font-size: 10px; color: var(--text-muted); text-align: right; }
+.rm-row-cells { display: flex; gap: 3px; flex: 1; }
+.rm-cell {
+  flex: 1; min-width: 0; height: 26px; border-radius: 5px; border: 1px solid var(--border);
+  background: var(--input-bg); color: var(--text-secondary); font-size: 10.5px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; transition: all .12s;
+}
+.rm-cell:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
+.rm-cell.has { background: rgba(74,222,128,.16); border-color: rgba(74,222,128,.4); color: #4ade80; font-weight: 700; }
+.rm-cell.src { background: rgba(124,92,255,.2); border-color: var(--accent); color: var(--accent); cursor: default; opacity: .6; }
+
+/* ============================================================
+ * 🎯 v94 导图 task 节点标识（青绿描边 + ↩ 角标直达格子）
+ * ============================================================ */
+.mm-node-task .mm-task-badge { cursor: pointer; }
+.mm-task-badge circle { transition: transform .12s; transform-origin: center; }
+.mm-task-badge:hover circle { fill: #5eead4; }
+.mm-task-badge:active circle { fill: #14b8a6; }
