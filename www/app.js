@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260920";
+const SW_VER = "20260921";
 
 (function () {
   "use strict";
@@ -1008,6 +1008,10 @@ const SW_VER = "20260920";
     // Hermes 联动：数据变更触发防抖推送（仅对已知数据键）
     if (key === STORAGE_KEY || key === DONE_KEY || key === LONGTASK_KEY || key === INBOX_KEY || key === SETTINGS_KEY || key === HERMES_NOTES_KEY) {
       scheduleSyncPush();
+    }
+    // v95：任务/收集箱变化 → 刷新左缘把手上的标签计数徽标
+    if (key === STORAGE_KEY || key === INBOX_KEY) {
+      try { updateSideHandleCount(); } catch (e) { /* 初始化早期忽略 */ }
     }
   }
 
@@ -2942,10 +2946,10 @@ const SW_VER = "20260920";
         timerBtn.className = "cell-timer-btn" + (_rt ? (_rtPaused ? " paused" : " running") : "");
         timerBtn.dataset.timerBtn = "1";
         timerBtn.title = !_rt
-          ? "启动正计时（来了别的事 → 开新钟会自动暂停这口钟，停止时自动写入记录页对应格）"
+          ? "启动正计时（来了别的事 → 开新钟自动暂停这口钟；■ 停止时命名并写入记录页）"
           : _rtPaused
             ? "▶ 恢复计时（累计不丢，恢复时其他在跑的钟自动暂停）"
-            : "⏸ 暂停计时（保留累计；去底部计时条点 ■ 停止并写入记录页）";
+            : "⏸ 暂停计时（保留累计；去底部计时条点 ■ 停止 → 命名 → 写入记录）";
         timerBtn.textContent = !_rt ? "⏱" : (_rtPaused ? "▶" : "⏸");
         timerBtn.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -3373,36 +3377,102 @@ const SW_VER = "20260920";
     toast("⏸ 已暂停 · " + trunc(String(t.taskText || ""), 14) + "（累计 " + Math.round(timerElapsedOf(t) / 60000) + " 分钟）", "info", 2000);
     return true;
   }
-  // 停止正计时 → 自动写入记录页该格（自动命名 = 事项名，归属 = 计时锚定的格子）
+  // v95 停止正计时：先弹「完成计时」命名弹窗（结束 → 命名 → 写入，步骤明确）
+  // 弹窗里钟保持原状态不动（该跑跑该停停），提交时取实时时长
   function stopCellTimer(period, cell) {
     const key = timerKeyOf(state.currentDate, period, cell);
     const t = runningTimers[key];
     if (!t) return null;
-    const duration = timerElapsedOf(t);
-    delete runningTimers[key];
-    save(RUNNING_TIMERS_KEY, runningTimers);
-    // 自动落记录：不覆盖用户已填写的实际内容，仅补时长
-    const spentMin = Math.max(1, Math.round(duration / 60000));
-    const rec = getCellRecord(period, cell) || {};
-    if (!rec.actual) rec.actual = t.taskText; // 自动命名
-    // 已有手动时长时追加（多段累计）
-    if (rec.spent && /^~?\d+min$/i.test(String(rec.spent).trim())) {
-      const prev = parseInt(String(rec.spent).replace(/[^\d]/g, ""), 10) || 0;
-      rec.spent = (prev + spentMin) + "min";
-    } else if (!rec.spent) {
-      rec.spent = spentMin + "min";
-    }
-    rec.timerStart = t.startTime;
-    rec.timerEnd = Date.now();
-    rec.timerAuto = true;
-    setCellRecord(period, cell, rec);
-    if (!Object.keys(runningTimers).length) _stopTimerTick();
-    renderRunningTimerBar();
-    renderMandala();
-    renderRecord();
-    haptic(20);
-    toast("⏱️ 已记录 " + spentMin + " 分钟 → " + PERIOD_NAMES[period] + " 第" + (cell + 1) + "格", "success");
-    return duration;
+    const isUnnamed = !t.taskText || t.taskText === "未命名任务";
+    const mo = document.createElement("div");
+    mo.className = "modal-overlay";
+    mo.style.cssText = "position:fixed;inset:0;background:var(--overlay,rgba(0,0,0,.55));z-index:1300;display:flex;align-items:center;justify-content:center;padding:14px;";
+    const dlg = document.createElement("div");
+    dlg.style.cssText = "background:var(--bg-card,#1e1e38);border:1px solid var(--border,rgba(128,128,160,.3));border-radius:14px;padding:16px;max-width:420px;width:100%;";
+    dlg.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <span style="font-size:16px;">⏱</span>
+        <span style="font-size:14px;font-weight:700;color:var(--text-primary,#f0f0ff);">完成计时 · 命名并归档</span>
+      </div>
+      <div style="font-size:11.5px;color:var(--text-muted,#6a6a8a);margin-bottom:12px;line-height:1.6;">
+        归属：<b style="color:#9d85ff;">${escapeHtml(PERIOD_NAMES[period] || "第" + (period + 1) + "辰")} 第${cell + 1}格</b> · 暂停中的钟累计不丢
+      </div>
+      <div class="ts-clock-row">
+        <span class="ts-clock" id="tsClock">${_fmtTimerDur(timerElapsedOf(t))}</span>
+        <span class="ts-clock-sub">本次累计时长</span>
+      </div>
+      <label style="font-size:11px;color:var(--text-muted,#6a6a8a);margin:10px 0 5px;display:block;">任务名（写入记录页的内容）</label>
+      <input type="text" id="tsName" maxlength="60" placeholder="输入任务名，如：写周报…" value="${isUnnamed ? "" : escapeHtml(t.taskText)}" style="width:100%;box-sizing:border-box;padding:9px 12px;border-radius:8px;border:1px solid var(--border,rgba(128,128,160,.35));background:var(--bg-tertiary,#252544);color:var(--text-primary,#f0f0ff);font-size:13px;" />
+      <div class="ts-btns">
+        <button type="button" id="tsDiscard" class="ts-btn-ghost" title="删掉这口钟，不写入任何记录">🗑 丢弃</button>
+        <button type="button" id="tsCancel" class="ts-btn-ghost" title="什么都不做，继续计时">✕ 继续计时</button>
+        <button type="button" id="tsSave" class="ts-btn-main" title="停止并写入记录页对应格子">✓ 记入格子</button>
+      </div>`;
+    mo.appendChild(dlg);
+    document.body.appendChild(mo);
+    const nameInput = dlg.querySelector("#tsName");
+    const clockEl = dlg.querySelector("#tsClock");
+    // 弹窗期间钟若在跑，时长实时刷新（提交取实时值）
+    const tick = setInterval(() => {
+      const cur = runningTimers[key];
+      if (!cur || !document.body.contains(dlg)) { clearInterval(tick); return; }
+      clockEl.textContent = _fmtTimerDur(timerElapsedOf(cur));
+    }, 1000);
+    setTimeout(() => { nameInput.focus(); if (!isUnnamed) nameInput.select(); }, 60);
+    const closeDlg = () => { clearInterval(tick); mo.remove(); };
+    dlg.querySelector("#tsCancel").addEventListener("click", closeDlg);
+    mo.addEventListener("click", (e) => { if (e.target === mo) closeDlg(); });
+    dlg.querySelector("#tsDiscard").addEventListener("click", () => {
+      delete runningTimers[key];
+      save(RUNNING_TIMERS_KEY, runningTimers);
+      if (!Object.keys(runningTimers).length) _stopTimerTick();
+      closeDlg();
+      renderRunningTimerBar();
+      renderMandala();
+      renderRecord();
+      haptic(20);
+      toast("🗑 已丢弃该计时（未写入）", "info");
+    });
+    const commit = () => {
+      const cur = runningTimers[key];
+      if (!cur) { closeDlg(); return; }
+      const name = nameInput.value.trim();
+      const duration = timerElapsedOf(cur);
+      delete runningTimers[key];
+      save(RUNNING_TIMERS_KEY, runningTimers);
+      const spentMin = Math.max(1, Math.round(duration / 60000));
+      const rec = getCellRecord(period, cell) || {};
+      // 命名写入：格子空 → 直接填；已有内容 → 分号追加（与记录合并惯例一致，不覆盖已有）
+      if (name) rec.actual = rec.actual ? (rec.actual + "; " + name) : name;
+      else if (!rec.actual) rec.actual = cur.taskText; // 未命名时用启动时的任务名兜底
+      // 已有手动时长时追加（多段累计）
+      if (rec.spent && /^~?\d+min$/i.test(String(rec.spent).trim())) {
+        const prev = parseInt(String(rec.spent).replace(/[^\d]/g, ""), 10) || 0;
+        rec.spent = (prev + spentMin) + "min";
+      } else if (!rec.spent) {
+        rec.spent = spentMin + "min";
+      }
+      rec.timerStart = cur.startTime;
+      rec.timerEnd = Date.now();
+      rec.timerAuto = true;
+      setCellRecord(period, cell, rec);
+      if (!Object.keys(runningTimers).length) _stopTimerTick();
+      closeDlg();
+      renderRunningTimerBar();
+      renderMandala();
+      renderRecord();
+      haptic(20);
+      toast("⏱️ 已记录 " + spentMin + " 分钟 → " + (PERIOD_NAMES[period] || "第" + (period + 1) + "辰") + " 第" + (cell + 1) + "格", "success");
+    };
+    dlg.querySelector("#tsSave").addEventListener("click", commit);
+    nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") commit(); });
+    return null;
+  }
+  // 时长格式化（正计时弹窗用）
+  function _fmtTimerDur(ms) {
+    const el = Math.floor(ms / 1000);
+    const hh = Math.floor(el / 3600), mm = Math.floor((el % 3600) / 60), ss = el % 60;
+    return hh ? hh + " 小时 " + mm + " 分" : (mm ? mm + " 分 " : "") + ss + " 秒";
   }
   // 格子按钮三态：无钟=启动 / 在跑=暂停 / 暂停中=恢复（停止入口在底部计时条 ■）
   function toggleCellTimer(period, cell, taskText) {
@@ -3452,24 +3522,33 @@ const SW_VER = "20260920";
     const active = Object.keys(runningTimers).map((k) => runningTimers[k]).filter((t) => t.date === state.currentDate);
     if (!active.length) { bar.hidden = true; bar.innerHTML = ""; return; }
     bar.hidden = false;
-    bar.innerHTML = active.map((t) => {
+    // v95：在跑的钟排前面，暂停中的排后面（多钟状态一目了然）
+    active.sort((a, b) => (!!a.pausedAt === !!b.pausedAt) ? 0 : (a.pausedAt ? 1 : -1));
+    // v95：多钟（≥2）时顶部加汇总行——多时钟协作状态直观可读
+    let sumHtml = "";
+    if (active.length >= 2) {
+      const runN = active.filter((t) => !t.pausedAt).length;
+      const pauseN = active.length - runN;
+      sumHtml = '<div class="timer-bar-sum">⏱ ' + active.length + ' 钟'
+        + ' · <b class="tbs-run">' + runN + ' 在跑</b>'
+        + (pauseN ? ' · <b class="tbs-pause">' + pauseN + ' 暂停中</b>' : "")
+        + ' · 开新钟自动暂停当前钟</div>';
+    }
+    bar.innerHTML = sumHtml + '<div class="timer-bar-chips">' + active.map((t) => {
       const el = Math.floor(timerElapsedOf(t) / 1000);
       const hh = String(Math.floor(el / 3600)).padStart(2, "0");
       const mm = String(Math.floor((el % 3600) / 60)).padStart(2, "0");
       const ss = String(el % 60).padStart(2, "0");
       const clock = hh !== "00" ? hh + ":" + mm + ":" + ss : mm + ":" + ss;
       const paused = !!t.pausedAt;
-      return '<div class="timer-chip' + (paused ? " paused" : "") + '" data-p="' + t.period + '" data-c="' + t.cell + '" title="' + (PERIOD_NAMES[t.period] || "第" + (t.period + 1) + "辰") + ' 第' + (t.cell + 1) + '格 · 点此跳转格子 · ⏸/▶ 暂停恢复 · ■ 停止写入记录页">'
+      return '<div class="timer-chip' + (paused ? " paused" : "") + '" data-p="' + t.period + '" data-c="' + t.cell + '" title="' + (PERIOD_NAMES[t.period] || "第" + (t.period + 1) + "辰") + ' 第' + (t.cell + 1) + '格 · 点此跳转格子 · ⏸/▶ 暂停恢复 · ■ 停止并命名写入">'
         + '<span class="timer-pulse">' + (paused ? "⏸" : "⏱") + '</span>'
         + '<span class="timer-task">' + escapeHtml(trunc(t.taskText, 12)) + '</span>'
         + '<span class="timer-clock">' + clock + '</span>'
-        + '<button class="timer-pause" data-timer-pause="1" data-p="' + t.period + '" data-c="' + t.cell + '" title="' + (paused ? "恢复计时（其他在跑的钟自动暂停）" : "暂停计时（保留累计，不写入记录）") + '">' + (paused ? "▶" : "⏸") + '</button>'
-        + '<button class="timer-stop" data-timer-stop="1" data-p="' + t.period + '" data-c="' + t.cell + '" title="停止并写入记录页">■</button>'
+        + '<button class="timer-pause" data-timer-pause="1" data-p="' + t.period + '" data-c="' + t.cell + '" title="' + (paused ? "▶ 恢复计时（其他在跑的钟自动暂停）" : "⏸ 暂停计时（保留累计，不写入记录）") + '">' + (paused ? "▶" : "⏸") + '</button>'
+        + '<button class="timer-stop" data-timer-stop="1" data-p="' + t.period + '" data-c="' + t.cell + '" title="■ 停止 · 命名并写入记录页">■</button>'
         + "</div>";
-    }).join("");
-    // 正计时运行时同步刷新记录页时间流向图（若可见）
-    const tf = document.getElementById("timeFlow");
-    if (tf && !tf.hidden) renderTimeFlow();
+    }).join("") + "</div>";
   }
   // 启动时恢复未结束的计时（刷新/重进不丢）
   function initRunningTimers() {
@@ -4309,64 +4388,6 @@ const SW_VER = "20260920";
     return Math.max(0, Math.round(min));
   }
 
-  // ⏱ 今日时间流向图：全天 9 时辰 × 格子 的耗时分布（正计时/手动记录/估算三色）
-  function renderTimeFlow() {
-    const tf = document.getElementById("timeFlow");
-    if (!tf) return;
-    const date = state.currentDate;
-    const dayRecords = state.records[date] || {};
-    const dayTasks = state.tasks[date] || {};
-    const dayDone = state.done[date] || {};
-    const cells = [];
-    for (let p = 0; p < PERIOD_COUNT; p++) {
-      for (let c = 0; c < CELLS_PER_PERIOD; c++) {
-        const key = p + "-" + c;
-        const rec = dayRecords[key];
-        const plan = dayTasks[key] || [];
-        const done = !!dayDone[key];
-        const rt = runningTimers[timerKeyOf(date, p, c)]; // 运行中的正计时（含暂停中）
-        let min = 0, source = "";
-        if (rt) { min = Math.max(1, Math.round(timerElapsedOf(rt) / 60000)); source = rt.pausedAt ? "paused" : "timer"; }
-        else if (rec && rec.spent) { min = parseSpentToMin(rec.spent); source = rec.timerAuto ? "timer" : "record"; }
-        else if (plan.length && done) { min = Math.round(SECONDS_PER_CELL / 60); source = "estimate"; }
-        cells.push({ p, c, key, min, source, plan, rec, done });
-      }
-    }
-    const total = cells.reduce((s, x) => s + x.min, 0);
-    const anyRecord = Object.keys(dayRecords).length > 0 || Object.keys(runningTimers).some((k) => runningTimers[k].date === date);
-    tf.hidden = !(total > 0 || anyRecord);
-    if (tf.hidden) return;
-    const fmt = (m) => m >= 60 ? (Math.floor(m / 60) + "h" + (m % 60 ? (m % 60) + "m" : "")) : (m + "m");
-    let html = '<div class="tf-head"><span class="tf-title">⏱ 今日时间流向</span>'
-      + '<span class="tf-total">已追踪 ' + fmt(total) + '</span></div>'
-      + '<div class="tf-periods">';
-    for (let p = 0; p < PERIOD_COUNT; p++) {
-      const pcells = cells.filter((x) => x.p === p);
-      html += '<div class="tf-period">'
-        + '<div class="tf-period-name">' + escapeHtml(PERIOD_NAMES[p] || ("第" + (p + 1) + "辰")) + '</div>'
-        + '<div class="tf-period-bar">';
-      pcells.forEach((x) => {
-        const pct = Math.min(100, (x.min / Math.max(1, Math.round(SECONDS_PER_CELL / 60))) * 100);
-        const col = x.source === "timer" ? "var(--accent)" : x.source === "paused" ? "#e8a33d" : x.source === "record" ? "var(--success, #4ade80)" : "var(--text-muted, #6a6a8a)";
-        const tip = (PERIOD_NAMES[p] || "第" + (p + 1) + "辰") + " 第" + (x.c + 1) + "格 · " + (x.min ? fmt(x.min) : "未追踪") + (x.source === "paused" ? "（暂停中）" : "")
-          + (x.plan.length ? "｜计划：" + x.plan.map((t) => t.text).join("；") : "")
-          + (x.rec && x.rec.actual ? "｜" + x.rec.actual : "");
-        html += '<div class="tf-cell" title="' + escapeHtml(tip) + '">'
-          + '<div class="tf-fill" style="height:' + Math.max(5, pct) + '%;background:' + col + (x.source === "estimate" ? ";opacity:.5" : "") + (x.source === "paused" ? ";opacity:.65" : "") + '"></div>'
-          + (x.done ? '<span class="tf-dot-done">✓</span>' : "")
-          + "</div>";
-      });
-      html += "</div></div>";
-    }
-    html += '</div><div class="tf-legend">'
-      + '<span><i style="background:var(--accent)"></i>正计时</span>'
-      + '<span><i style="background:#e8a33d"></i>暂停中</span>'
-      + '<span><i style="background:var(--success, #4ade80)"></i>手动记录</span>'
-      + '<span><i style="background:var(--text-muted, #6a6a8a)"></i>估算</span>'
-      + "</div>";
-    tf.innerHTML = html;
-  }
-
   // ---------- v94 ⇄ 移动记录：81 宫格选择器（记错格/补记别格） ----------
   function openRecordMovePicker(srcP, srcC, rec, onDone) {
     const mo = document.createElement("div");
@@ -4426,7 +4447,6 @@ const SW_VER = "20260920";
   // 渲染记录页
   function renderRecord() {
     if (!el.recordGrid) return;
-    renderTimeFlow(); // ⏱ 时间流向图（全天，独立于时辰切换）
     // 持续记录：到点的重复任务自动写入（仅今天）
     autoRecordDueRepeats();
     const period = state.activePeriod;
@@ -4617,10 +4637,10 @@ const SW_VER = "20260920";
         timerBtn.className = "cell-timer-btn" + (_rt ? (_rtPaused ? " paused" : " running") : "");
         timerBtn.dataset.timerBtn = "1";
         timerBtn.title = !_rt
-          ? "启动正计时（停止时自动写入本格记录）"
+          ? "启动正计时（■ 停止时命名并写入本格记录）"
           : _rtPaused
             ? "▶ 恢复计时"
-            : "⏸ 暂停计时（去底部计时条点 ■ 停止并写入）";
+            : "⏸ 暂停计时（去底部计时条点 ■ 停止 → 命名 → 写入）";
         timerBtn.textContent = !_rt ? "⏱" : (_rtPaused ? "▶" : "⏸");
         timerBtn.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -20176,6 +20196,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     if (el.sideDrawerMask) el.sideDrawerMask.hidden = false;
     document.body.classList.add("side-drawer-open"); // 隐藏左缘把手
     renderSideDrawer();
+    updateSideHandleCount();
   }
   function closeSideDrawer() {
     if (!el.sideDrawer) return;
@@ -20209,7 +20230,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     inboxItems.forEach((it, idx) => {
       if (tag && !(it.tags || []).includes(tag)) return;
       if (it.done) return;
-      rows.push({ kind: "inbox", idx, text: it.text });
+      rows.push({ kind: "inbox", idx, text: it.text, tags: (it.tags || []).filter(Boolean) });
     });
     Object.entries(state.tasks[state.currentDate] || {}).forEach(([key, arr]) => {
       const parts = key.split("-");
@@ -20217,20 +20238,22 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       (arr || []).forEach((t, ti) => {
         if (t.sticky || t.done) return;
         if (tag && t.tag !== tag) return;
-        rows.push({ kind: "cell", p, c, ti, text: t.text });
+        rows.push({ kind: "cell", p, c, ti, text: t.text, tags: t.tag ? [t.tag] : [] });
       });
     });
     if (!rows.length) {
-      el.sdTasks.innerHTML = '<div class="sd-empty">' + (tag ? "「#" + tag + "」下暂无待办任务" : "暂无待办任务") + "</div>";
+      el.sdTasks.innerHTML = '<div class="sd-empty">' + (tag ? "「#" + escapeHtml(tag) + "」下暂无待办任务" : "暂无待办任务") + "</div>";
       if (el.sdTaskLabel) { el.sdTaskLabel.hidden = false; el.sdTaskLabel.textContent = "任务"; }
       return;
     }
     if (el.sdTaskLabel) { el.sdTaskLabel.hidden = false; el.sdTaskLabel.textContent = "任务（" + rows.length + "）"; }
+    // v95：文本不再截断（autowrap 完整显示），行内加 tag 徽标 + 归属位置
     el.sdTasks.innerHTML = rows.map((r, i) => {
       const loc = r.kind === "cell" ? (PERIOD_NAMES[r.p] + " 第" + (r.c + 1) + "格") : "待办 · 未安排";
+      const tagPills = r.tags.slice(0, 4).map((tg) => '<span class="sd-task-tagpill' + (tg === tag ? " hit" : "") + '">#' + escapeHtml(trunc(tg, 12)) + "</span>").join("");
       return '<button type="button" class="sd-task" data-i="' + i + '" title="点击跳转">'
-        + '<span class="sd-task-text">' + escapeHtml(trunc(r.text, 20)) + "</span>"
-        + '<span class="sd-task-loc">' + escapeHtml(loc) + "</span>"
+        + '<span class="sd-task-text">' + escapeHtml(r.text) + "</span>"
+        + '<span class="sd-task-meta">' + tagPills + '<span class="sd-task-loc">' + escapeHtml(loc) + "</span></span>"
         + "</button>";
     }).join("");
     el.sdTasks.querySelectorAll(".sd-task").forEach((btn) => {
@@ -20242,6 +20265,21 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         else { const ib = document.getElementById("realmFabInbox"); if (ib) ib.click(); }
       });
     });
+  }
+  // v95：左缘把手上的标签计数徽标（数据变化即刷新，让把手本身就是 tag 入口的信号）
+  function updateSideHandleCount() {
+    const handle = document.getElementById("sideHandle");
+    if (!handle) return;
+    const n = collectSideTags().length;
+    let badge = handle.querySelector(".side-handle-count");
+    if (!n) { if (badge) badge.remove(); return; }
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.className = "side-handle-count";
+      handle.appendChild(badge);
+    }
+    badge.textContent = n > 99 ? "99+" : String(n);
+    badge.title = n + " 个标签";
   }
   // 跳转到计划页对应时间格子并高亮闪烁
   function jumpToCell(period, cell) {
@@ -20283,6 +20321,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       handle.addEventListener("pointercancel", hEnd);
       // 首次进入轻提示（3 次脉冲引导视线）
       if (!load("__sideHandleSeen", false)) { handle.classList.add("pulse-hint"); save("__sideHandleSeen", true); setTimeout(() => handle.classList.remove("pulse-hint"), 7600); }
+      updateSideHandleCount(); // v95：初始化把手计数徽标
     }
     // 左滑呼出：从屏幕左边缘右滑
     let sx = 0, sy = 0, tracking = false;

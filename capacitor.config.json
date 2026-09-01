@@ -3,7 +3,7 @@
   "appName": "曼陀罗时辰",
   "webDir": "www",
   "appVersion": "2.7.23.92",
-  "appVersionCode": 94,
+  "appVersionCode": 95,
   "server": {
     "cleartext": false
   },
