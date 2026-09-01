@@ -10790,3 +10790,35 @@ dialog.qa-dialog-fullscreen::backdrop { background: rgba(0, 0, 0, 0.5); }
   .side-drawer { transition: none; }
   .cell.jump-flash { animation: none; box-shadow: 0 0 0 2px rgba(124,92,255,.7); }
 }
+
+/* ============================================================
+ * 📄 节点关联文章 + 🧠 AI 拆解（Round 4）
+ * ============================================================ */
+.mm-pf-url-row { display: flex; gap: 6px; align-items: center; }
+.mm-pf-url-row input.mm-pf-url { flex: 1; min-width: 0; }
+.mm-pf-url-row .mm-pf-fetch { flex: 0 0 auto; padding: 4px 10px; font-size: 12px; }
+.mm-pf-art { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.mm-pf-art-info { font-size: 11px; color: var(--text-muted, #8a8aa8); }
+.mm-pf-art-btns { display: flex; gap: 6px; }
+.mm-pf-art-btns .tool-btn { flex: 1; padding: 6px 8px; font-size: 12px; }
+.mm-pf-insight {
+  margin-top: 6px; padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.5;
+  background: rgba(124,92,255,.12); border: 1px solid rgba(124,92,255,.3); color: var(--text-primary, #f0f0ff);
+  word-break: break-all;
+}
+/* 文章原文只读弹窗 */
+.mm-article-view-dlg {
+  width: min(92vw, 640px); max-height: 80vh; border: 1px solid var(--border, rgba(128,128,160,.3));
+  border-radius: 14px; background: var(--bg-card, #1e1e38); color: var(--text-primary, #f0f0ff);
+  padding: 0; overflow: hidden;
+}
+.mm-article-view-dlg::backdrop { background: rgba(0,0,0,.5); }
+.mav-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid var(--border, rgba(128,128,160,.25));
+  font-size: 14px; font-weight: 700; position: sticky; top: 0; background: var(--bg-card, #1e1e38); z-index: 1;
+}
+.mav-body {
+  padding: 14px 16px 20px; overflow-y: auto; max-height: calc(80vh - 50px);
+  font-size: 13px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; color: var(--text-secondary, #d0d0e8);
+}

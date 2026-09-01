@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260916";
+const SW_VER = "20260917";
 
 (function () {
   "use strict";
@@ -11405,6 +11405,8 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       if (n.meta && n.meta.done) badges.push("✅");
       else if (n.meta && n.meta.verify) badges.push("✓");
       if (n.meta && n.meta.note) badges.push("📝");
+      if (n.meta && n.meta.article_text) badges.push("📄");
+      if (n.meta && n.meta.insight) badges.push("💡");
       if (n.meta && n.meta.target_dim) {
         const dc = String(n.meta.target_dim).split(".")[0];
         badges.push(dc);
@@ -11684,6 +11686,20 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
             </div>
           </label>
           <label>备注<textarea class="mm-pf-note" rows="2" placeholder="补充说明、检查要点…（节点显示 📝 标记）">${escapeHtml(m.note || "")}</textarea></label>
+          <label>📄 文章链接（可选，AI 可据此拆解多节点）
+            <div class="mm-pf-url-row">
+              <input type="url" class="mm-pf-url" placeholder="https://…" value="${escapeHtml(m.article_url || "")}" />
+              <button type="button" class="tool-btn mm-pf-fetch" title="抓取链接正文">🌐 抓取</button>
+            </div>
+          </label>
+          <div class="mm-pf-art">
+            ${m.article_text ? `<span class="mm-pf-art-info">📖 已抓取 ${m.article_text.length} 字</span>` : `<span class="mm-pf-art-info">未关联文章</span>`}
+            <div class="mm-pf-art-btns">
+              ${m.article_text ? `<button type="button" class="tool-btn mm-pf-view">查看原文</button>` : ""}
+              <button type="button" class="tool-btn mm-pf-ai">🧠 AI 拆解</button>
+            </div>
+          </div>
+          ${m.insight ? `<div class="mm-pf-insight">💡 见解精要：${escapeHtml(m.insight)}</div>` : ""}
         </div>`;
       panel.hidden = false;
       const commit = (fn) => { this.pushHistory(); fn(); this.render(); this._showNodePanel(id); };
@@ -11696,14 +11712,22 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         if (ev.target.classList.contains("mm-pf-why")) m.why = ev.target.value;
         if (ev.target.classList.contains("mm-pf-color")) m.color = ev.target.value || "";
         if (ev.target.classList.contains("mm-pf-note")) m.note = ev.target.value;
+        if (ev.target.classList.contains("mm-pf-url")) m.article_url = ev.target.value.trim() || "";
         if (ev.target.classList.contains("mm-pf-done")) m.done = !!ev.target.checked;
         if (ev.target.classList.contains("mm-pf-prio")) { if (ev.target.value) m.priority = parseInt(ev.target.value, 10); else delete m.priority; }
         if (ev.target.classList.contains("mm-pf-link")) { if (ev.target.value) m.link = ev.target.value; else delete m.link; }
       });
-      panel.querySelectorAll("textarea, select, input[type=number], input[type=color]").forEach((inp) => {
+      panel.querySelectorAll("textarea, select, input[type=number], input[type=color], input[type=url]").forEach((inp) => {
         inp.addEventListener("change", onCommit);
         if (inp.tagName === "TEXTAREA") inp.addEventListener("blur", onCommit);
       });
+      // 📄 文章链接抓取 / 查看原文 / AI 拆解
+      const fetchBtn = panel.querySelector(".mm-pf-fetch");
+      if (fetchBtn) fetchBtn.addEventListener("click", () => this.fetchNodeArticle(id));
+      const viewBtn = panel.querySelector(".mm-pf-view");
+      if (viewBtn) viewBtn.addEventListener("click", () => this.viewNodeArticle(id));
+      const aiBtn = panel.querySelector(".mm-pf-ai");
+      if (aiBtn) aiBtn.addEventListener("click", () => this.aiDecompose(id));
       // 完成状态 checkbox：change 即提交
       const doneCb = panel.querySelector(".mm-pf-done");
       if (doneCb) doneCb.addEventListener("change", onCommit);
@@ -11719,6 +11743,120 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       if (clr) clr.addEventListener("click", () => commit(() => { delete m.color; }));
       const closeBtn = panel.querySelector(".mm-panel-close");
       if (closeBtn) closeBtn.addEventListener("click", () => { panel.hidden = true; });
+    }
+    // 📄 抓取节点关联文章链接（多源降级，失败提示手动粘贴）
+    async fetchNodeArticle(id) {
+      const n = this.findNode(id);
+      if (!n) return;
+      const m = n.meta || (n.meta = {});
+      const url = (m.article_url || "").trim();
+      if (!url) { toast("请先在上方填写文章链接", "info"); return; }
+      toast("🌐 抓取文章中…", "info");
+      const text = await this._grabArticle(url);
+      if (!text) { toast("抓取失败（跨域限制）· 可手动粘贴正文", "error"); return; }
+      m.article_text = text;
+      delete m.insight; // 原文变了，旧精要作废
+      this.render();
+      this._showNodePanel(id);
+      toast("✓ 已抓取 " + text.length + " 字 · 可点「AI 拆解」", "success");
+    }
+    async _grabArticle(url) {
+      const sources = [
+        (u) => "https://r.jina.ai/" + u,
+        (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
+      ];
+      for (const mk of sources) {
+        try {
+          const res = await fetch(mk(url), { method: "GET" });
+          if (!res.ok) continue;
+          const txt = await res.text();
+          if (txt && txt.length > 60) return txt.slice(0, 60000);
+        } catch (e) { /* 换下一个源 */ }
+      }
+      return null;
+    }
+    // 📖 查看节点关联文章原文（只读弹窗）
+    viewNodeArticle(id) {
+      const n = this.findNode(id);
+      if (!n) return;
+      const text = n.meta && n.meta.article_text;
+      if (!text) { toast("尚未抓取文章", "info"); return; }
+      let dlg = document.getElementById("mmArticleViewDlg");
+      if (!dlg) {
+        dlg = document.createElement("dialog");
+        dlg.id = "mmArticleViewDlg";
+        dlg.className = "mm-article-view-dlg";
+        dlg.innerHTML = '<div class="mav-head"><span>📖 文章原文</span><button type="button" class="icon-btn mav-close">✕</button></div>'
+          + '<div class="mav-body"></div>';
+        document.body.appendChild(dlg);
+        dlg.querySelector(".mav-close").addEventListener("click", () => dlg.close());
+      }
+      dlg.querySelector(".mav-body").textContent = text;
+      dlg.showModal();
+    }
+    // 🧠 AI 综合拆解：task 文本 + 关联文章 + 现有子节点 → 多节点 + 见解精要（省 token）
+    async aiDecompose(id) {
+      const n = this.findNode(id);
+      if (!n) return;
+      const m = n.meta || (n.meta = {});
+      const taskText = (n.text || "").trim();
+      const articleText = (m.article_text || "").trim();
+      const noApi = !state.settings.apiUrl || !state.settings.apiKey;
+      // 无 API 但有文章 → 0 token 本地复现文章结构
+      if (noApi && articleText) { this._localDecompose(id, articleText); return; }
+      if (noApi) { toast("未配置 AI API（设置 → AI 配置），可先关联文章走本地复现", "warn"); return; }
+      toast("🧠 AI 拆解中…", "info");
+      const existing = (n.children || []).map((c) => c.text).filter(Boolean).join("；");
+      const artBrief = articleText ? this._briefArticle(articleText) : "";
+      const systemPrompt = "你是任务拆解助手。把任务拆成 3-8 个可执行子步骤，并给一句见解精要。只输出 JSON 对象，格式：{\"insight\":\"一句话精要\",\"children\":[{\"text\":\"子步骤\",\"why\":\"为何这一步\"}]}，不要输出任何 JSON 之外的内容。";
+      const userPrompt = `任务：${taskText}\n现有子节点：${existing || "无"}\n${artBrief ? "关联文章（已截断，供参考）：\n" + artBrief : "（无关联文章，仅按任务本身拆解）"}`;
+      try {
+        const raw = await callHatchLLM(systemPrompt, userPrompt);
+        const data = extractJSON(raw);
+        if (!data || !Array.isArray(data.children) || !data.children.length) { toast("AI 未返回有效拆解，请重试", "warn"); return; }
+        this.pushHistory();
+        let added = 0;
+        data.children.forEach((c) => {
+          const text = (c && c.text || "").trim().slice(0, 60);
+          if (!text || (n.children || []).some((x) => x.text === text)) return;
+          const child = this.newNode(text, { source: "ai", why: (c.why || "").slice(0, 80) });
+          child.type = "child";
+          n.children.push(child);
+          added++;
+        });
+        if (data.insight) m.insight = String(data.insight).slice(0, 120);
+        if (!added) { toast("AI 拆解结果与现有节点重复", "info"); return; }
+        this.render();
+        this._showNodePanel(id);
+        toast("🧠 已拆解 " + added + " 个节点" + (data.insight ? " · 见解精要已生成" : ""), "success");
+        haptic(20);
+      } catch (e) {
+        toast("AI 拆解失败：" + (e.message || "未知错误"), "error");
+      }
+    }
+    // 0 token 本地复现文章结构到当前节点下
+    _localDecompose(id, articleText) {
+      const n = this.findNode(id);
+      if (!n) return;
+      const root = this.parseArticleToTree(articleText);
+      if (!root || !(root.children || []).length) { toast("文章未解析出有效结构", "warn"); return; }
+      this.pushHistory();
+      n.children.push(...root.children);
+      // 见解精要：取文章标题 + 首个主要小节标题，清洗 Markdown 标记
+      const cleanLine = (s) => String(s || "").replace(/^#{1,6}\s+/, "").replace(/^[-*+]\s+/, "").replace(/^\d+[.)]\s+/, "").replace(/\*\*|__|`/g, "").trim();
+      const lines = String(articleText || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      const title = cleanLine(lines[0]) || "";
+      const sub = lines.slice(1).map(cleanLine).find((l) => l && l.length > 2) || "";
+      n.meta.insight = (title + (sub ? " · " + sub : "")).slice(0, 120);
+      this.render();
+      this._showNodePanel(id);
+      toast("📄 已本地复现文章结构（0 token）· " + root.children.length + " 个节点", "success");
+      haptic(20);
+    }
+    // 省 token：截断文章并压缩空行
+    _briefArticle(text) {
+      const clean = String(text || "").replace(/\r/g, "").replace(/\n{3,}/g, "\n\n").trim();
+      return clean.slice(0, 2500);
     }
     editNode(id) {
       const n = this.findNode(id);
