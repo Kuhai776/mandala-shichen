@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260915";
+const SW_VER = "20260916";
 
 (function () {
   "use strict";
@@ -1417,8 +1417,8 @@ const SW_VER = "20260915";
   // ---------- 旧数据迁移 ----------
   // 任务对象标准化：字符串/对象 → 对象 {text, priority, tag, estimate, deadline}
   function normalizeTask(t) {
-    if (typeof t === "string") return { text: t, priority: "medium", tag: "", estimate: "", deadline: "", done: false, mainline: null, sideline: null, attachments: [], location: null, hatchHash: null, sticky: false, stickyColor: null };
-    if (!t || typeof t !== "object") return { text: "", priority: "medium", tag: "", estimate: "", deadline: "", done: false, mainline: null, sideline: null, attachments: [], location: null, hatchHash: null, sticky: false, stickyColor: null };
+    if (typeof t === "string") return { text: t, priority: "medium", tag: "", estimate: "", deadline: "", done: false, mainline: null, sideline: null, attachments: [], location: null, hatchHash: null, sticky: false, stickyColor: null, note: "" };
+    if (!t || typeof t !== "object") return { text: "", priority: "medium", tag: "", estimate: "", deadline: "", done: false, mainline: null, sideline: null, attachments: [], location: null, hatchHash: null, sticky: false, stickyColor: null, note: "" };
     return {
       text: t.text || String(t.text || ""),
       priority: t.priority || "medium",
@@ -1433,6 +1433,7 @@ const SW_VER = "20260915";
       hatchHash: t.hatchHash || null,
       sticky: !!t.sticky, // 便利贴任务（黄色小贴纸，可拖到其他格子）
       stickyColor: STICKY_COLORS.some((c) => c.key === t.stickyColor) ? t.stickyColor : null, // 便利贴颜色：y黄/p粉/b蓝/g绿
+      note: t.note || "", // 任务备注：补充说明/上下文/链接
       // 来源标记：从收集箱拖入（双击可移回） / 重复任务 id（用于持续记录）
       _fromInbox: t._fromInbox || null,
       rptId: t.rptId || null,
@@ -1900,6 +1901,13 @@ const SW_VER = "20260915";
     themeBtn: document.getElementById("themeBtn"),
     notifyBtn: document.getElementById("notifyBtn"),
     settingsBtn: document.getElementById("settingsBtn"),
+    sidebarToggle: document.getElementById("sidebarToggle"),
+    sideDrawer: document.getElementById("sideDrawer"),
+    sideDrawerMask: document.getElementById("sideDrawerMask"),
+    sideDrawerClose: document.getElementById("sideDrawerClose"),
+    sdTags: document.getElementById("sdTags"),
+    sdTasks: document.getElementById("sdTasks"),
+    sdTaskLabel: document.getElementById("sdTaskLabel"),
     settingsDialog: document.getElementById("settingsDialog"),
     closeSettings: document.getElementById("closeSettings"),
     apiUrl: document.getElementById("apiUrl"),
@@ -2013,6 +2021,7 @@ const SW_VER = "20260915";
     copySyncBtn: document.getElementById("copySyncBtn"),
     saveTask: document.getElementById("saveTask"),
     deleteTask: document.getElementById("deleteTask"),
+    locateMindmapBtn: document.getElementById("locateMindmapBtn"),
     clearChat: document.getElementById("clearChat"),
     clearGridsBtn: document.getElementById("clearGridsBtn"),
     chatSuggestions: document.getElementById("chatSuggestions"),
@@ -2910,6 +2919,14 @@ const SW_VER = "20260915";
           meta.innerHTML = metaParts.join("") + (metaBits.length ? `<span>${metaBits.join(" ")}</span>` : "");
           contentEl.appendChild(meta);
         }
+        // 任务备注：格子内小字展示（有备注时）
+        if (first.note) {
+          const note = document.createElement("div");
+          note.className = "cell-note";
+          note.title = first.note;
+          note.textContent = first.note;
+          contentEl.appendChild(note);
+        }
         // 任务数标记
         if (tasks.length > 1) {
           const count = document.createElement("div");
@@ -3346,9 +3363,16 @@ const SW_VER = "20260915";
       document.body.appendChild(bar);
       bar.addEventListener("click", (e) => {
         const stopBtn = e.target.closest("[data-timer-stop]");
-        if (!stopBtn) return;
-        e.stopPropagation();
-        stopCellTimer(parseInt(stopBtn.dataset.p, 10), parseInt(stopBtn.dataset.c, 10));
+        if (stopBtn) {
+          e.stopPropagation();
+          stopCellTimer(parseInt(stopBtn.dataset.p, 10), parseInt(stopBtn.dataset.c, 10));
+          return;
+        }
+        // 点计时条主体 → 跳到对应时间格子
+        const chip = e.target.closest(".timer-chip");
+        if (chip && chip.dataset.p != null) {
+          jumpToCell(parseInt(chip.dataset.p, 10), parseInt(chip.dataset.c, 10));
+        }
       });
     }
     const now = Date.now();
@@ -3361,7 +3385,7 @@ const SW_VER = "20260915";
       const mm = String(Math.floor((el % 3600) / 60)).padStart(2, "0");
       const ss = String(el % 60).padStart(2, "0");
       const clock = hh !== "00" ? hh + ":" + mm + ":" + ss : mm + ":" + ss;
-      return '<div class="timer-chip" title="第' + (t.period + 1) + "辰第" + (t.cell + 1) + '格 · 点 ■ 停止并写入记录页">'
+      return '<div class="timer-chip" data-p="' + t.period + '" data-c="' + t.cell + '" title="第' + (t.period + 1) + "辰第" + (t.cell + 1) + '格 · 点此跳转格子 · 点 ■ 停止并写入记录页">'
         + '<span class="timer-pulse">⏱</span>'
         + '<span class="timer-task">' + escapeHtml(trunc(t.taskText, 12)) + '</span>'
         + '<span class="timer-clock">' + clock + '</span>'
@@ -4346,13 +4370,20 @@ const SW_VER = "20260915";
         }
         const planList = document.createElement("div");
         planList.className = "cell-content-list";
-        planTasks.forEach((t) => {
+        planTasks.forEach((t, idx) => {
           if (t.sticky) return; // 便利贴已上方贴纸展示
           const item = document.createElement("div");
           item.className = "cell-content-item task-bar" + (t.done ? " task-done" : "");
           const cb = document.createElement("span");
           cb.className = "task-checkbox" + (t.done ? " checked" : "");
           cb.innerHTML = t.done ? "✓" : "";
+          // ✅ 记录页复选框可点击：与计划页完成状态双向同步
+          cb.addEventListener("click", (e) => {
+            e.stopPropagation();
+            toggleTaskDone(period, cell, idx);
+            renderRecord();
+            renderMandala();
+          });
           const bar = document.createElement("span");
           bar.className = "task-priority-bar " + (t.priority || "medium");
           const span = document.createElement("span");
@@ -5992,6 +6023,7 @@ ${noteSection}
     el.taskTag.value = first?.tag || "";
     el.taskEstimate.value = first?.estimate || "";
     el.taskDeadline.value = first?.deadline || "";
+    el.taskNote.value = first?.note || "";
     const checklist = getCellChecklist(period, cell);
     el.taskChecklist.value = checklist.map((i) => {
       let line = (i.done ? "☑ " : "☐ ") + i.text;
@@ -6007,7 +6039,12 @@ ${noteSection}
     // 渲染详情面板
     renderTaskDetailPanel(first, period, cell);
     el.taskDialog.showModal();
-    setTimeout(() => el.taskContent.focus(), 50);
+    // 光标定位修复：聚焦正文并落到末尾（多行任务可直接续写/回改）
+    setTimeout(() => {
+      el.taskContent.focus();
+      const len = el.taskContent.value.length;
+      try { el.taskContent.setSelectionRange(len, len); } catch (e) { /* 忽略 */ }
+    }, 60);
   }
 
   // 渲染任务详情面板（主线/支线/孵化/附件/位置）
@@ -7253,6 +7290,7 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
       tag: el.taskTag.value.trim(),
       estimate: el.taskEstimate.value.trim(),
       deadline: el.taskDeadline.value,
+      note: (el.taskNote ? el.taskNote.value.trim() : "") || "",
       // 保留详情面板字段（本格统一）
       mainline: firstOld.mainline || null,
       sideline: firstOld.sideline || null,
@@ -7307,6 +7345,30 @@ B-13 极限测试 如果在我状态最差、最脆弱的一天，遇到了一�
     }
     closeTaskDialog();
     renderAll();
+  });
+
+  // 🧠 定位导图：把本格任务定位到思维导图对应节点
+  el.locateMindmapBtn.addEventListener("click", () => {
+    if (!state.editingCell) return;
+    const { period, cell } = state.editingCell;
+    const tasks = getCellTasks(period, cell);
+    if (!tasks.length) { toast("本格没有任务", "info"); return; }
+    const text = tasks[0].text || "";
+    closeTaskDialog();
+    openMindmapStandalone();
+    setTimeout(() => {
+      if (mmEditor && mmEditor.root) {
+        const node = mmEditor.findNodeByText(text);
+        if (node) {
+          mmEditor.selectedId = node.id;
+          mmEditor.centerOn(node.id);
+          mmEditor.render();
+          toast("🧠 已定位导图节点「" + trunc(text, 12) + "」", "success");
+        } else {
+          toast("导图中未找到「" + trunc(text, 12) + "」，可在编辑器内搜索", "info");
+        }
+      }
+    }, 420);
   });
 
   el.deleteTask.addEventListener("click", () => {
@@ -11150,10 +11212,18 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       if (!p) { bar.hidden = true; return; }
       const rect = this.els.canvas.getBoundingClientRect();
       if (!rect.width) { bar.hidden = true; return; }
-      const x = p.x * this.view.scale + this.view.x + p.w * this.view.scale / 2;
-      const y = p.y * this.view.scale + this.view.y;
-      bar.style.left = Math.min(Math.max(0, rect.width - 190), Math.max(4, x - 95)) + "px";
-      bar.style.top = Math.max(4, y - 38) + "px";
+      const cx = p.x * this.view.scale + this.view.x + p.w * this.view.scale / 2;
+      const topY = p.y * this.view.scale + this.view.y;
+      const bw = bar.offsetWidth || 260;
+      const bh = bar.offsetHeight || 44;
+      const nodeH = p.h * this.view.scale;
+      // 水平：居中于节点，但不出画布左右边界
+      const left = Math.max(4, Math.min(rect.width - bw - 4, cx - bw / 2));
+      // 垂直：优先放节点上方；上方放不下则落到节点下方
+      let top = topY - bh - 8;
+      if (top < 4) top = topY + nodeH + 8;
+      bar.style.left = left + "px";
+      bar.style.top = top + "px";
       bar.hidden = false;
     }
     _applyView() {
@@ -11544,6 +11614,14 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       n = n || this.root;
       if (n.id === id) return n;
       for (const c of n.children) { const r = this.findNode(id, c); if (r) return r; }
+      return null;
+    }
+    // 按文本匹配节点（用于格子任务 ↔ 导图节点互跳）
+    findNodeByText(text, n) {
+      n = n || this.root;
+      if (!n) return null;
+      if ((n.text || "").trim() === String(text || "").trim()) return n;
+      for (const c of n.children) { const r = this.findNodeByText(text, c); if (r) return r; }
       return null;
     }
     // 收集除指定节点外的所有节点（用于「关联到」下拉）
@@ -12318,6 +12396,30 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
       return root;
     }
 
+    // 🔗 跳转：导图节点 → 今日时间格子（按文本匹配）或待办收集箱
+    jumpToTask(nodeId) {
+      const n = this.findNode(nodeId);
+      if (!n) return;
+      const text = (n.text || "").trim();
+      let found = null;
+      outer:
+      for (let p = 0; p < PERIOD_COUNT; p++) {
+        for (let c = 0; c < CELLS_PER_PERIOD; c++) {
+          const arr = getCellTasks(p, c);
+          if (arr.some((t) => (t.text || "").trim() === text)) { found = { p, c }; break outer; }
+        }
+      }
+      this.close();
+      if (found) {
+        jumpToCell(found.p, found.c);
+        toast("🔗 已定位到 " + (PERIOD_NAMES[found.p] || ("第" + (found.p + 1) + "辰")) + " 第" + (found.c + 1) + "格", "success");
+      } else {
+        const ib = document.getElementById("realmFabInbox");
+        if (ib) ib.click();
+        toast("🔗 该节点未安排到格子 · 已打开待办", "info");
+      }
+    }
+
     applyToList() {
       if (!this.root) return;
       const steps = this.treeToSteps();
@@ -12701,6 +12803,7 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
           else if (a === "down") this.moveNode(this.selectedId, 1);
           else if (a === "promote") this.promote(this.selectedId);
           else if (a === "focus") this.focusNode(this.selectedId);
+          else if (a === "jump") this.jumpToTask(this.selectedId);
           else if (a === "del") this.deleteNode(this.selectedId);
         });
       }
@@ -19359,6 +19462,15 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       </div>
     `;
     el.assignDialog.showModal();
+    // 光标定位修复：打开即聚焦标签输入框，光标落在末尾（可直接续写，避免「点一下没反应、再点才定位」）
+    setTimeout(() => {
+      const tagInput = document.getElementById("kceTags");
+      if (tagInput) {
+        tagInput.focus();
+        const len = tagInput.value.length;
+        try { tagInput.setSelectionRange(len, len); } catch (e) { /* 忽略 */ }
+      }
+    }, 60);
     // ↔ 关联：跳转互链管理弹窗（同一 dialog 复用，先关再开）
     document.getElementById("kceRelate").addEventListener("click", () => {
       el.assignDialog.close();
@@ -19458,6 +19570,151 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     });
   }
 
+  // 🎢 收集箱横向滑动悬浮指示：滚动时显示进度条，停止后淡出（看板=list 滚动，表格=内部 wrap 滚动）
+  function bindInboxScrollInd() {
+    const list = el.inboxList;
+    if (!list || list._scrollIndBound) return;
+    list._scrollIndBound = true;
+    const ensureInd = () => {
+      let ind = list.querySelector(".inbox-scroll-ind");
+      if (!ind) { ind = document.createElement("div"); ind.className = "inbox-scroll-ind"; list.appendChild(ind); }
+      return ind;
+    };
+    const update = () => {
+      let scroller = null;
+      if (inboxView === "kanban" && list.scrollWidth > list.clientWidth) scroller = list;
+      else if (inboxView === "table") {
+        const wrap = list.querySelector(".inbox-table-wrap");
+        if (wrap && wrap.scrollWidth > wrap.clientWidth) scroller = wrap;
+      }
+      const ind = ensureInd();
+      if (!scroller) { ind.style.width = "0"; ind.classList.remove("active"); return; }
+      const max = scroller.scrollWidth - scroller.clientWidth;
+      const pct = max > 0 ? (scroller.scrollLeft / max) * 100 : 0;
+      ind.style.width = Math.max(8, pct) + "%";
+      ind.classList.add("active");
+      clearTimeout(ind._t);
+      ind._t = setTimeout(() => ind.classList.remove("active"), 700);
+    };
+    list.addEventListener("scroll", update, { passive: true });
+    list.addEventListener("scroll", update, { passive: true, capture: true }); // 捕获内部 wrap 滚动
+    update();
+  }
+
+  // ========== 🏷 左侧标签抽屉：选标签 → 显示对应 task → 跳转 ==========
+  let sdSelectedTag = "";
+  function collectSideTags() {
+    const tagSet = new Set();
+    inboxItems.forEach((it) => (it.tags || []).forEach((t) => { if (t) tagSet.add(t); }));
+    Object.values(state.tasks[state.currentDate] || {}).forEach((arr) => (arr || []).forEach((t) => { if (t && t.tag) tagSet.add(t.tag); }));
+    return Array.from(tagSet).sort();
+  }
+  function openSideDrawer() {
+    if (!el.sideDrawer) return;
+    sdSelectedTag = "";
+    el.sideDrawer.classList.add("open");
+    if (el.sideDrawerMask) el.sideDrawerMask.hidden = false;
+    renderSideDrawer();
+  }
+  function closeSideDrawer() {
+    if (!el.sideDrawer) return;
+    el.sideDrawer.classList.remove("open");
+    if (el.sideDrawerMask) el.sideDrawerMask.hidden = true;
+  }
+  function renderSideDrawer() {
+    if (!el.sdTags) return;
+    const tags = collectSideTags();
+    if (!tags.length) {
+      el.sdTags.innerHTML = '<div class="sd-empty">暂无标签。给收集箱或格子任务加 tag 后，这里自动出现。</div>';
+      el.sdTasks.innerHTML = "";
+      if (el.sdTaskLabel) el.sdTaskLabel.hidden = true;
+      return;
+    }
+    el.sdTags.innerHTML = '<button type="button" class="sd-tag' + (sdSelectedTag === "" ? " active" : "") + '" data-tag="">全部</button>'
+      + tags.map((t) => '<button type="button" class="sd-tag' + (sdSelectedTag === t ? " active" : "") + '" data-tag="' + escapeHtml(t) + '">#' + escapeHtml(t) + "</button>").join("");
+    el.sdTags.querySelectorAll(".sd-tag").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        sdSelectedTag = btn.dataset.tag || "";
+        renderSideDrawer();
+        haptic(15);
+      });
+    });
+    renderSideTasks(sdSelectedTag);
+  }
+  function renderSideTasks(tag) {
+    if (!el.sdTasks) return;
+    const rows = [];
+    inboxItems.forEach((it, idx) => {
+      if (tag && !(it.tags || []).includes(tag)) return;
+      if (it.done) return;
+      rows.push({ kind: "inbox", idx, text: it.text });
+    });
+    Object.entries(state.tasks[state.currentDate] || {}).forEach(([key, arr]) => {
+      const parts = key.split("-");
+      const p = parseInt(parts[0], 10), c = parseInt(parts[1], 10);
+      (arr || []).forEach((t, ti) => {
+        if (t.sticky || t.done) return;
+        if (tag && t.tag !== tag) return;
+        rows.push({ kind: "cell", p, c, ti, text: t.text });
+      });
+    });
+    if (!rows.length) {
+      el.sdTasks.innerHTML = '<div class="sd-empty">' + (tag ? "「#" + tag + "」下暂无待办任务" : "暂无待办任务") + "</div>";
+      if (el.sdTaskLabel) { el.sdTaskLabel.hidden = false; el.sdTaskLabel.textContent = "任务"; }
+      return;
+    }
+    if (el.sdTaskLabel) { el.sdTaskLabel.hidden = false; el.sdTaskLabel.textContent = "任务（" + rows.length + "）"; }
+    el.sdTasks.innerHTML = rows.map((r, i) => {
+      const loc = r.kind === "cell" ? (PERIOD_NAMES[r.p] + " 第" + (r.c + 1) + "格") : "待办 · 未安排";
+      return '<button type="button" class="sd-task" data-i="' + i + '" title="点击跳转">'
+        + '<span class="sd-task-text">' + escapeHtml(trunc(r.text, 20)) + "</span>"
+        + '<span class="sd-task-loc">' + escapeHtml(loc) + "</span>"
+        + "</button>";
+    }).join("");
+    el.sdTasks.querySelectorAll(".sd-task").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const r = rows[parseInt(btn.dataset.i, 10)];
+        if (!r) return;
+        closeSideDrawer();
+        if (r.kind === "cell") jumpToCell(r.p, r.c);
+        else { const ib = document.getElementById("realmFabInbox"); if (ib) ib.click(); }
+      });
+    });
+  }
+  // 跳转到计划页对应时间格子并高亮闪烁
+  function jumpToCell(period, cell) {
+    setRealm("plan");
+    state.activePeriod = period;
+    renderPeriodTabs && renderPeriodTabs();
+    renderMandala();
+    setTimeout(() => {
+      const cellEl = document.querySelector('.cell[data-period="' + period + '"][data-cell="' + cell + '"]');
+      if (cellEl) {
+        cellEl.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+        cellEl.classList.add("jump-flash");
+        setTimeout(() => cellEl.classList.remove("jump-flash"), 1600);
+      }
+    }, 80);
+  }
+  // 绑定抽屉开关 + 左滑手势
+  function bindSideDrawer() {
+    if (el.sidebarToggle) el.sidebarToggle.addEventListener("click", () => { el.sideDrawer.classList.contains("open") ? closeSideDrawer() : openSideDrawer(); });
+    if (el.sideDrawerClose) el.sideDrawerClose.addEventListener("click", closeSideDrawer);
+    if (el.sideDrawerMask) el.sideDrawerMask.addEventListener("click", closeSideDrawer);
+    // 左滑呼出：从屏幕左边缘右滑
+    let sx = 0, sy = 0, tracking = false;
+    document.addEventListener("touchstart", (e) => {
+      const t = e.touches[0];
+      if (t.clientX <= 24) { sx = t.clientX; sy = t.clientY; tracking = true; }
+    }, { passive: true });
+    document.addEventListener("touchmove", (e) => {
+      if (!tracking) return;
+      const t = e.touches[0];
+      if (t.clientX - sx > 60 && Math.abs(t.clientY - sy) < 50) { tracking = false; openSideDrawer(); }
+    }, { passive: true });
+    document.addEventListener("touchend", () => { tracking = false; }, { passive: true });
+  }
+
   // 🗺 收集箱待办 → 长期任务（一键，写入真实字段结构）
   function convertInboxToLongTask(idx) {
     const it = inboxItems[idx];
@@ -19508,6 +19765,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   function renderInboxList() {
     renderInboxStats();
     renderInboxTagDock(); // 🏷 底部标签 dock 随列表同步刷新
+    bindInboxScrollInd(); // 🎢 横向滑动悬浮进度条
     renderInboxTableBar();
     bindInboxTableBarEvents();
     renderInboxKanbanBar();
@@ -21754,6 +22012,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     refreshRepeats(); // 启动时为今天及未来 60 天生成重复任务
     renderAll();
     initRunningTimers(); // ⏱ 恢复未结束的正计时（刷新/重进不丢）
+    bindSideDrawer(); // 🏷 左侧标签抽屉 + 左滑手势
     renderDraftBanner();
     loadPomoState();
     checkUrlSync();
