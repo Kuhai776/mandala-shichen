@@ -9,7 +9,7 @@
 
 // ---------- Service Worker 版本指纹（统一注册参数）----------
 // 每次发版递增，保证 SW 脚本 URL 变化触发更新；清理旧缓存由 index.html 内联脚本负责
-const SW_VER = "20260923";
+const SW_VER = "20260902r7";
 
 (function () {
   "use strict";
@@ -128,10 +128,15 @@ const SW_VER = "20260923";
 
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
-  const APP_VERSION = "2.7.23";
-  const APP_BUILD = 103; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
-  const APP_VERSION_DATE = "2026-09-01";
+  const APP_VERSION = "2.7.24";
+  const APP_BUILD = 104; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
+  const APP_VERSION_DATE = "2026-09-02";
   const APP_CHANGELOG = [
+    { v: "2.7.24·104", date: "2026-09-02", items: [
+      "Round7：计划页移除正计时锚点/描边（正计时仅保留在记录页）",
+      "Round7：导图 JSON 导出/导入往返修复（工具栏⬇JSON/⬆导入 + 导图库导入）；下载 append 兼容 WebView",
+      "Round7：导图浮动条命中/定位修复、主线/支线/子步语义标、拖拽 hit-test 与 12px 网格吸附",
+    ]},
     { v: "2.7.23·103", date: "2026-09-01", items: [
       "Round6：导图关联线点选菜单（反转/删除）+ 关联起点高亮；主线排序位置反馈；窄屏浮动条紧凑；跳转平滑居中",
       "Round6：流式上板一键跳过确认；命名钟 Shift+■ 秒归档；跨日钟一键带到今日；记录页双击标题开钟",
@@ -2758,8 +2763,7 @@ const SW_VER = "20260923";
       if (tasks.length > 1) cellEl.classList.add("multi");
       if (isDone) cellEl.classList.add("done");
       if (globalCellIndex === currentGlobalCell && isToday(state.currentDate)) cellEl.classList.add("current-cell");
-      const _cellTimer = getRunningTimer(period, cell);
-      if (_cellTimer) cellEl.classList.add(_cellTimer.pausedAt ? "timing-paused" : "timing"); // ⏱ 正计时中（暂停中琥珀描边）
+      // Round7：计划页专注规划——不再显示正计时锚点/描边（正计时仅保留在记录页）
       // 优先级颜色（取第一个非便利贴任务的优先级代表本格）
       const firstRegular = tasks.find((t) => !t.sticky) || tasks[0];
       if (tasks.length) cellEl.classList.add("priority-" + (firstRegular.priority || "medium"));
@@ -2990,13 +2994,10 @@ const SW_VER = "20260923";
           count.textContent = tasks.length;
           cellEl.appendChild(count);
         }
-        // ⏱ 正计时锚点（三态 + ■结束）——有任务时用首条任务名
-        attachCellTimerControls(cellEl, period, cell, tasks[0] ? tasks[0].text : "未命名任务");
+        // Round7：计划页去掉正计时锚点（记录页仍保留）
       } else {
         contentEl.className = "cell-content cell-empty";
         contentEl.textContent = "—";
-        // Round1：空格也可开正计时（结束时命名写入）
-        attachCellTimerControls(cellEl, period, cell, "未命名任务");
       }
 
       const mark = document.createElement("div");
@@ -3531,7 +3532,7 @@ const SW_VER = "20260923";
     if (t && !t.pausedAt) { pauseCellTimer(period, cell); return false; }
     return startCellTimer(period, cell, taskText);
   }
-  // Round1：统一正计时锚点控件（计划页/记录页共用）——⏱启动 / ⏸暂停 / ▶恢复 + ■结束命名
+  // Round1/Round7：正计时锚点控件——仅记录页使用（计划页已去除）——⏱启动 / ⏸暂停 / ▶恢复 + ■结束命名
   function attachCellTimerControls(cellEl, period, cell, taskTextHint) {
     if (!cellEl) return;
     const _rt = getRunningTimer(period, cell);
@@ -11600,6 +11601,9 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         exportMmd: document.getElementById("mmExportMmd"),
         exportMd: document.getElementById("mmExportMd"),
         exportHtml: document.getElementById("mmExportHtml"),
+        exportJson: document.getElementById("mmExportJson"),
+        importJson: document.getElementById("mmImportJson"),
+        importJsonFile: document.getElementById("mmImportJsonFile"),
         apply: document.getElementById("mmApply"),
         save: document.getElementById("mmSave"),
         libraryBtn: document.getElementById("mmLibraryBtn"),
@@ -11906,22 +11910,24 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       if (!p) { bar.hidden = true; return; }
       const rect = this.els.canvas.getBoundingClientRect();
       if (!rect.width) { bar.hidden = true; return; }
+      // Round7：先显示再量尺寸，避免 hidden 时 offsetWidth=0 导致定位飘偏、按钮点不中
+      bar.hidden = false;
+      bar.style.visibility = "hidden";
       const cx = p.x * this.view.scale + this.view.x + p.w * this.view.scale / 2;
       const topY = p.y * this.view.scale + this.view.y;
-      const bw = bar.offsetWidth || 260;
-      const bh = bar.offsetHeight || 44;
+      const bw = bar.offsetWidth || 280;
+      const bh = bar.offsetHeight || 48;
       const nodeH = p.h * this.view.scale;
-      // 水平：居中于节点，但不出画布左右边界
       const left = Math.max(4, Math.min(rect.width - bw - 4, cx - bw / 2));
-      // 垂直：优先放节点上方；上方放不下则落到节点下方
-      let top = topY - bh - 8;
-      if (top < 4) top = topY + nodeH + 8;
+      let top = topY - bh - 10;
+      if (top < 4) top = topY + nodeH + 10;
+      // 下方也溢出时贴底
+      if (top + bh > rect.height - 4) top = Math.max(4, rect.height - bh - 4);
       bar.style.left = left + "px";
       bar.style.top = top + "px";
-      bar.hidden = false;
-      // Round6：窄屏紧凑浮动条（加大命中、隐藏次要文字）
+      bar.style.visibility = "visible";
       bar.classList.toggle("compact", rect.width < 640);
-      // Round5：关联绘制模式按钮高亮
+      bar.classList.add("mm-float-ready");
       const linkBtn = bar.querySelector('[data-a="link"]');
       if (linkBtn) linkBtn.classList.toggle("on", !!this._linkFrom);
       this._updateNavCrumb && this._updateNavCrumb();
@@ -12173,25 +12179,29 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         }
       }
       group.appendChild(rect);
-      // Round2：根节点「根」徽章 + 非根层级小标（强化层级可读）
+      // Round2/Round7：根徽章 + 主线/支线/子步语义标（替代模糊 L1/L2）
       if (n._isRoot) {
         const rb = document.createElementNS("http://www.w3.org/2000/svg", "text");
         rb.setAttribute("x", 10); rb.setAttribute("y", 14);
-        rb.setAttribute("fill", "rgba(255,255,255,.85)");
+        rb.setAttribute("fill", "rgba(255,255,255,.9)");
         rb.setAttribute("font-size", "9");
         rb.setAttribute("font-weight", "800");
         rb.setAttribute("style", "pointer-events:none");
+        rb.setAttribute("letter-spacing", "0.5");
         rb.textContent = "根 · ROOT";
         group.appendChild(rb);
-      } else if (depth > 0) {
+      } else {
+        const typeLabel = n.type === "side" ? "支线" : (n.type === "child" ? "子步" : "主线");
+        const typeColor = n.type === "side" ? "#ffd9a8" : (n.type === "child" ? "#b5e3fa" : "#c9bfff");
         const db = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        db.setAttribute("x", pos.w - 6); db.setAttribute("y", 11);
+        db.setAttribute("x", pos.w - 7); db.setAttribute("y", 12);
         db.setAttribute("text-anchor", "end");
-        db.setAttribute("fill", "rgba(200,200,230,.55)");
-        db.setAttribute("font-size", "8");
-        db.setAttribute("font-weight", "700");
+        db.setAttribute("fill", typeColor);
+        db.setAttribute("font-size", "8.5");
+        db.setAttribute("font-weight", "800");
+        db.setAttribute("opacity", "0.85");
         db.setAttribute("style", "pointer-events:none");
-        db.textContent = "L" + depth;
+        db.textContent = typeLabel;
         group.appendChild(db);
       }
       // 风险左边条
@@ -12942,7 +12952,8 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       const chip = dlg.querySelector(".mnc-incubate");
       if (!chip) return;
       const items = this.parseIncubateItems(text);
-      const ready = items.length >= 2;
+      // Round7：≥1 条结构化步骤即可点亮「可上板」（流式中途更早可用）
+      const ready = items.length >= 1;
       chip.classList.toggle("ready", ready);
       if (ready) {
         chip.textContent = "🥚 可上板 · " + items.length;
@@ -13236,10 +13247,18 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       this.pushHistory();
       const idx = parent.children.findIndex((c) => c.id === id);
       const [node] = parent.children.splice(idx, 1);
-      node.type = parent.type === "side" ? "main" : "side";
+      // Round7：提升后按新父语义定 type（根下=主线，主线下=支线，其余=子步）
+      if (grand._isRoot) node.type = "main";
+      else if (grand.type === "main") node.type = "side";
+      else node.type = "child";
+      if (node.meta) { node.meta.dx = 0; node.meta.dy = 0; }
       const pidx = grand.children.findIndex((c) => c.id === parent.id);
       grand.children.splice(pidx + 1, 0, node);
+      this.selectedId = node.id;
       this.render();
+      this.centerOn(node.id);
+      toast("⇄ 已提升为「" + trunc(grand.text || "父级", 10) + "」下的" + (node.type === "main" ? "主线" : (node.type === "side" ? "支线" : "子步")), "success");
+      haptic(14);
     }
     demote(id) {
       // 降级：成为前一个兄弟的子节点
@@ -13251,9 +13270,16 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       const n = parent.children[idx];
       this.pushHistory();
       parent.children.splice(idx, 1);
-      n.type = "child";
+      // Round7：挂到主线→支线，其余→子步
+      n.type = (prev.type === "main" || prev._isRoot) ? "side" : "child";
+      if (n.meta) { n.meta.dx = 0; n.meta.dy = 0; }
       prev.children.push(n);
+      if (prev.collapsed) prev.collapsed = false;
+      this.selectedId = n.id;
       this.render();
+      this.centerOn(n.id);
+      toast("⤵ 已降级到「" + trunc(prev.text || "节点", 12) + "」下", "success");
+      haptic(14);
     }
     reparent(id, newParentId) {
       if (id === newParentId) return;
@@ -13303,8 +13329,11 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       if (this._dragGhost) {
         this._dragGhost.style.left = x + "px";
         this._dragGhost.style.top = y + "px";
+        // Round7：hit-test 前短暂隐藏 ghost，避免个别 WebView 忽略 pointer-events:none
+        this._dragGhost.style.visibility = "hidden";
       }
       const target = document.elementFromPoint(x, y);
+      if (this._dragGhost) this._dragGhost.style.visibility = "visible";
       const tNode = target && target.closest ? target.closest("[data-node]") : null;
       const tId = tNode ? tNode.getAttribute("data-node") : null;
       if (tId !== this._dragTarget) {
@@ -13329,9 +13358,12 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     _endDragVisual(x, y) {
       this.els.g.querySelectorAll(".mm-drop-hint").forEach((h) => h.remove());
       this.els.g.querySelectorAll(".mm-drag-source").forEach((el2) => el2.classList.remove("mm-drag-source"));
-      if (this._dragGhost) { this._dragGhost.remove(); this._dragGhost = null; }
+      if (this._dragGhost) {
+        this._dragGhost.style.visibility = "hidden";
+      }
       const did = this._dragId;
       const target = (x != null && y != null) ? document.elementFromPoint(x, y) : null;
+      if (this._dragGhost) { this._dragGhost.remove(); this._dragGhost = null; }
       const tNode = target && target.closest ? target.closest("[data-node]") : null;
       const tId = tNode ? tNode.getAttribute("data-node") : null;
       this._dragId = null;
@@ -13349,21 +13381,26 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         const p = this._nodePos.get(did);
         if (n && p) {
           const rect = this.els.canvas.getBoundingClientRect();
-          const cx = (x - rect.left - this.view.x) / this.view.scale; // 屏幕 → 画布逻辑坐标
+          // 若松在浮动条/面板上，不当作空白摆放
+          if (target && (target.closest(".mm-float-bar") || target.closest(".mm-node-panel") || target.closest(".mm-toolbar"))) {
+            this.render();
+            return;
+          }
+          const cx = (x - rect.left - this.view.x) / this.view.scale;
           const cy = (y - rect.top - this.view.y) / this.view.scale;
           const curDx = (n.meta && n.meta.dx) || 0, curDy = (n.meta && n.meta.dy) || 0;
           const ndx = curDx + (cx - p.x), ndy = curDy + (cy - p.y);
           if (Math.abs(ndx - curDx) > 2 || Math.abs(ndy - curDy) > 2) {
             n.meta = n.meta || {};
-            // Round3：自由摆放吸附 10px 网格，减少抖动错位
-            n.meta.dx = Math.round(ndx / 10) * 10;
-            n.meta.dy = Math.round(ndy / 10) * 10;
+            // Round7：吸附 12px 网格，拖拽更稳
+            n.meta.dx = Math.round(ndx / 12) * 12;
+            n.meta.dy = Math.round(ndy / 12) * 12;
             this.pushHistory();
             this.save();
             this.render();
             this.centerOn(did);
             haptic(12);
-            toast("📍 已摆放（吸附网格）· 拖到节点=改隶属 · ⟳=恢复自动布局", "info", 2400);
+            toast("📍 已摆放（12px 网格）· 拖到节点=改隶属 · ⟳=恢复自动布局", "info", 2400);
           }
         }
       }
@@ -13447,13 +13484,11 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           canvas.toBlob((blob) => {
             if (!blob) { toast("PNG 导出失败", "error"); return; }
-            const a = document.createElement("a");
-            a.href = URL.createObjectURL(blob);
             const d = new Date(); const p = (n) => String(n).padStart(2, "0");
-            a.download = `孵化思维导图_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}.png`;
-            document.body.appendChild(a); a.click(); document.body.removeChild(a);
-            setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-            toast("已导出思维导图 PNG（2x 高清）", "success");
+            const fname = `孵化思维导图_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}.png`;
+            if (downloadBlobFile(blob, fname)) {
+              toast("已导出思维导图 PNG（2x 高清）", "success");
+            }
           }, "image/png");
         };
         img.onerror = () => toast("PNG 导出失败（SVG 序列化异常）", "error");
@@ -13528,13 +13563,104 @@ body{font-family:system-ui,sans-serif;background:#0f0f1e;color:#e8e8f0;margin:0;
 const DATA=${data};const root=DATA.root;const w=document.getElementById('w');const svgNS='http://www.w3.org/2000/svg';const svg=document.createElementNS(svgNS,'svg');w.appendChild(svg);const pos=new Map();let slot=0;function calc(n,d){if(!n.children.length||n.collapsed){n._s=slot++}else{n.children.forEach(c=>calc(c,d+1));n._s=(n.children[0]._s+n.children[n.children.length-1]._s)/2}}calc(root,0);function place(n,d){const x=d*250,y=n._s*60;pos.set(n.id,{x,y,w:200,h:44});n.children.forEach(c=>place(c,d+1))}place(root,0);let maxW=0,maxH=0;pos.forEach(p=>{maxW=Math.max(maxW,p.x+p.w);maxH=Math.max(maxH,p.y+p.h)});svg.setAttribute('width',maxW+20);svg.setAttribute('height',maxH+20);function walk(n){const p=pos.get(n.id);n.children.forEach(c=>{const cp=pos.get(c.id);const ln=document.createElementNS(svgNS,'path');ln.setAttribute('d','M '+(p.x+p.w)+' '+(p.y+p.h/2)+' C '+(p.x+40)+' '+(p.y+p.h/2)+', '+(cp.x-40)+' '+(cp.y+cp.h/2)+', '+cp.x+' '+(cp.y+cp.h/2));ln.setAttribute('stroke','rgba(124,92,255,.5)');ln.setAttribute('stroke-width','2');ln.setAttribute('fill','none');svg.appendChild(ln);walk(c)});const d=document.createElement('div');d.className='node'+(n._isRoot?' root':'');d.style.left=p.x+'px';d.style.top=p.y+'px';d.style.width=p.w+'px';d.style.minHeight=p.h+'px';d.innerHTML=n.text+(n.meta&&n.meta.est_min?'<div class="meta">⏱'+n.meta.est_min+'min'+(n.meta.done?' · ✅':'' )+'</div>':'');w.appendChild(d)}walk(root);
 </script></body></html>`;
       const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${(this.root.text || "mindmap").replace(/[\\/:*?"<>|]/g, "")}.html`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-      toast("已导出交互式 HTML（浏览器打开即可查看/分享）", "success");
+      const fname = sanitizeDownloadName((this.root.text || "mindmap"), "mindmap") + ".html";
+      if (downloadBlobFile(blob, fname)) {
+        toast("已导出交互式 HTML（浏览器打开即可查看/分享）", "success");
+      }
+    }
+
+    // Round7：导图 JSON 完整导出（树 + 布局 + 手动偏移，可往返导入）
+    exportJson() {
+      if (!this.root) { toast("没有可导出的导图", "warn"); return; }
+      try {
+        const payload = {
+          v: 1,
+          kind: "mandala-mindmap",
+          exportedAt: new Date().toISOString(),
+          taskText: (this.els.title && this.els.title.textContent) || this.root.text || "思维导图",
+          layout: this.layout || "lr",
+          root: JSON.parse(JSON.stringify(this.root)),
+        };
+        const fname = "mindmap-" + sanitizeDownloadName(payload.taskText, "map") + ".json";
+        if (downloadBackupFile(payload, fname)) {
+          toast("⬇ 导图 JSON 已导出（可「⬆ 导入」完整还原）", "success");
+        }
+      } catch (e) {
+        toast("导图导出失败：" + (e && e.message ? e.message : e), "error");
+      }
+    }
+    // Round7：从 JSON / Markdown 大纲导入导图
+    importJsonFile() {
+      const inp = this.els.importJsonFile;
+      if (!inp) { toast("导入控件缺失", "error"); return; }
+      inp.value = "";
+      inp.click();
+    }
+    async _onImportJsonFileChange(file) {
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const name = (file.name || "").toLowerCase();
+        let root = null;
+        let layout = "lr";
+        let taskText = "";
+        // JSON 优先
+        if (name.endsWith(".json") || /^\s*[{[]/.test(text)) {
+          let data;
+          try { data = JSON.parse(text); } catch (e) {
+            throw new Error("JSON 解析失败：" + (e.message || e));
+          }
+          const parsed = this._parseImportedMindmap(data);
+          if (!parsed || !parsed.root) throw new Error("不是有效的导图 JSON（需要 kind=mandala-mindmap 或含 root 树）");
+          root = parsed.root;
+          layout = parsed.layout || "lr";
+          taskText = parsed.taskText || root.text || "导入导图";
+        } else {
+          // Markdown / 纯文本大纲 → 树
+          root = this.parseArticleToTree(text);
+          if (!root) throw new Error("未能从文本解析出导图结构");
+          taskText = root.text || "导入大纲";
+        }
+        root._isRoot = true;
+        this.root = root;
+        this.layout = layout;
+        this._openedFrom = { mode: "import" };
+        this._animateIn = true;
+        try {
+          hatchState.taskText = taskText;
+          hatchState.taskHash = hashTaskText(taskText);
+          hatchState.result = { steps: this.treeToSteps(), est_total_min: null };
+        } catch (_) {}
+        this._open();
+        toast("✅ 导图已导入「" + trunc(taskText, 16) + "」· " + this._countNodes(root) + " 节点", "success");
+        haptic(20);
+      } catch (e) {
+        toast("导入失败：" + (e && e.message ? e.message : e), "error");
+      }
+    }
+    _parseImportedMindmap(data) {
+      if (!data || typeof data !== "object") return null;
+      // 标准包
+      if (data.kind === "mandala-mindmap" && data.root) {
+        return { root: data.root, layout: data.layout || "lr", taskText: data.taskText || (data.root && data.root.text) || "" };
+      }
+      // 导图库单条记录
+      if (data.root && (data.id || data.taskText || data.updatedAt)) {
+        return { root: data.root, layout: data.layout || "lr", taskText: data.taskText || data.root.text || "" };
+      }
+      // 裸 root
+      if (data.id && Array.isArray(data.children)) {
+        return { root: data, layout: "lr", taskText: data.text || "" };
+      }
+      // 全量备份里的 mindmaps[0]
+      if (Array.isArray(data.mindmaps) && data.mindmaps[0] && data.mindmaps[0].root) {
+        const rec = data.mindmaps[0];
+        return { root: rec.root, layout: rec.layout || "lr", taskText: rec.taskText || rec.root.text || "" };
+      }
+      if (data.root && Array.isArray(data.root.children)) {
+        return { root: data.root, layout: data.layout || "lr", taskText: data.taskText || data.root.text || "" };
+      }
+      return null;
     }
 
     // ---------- 保存 / 应用 ----------
@@ -13612,12 +13738,14 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
             </div>`;
           }).join("")
         : `<div class="mm-lib-empty">暂无导图 · 点下方「＋ 新建」创建一张空白导图</div>`;
-      this.els.library.innerHTML = `<div class="mm-lib-head"><span>📚 导图库（${list.length}）</span><button id="mmLibTpl" class="mm-tb">📄 模板</button><button id="mmLibNew" class="mm-tb">＋ 新建空白</button><button id="mmLibClose" class="icon-btn">✕</button></div>
+      this.els.library.innerHTML = `<div class="mm-lib-head"><span>📚 导图库（${list.length}）</span><button id="mmLibImport" class="mm-tb" title="从 JSON 文件导入到导图库">⬆ 导入</button><button id="mmLibTpl" class="mm-tb">📄 模板</button><button id="mmLibNew" class="mm-tb">＋ 新建空白</button><button id="mmLibClose" class="icon-btn">✕</button></div>
         <div class="mm-lib-list">${items}</div>`;
       const lib = this.els.library;
       lib.querySelector("#mmLibClose").addEventListener("click", () => this.closeLibrary());
       lib.querySelector("#mmLibNew").addEventListener("click", () => { this.closeLibrary(); this.openBlank(); });
       lib.querySelector("#mmLibTpl").addEventListener("click", () => this.showTemplates());
+      const libImp = lib.querySelector("#mmLibImport");
+      if (libImp) libImp.addEventListener("click", () => this.importJsonFile());
       lib.querySelectorAll(".mm-lib-item").forEach((el) => {
         const id = el.dataset.id;
         el.querySelector('[data-a="open"]').addEventListener("click", () => {
@@ -13637,7 +13765,18 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
         });
         el.querySelector('[data-a="export"]').addEventListener("click", () => {
           const rec = list.find((r) => r.id === id);
-          if (rec) { downloadBackupFile(rec, `mindmap-${rec.taskText || id}.json`); toast("导图已导出为文件", "success"); }
+          if (!rec) return;
+          const payload = {
+            v: 1,
+            kind: "mandala-mindmap",
+            exportedAt: new Date().toISOString(),
+            taskText: rec.taskText || "思维导图",
+            layout: rec.layout || "lr",
+            root: rec.root,
+            id: rec.id,
+          };
+          const ok = downloadBackupFile(payload, `mindmap-${sanitizeDownloadName(rec.taskText || id, id)}.json`);
+          if (ok) toast("导图已导出为 JSON 文件", "success");
         });
         el.querySelector('[data-a="del"]').addEventListener("click", () => {
           const rec = list.find((r) => r.id === id);
@@ -14119,6 +14258,15 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
       els.exportMmd.addEventListener("click", () => this.exportMermaid());
       els.exportMd.addEventListener("click", () => this.exportMarkdown());
       if (els.exportHtml) els.exportHtml.addEventListener("click", () => this.exportHtml());
+      if (els.exportJson) els.exportJson.addEventListener("click", () => this.exportJson());
+      if (els.importJson) els.importJson.addEventListener("click", () => this.importJsonFile());
+      if (els.importJsonFile) {
+        els.importJsonFile.addEventListener("change", () => {
+          const f = els.importJsonFile.files && els.importJsonFile.files[0];
+          els.importJsonFile.value = "";
+          if (f) this._onImportJsonFileChange(f);
+        });
+      }
       els.apply.addEventListener("click", () => this.applyToList());
       els.save.addEventListener("click", () => this.save());
       if (els.libraryBtn) els.libraryBtn.addEventListener("click", () => this.openLibrary());
@@ -14321,6 +14469,7 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
           else if (a === "up") this.moveNode(this.selectedId, -1);
           else if (a === "down") this.moveNode(this.selectedId, 1);
           else if (a === "promote") this.promote(this.selectedId);
+          else if (a === "demote") this.demote(this.selectedId);
           else if (a === "focus") this.focusNode(this.selectedId);
           else if (a === "link") this.beginLinkMode(this.selectedId);
           else if (a === "jump") this.jumpToTask(this.selectedId);
@@ -23303,24 +23452,55 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   }
 
   // ---------- 导出/导入 ----------
-  // 公共：把备份对象下载为 JSON 文件
+  // 公共：把备份对象 / 文本下载为文件（append 到 DOM，兼容 WebView / 桌面）
+  function sanitizeDownloadName(name, fallback) {
+    const raw = String(name || fallback || "download").trim() || "download";
+    return raw.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").replace(/\s+/g, "-").slice(0, 100);
+  }
+  function downloadBlobFile(blob, filename) {
+    if (!blob) { toast("导出失败：空文件", "error"); return false; }
+    try {
+      const safe = sanitizeDownloadName(filename, "download.bin");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = safe;
+      a.rel = "noopener";
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        try { a.remove(); } catch (_) {}
+        try { URL.revokeObjectURL(url); } catch (_) {}
+      }, 4000);
+      return true;
+    } catch (e) {
+      toast("导出失败：" + (e && e.message ? e.message : e), "error");
+      return false;
+    }
+  }
   function downloadBackupFile(data, filename) {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename || `mandala-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    try {
+      const text = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+      const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+      const name = sanitizeDownloadName(filename || `mandala-${new Date().toISOString().slice(0, 10)}.json`, "mandala.json");
+      const ok = downloadBlobFile(blob, name.endsWith(".json") ? name : name + ".json");
+      return ok;
+    } catch (e) {
+      toast("导出失败：" + (e && e.message ? e.message : e), "error");
+      return false;
+    }
   }
   el.exportBtn.addEventListener("click", () => {
-    downloadBackupFile(buildFullBackupData());
-    toast("已导出全量 JSON（含习惯打卡/孵化历史/回溯站/对话/模板等）", "success");
+    if (downloadBackupFile(buildFullBackupData())) {
+      toast("已导出全量 JSON（含习惯打卡/孵化历史/回溯站/对话/模板等）", "success");
+    }
   });
   // 设置页「导出备份文件」（更新/卸载前必做）
   if (el.exportBackupBtn) el.exportBackupBtn.addEventListener("click", () => {
-    downloadBackupFile(buildFullBackupData());
-    toast("✅ 全量备份已导出，请保存好此文件", "success");
+    if (downloadBackupFile(buildFullBackupData())) {
+      toast("✅ 全量备份已导出，请保存好此文件", "success");
+    }
   });
   // 设置页「导入备份文件」（从 JSON 恢复/合并）
   if (el.importBackupBtn && el.importBackupFile) {
@@ -23462,8 +23642,29 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   el.importFile.addEventListener("change", async () => {
     const file = el.importFile.files[0]; if (!file) return;
     try {
-      const data = JSON.parse(await file.text());
-      if (!data.tasks) throw new Error("文件格式无效");
+      const text = await file.text();
+      const data = JSON.parse(text);
+      // Round7：若是导图 JSON，直接打开导图编辑器（不要求 tasks）
+      if (data && (data.kind === "mandala-mindmap" || (data.root && Array.isArray(data.root.children) && !data.tasks))) {
+        if (!mmEditor) mmEditor = new MindMapEditor();
+        const parsed = mmEditor._parseImportedMindmap(data);
+        if (!parsed || !parsed.root) throw new Error("导图文件格式无效");
+        parsed.root._isRoot = true;
+        mmEditor.root = parsed.root;
+        mmEditor.layout = parsed.layout || "lr";
+        mmEditor._openedFrom = { mode: "import" };
+        mmEditor._animateIn = true;
+        try {
+          const tt = parsed.taskText || parsed.root.text || "导入导图";
+          hatchState.taskText = tt;
+          hatchState.taskHash = hashTaskText(tt);
+          hatchState.result = { steps: mmEditor.treeToSteps(), est_total_min: null };
+        } catch (_) {}
+        mmEditor._open();
+        toast("✅ 已导入导图「" + trunc(parsed.taskText || parsed.root.text || "导图", 16) + "」", "success");
+        return;
+      }
+      if (!data.tasks) throw new Error("文件格式无效（既不是全量备份，也不是导图 JSON）");
       const days = Object.keys(data.tasks).length;
       if (!confirm(`导入 ${days} 天的数据？当前数据将被合并。`)) return;
       // 合并而非覆盖
