@@ -11252,6 +11252,16 @@ body.side-drawer-open .side-handle { opacity: 0; pointer-events: none; transform
 .mm-node.mm-order-flash > rect {
   filter: drop-shadow(0 0 8px rgba(124,92,255,.65));
 }
+.mm-order-badge {
+  animation: mmOrderPop 0.45s ease-out;
+}
+@keyframes mmOrderPop {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: scale(1); }
+}
+.mm-node.mm-node-sel {
+  filter: drop-shadow(0 0 6px rgba(157,133,255,.35));
+}
 .mm-node.mm-link-from { cursor: crosshair; }
 .mnc-boarded {
   margin: 6px 8px 0; padding: 7px 10px; border-radius: 8px;
@@ -11340,17 +11350,22 @@ body.side-drawer-open .side-handle { opacity: 0; pointer-events: none; transform
   letter-spacing: .5px; opacity: .75;
 }
 .sd-task:hover .sd-drag-hint { color: #9d85ff; opacity: 1; }
-.sd-task-actions {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  margin-top: 2px; width: 100%;
-}
 .sd-stick-btn {
   flex: 0 0 auto; min-height: 32px; padding: 4px 10px; border-radius: 999px;
   border: 1px solid rgba(124,92,255,.45); background: rgba(124,92,255,.18);
   color: #d4c8ff; font-size: 11.5px; font-weight: 700; cursor: pointer;
   touch-action: manipulation; -webkit-tap-highlight-color: transparent;
 }
+.sd-stick-btn.ghost {
+  background: rgba(255,255,255,.04); border-color: rgba(157,133,255,.35); color: #b8aef0;
+  font-weight: 600;
+}
 .sd-stick-btn:active { background: rgba(124,92,255,.32); transform: scale(0.98); }
+.sd-task-actions {
+  display: flex; align-items: center; justify-content: flex-start; gap: 6px; flex-wrap: wrap;
+  margin-top: 2px; width: 100%;
+}
+.sd-task-actions .sd-drag-hint { margin-left: auto; }
 
 /* Round8：侧条触屏长按拖 — 半收起抽屉露出时辰格 */
 body.sd-touch-dragging .side-drawer {
@@ -11416,19 +11431,21 @@ body.sd-touch-dragging .side-handle { opacity: 0; pointer-events: none; }
     gap: 3px;
     padding-bottom: 2px;
     justify-content: flex-start;
+    scroll-snap-type: x proximity;
   }
   .mm-toolbar::-webkit-scrollbar { display: none; }
   .mm-toolbar .mm-tb, .mm-tb {
     min-height: 44px; min-width: 44px;
     padding: 8px 10px; font-size: 12px;
     flex: 0 0 auto;
+    scroll-snap-align: start;
   }
   .mm-search { width: 140px; flex: 0 0 auto; }
   .mm-sep { display: none; }
   .mm-body { flex: 1; min-height: 0; }
-  .mm-canvas { inset: 0; }
+  .mm-canvas { inset: 0; padding-bottom: env(safe-area-inset-bottom, 0px); }
   .mm-legend {
-    top: 6px; left: 6px; right: auto;
+    top: 40px; left: 6px; right: auto;
     max-width: min(38vw, 140px);
     padding: 3px 6px; gap: 3px; font-size: 9.5px;
     opacity: 0.72;
@@ -11440,15 +11457,16 @@ body.sd-touch-dragging .side-handle { opacity: 0; pointer-events: none; }
     padding: 3px 8px; gap: 5px; font-size: 9.5px;
     opacity: 0.78;
   }
-  .mm-hint { display: none; }
-  .mm-canvas {
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+  .mm-hint {
+    display: block;
+    left: 8px; right: 8px; bottom: max(48px, calc(env(safe-area-inset-bottom, 0px) + 40px));
+    max-width: none; font-size: 11px; padding: 6px 10px;
+    opacity: 0.85; pointer-events: none;
   }
   .mm-nav-crumb {
     left: 6px; top: 6px; max-width: min(92%, 280px);
     padding: 3px 6px; font-size: 10px;
   }
-  .mm-legend { top: 40px; }
   .mm-link-menu {
     max-width: min(94vw, 260px);
   }

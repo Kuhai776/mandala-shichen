@@ -129,9 +129,14 @@ const SW_VER = "20260902r7";
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
   const APP_VERSION = "2.7.24";
-  const APP_BUILD = 107; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
+  const APP_BUILD = 108; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
   const APP_VERSION_DATE = "2026-09-02";
   const APP_CHANGELOG = [
+    { v: "2.7.24·108", date: "2026-09-02", items: [
+      "Round10：侧条「贴下一空格」循环连贴；贴格后可一键开始计时",
+      "Round10：导图排序序号角标 + 选中回弹浮动条；导入容错（BOM/备份多图）",
+      "Round10：安卓工具条分组滚动与画板提示；导出插件安装脚本",
+    ]},
     { v: "2.7.24·107", date: "2026-09-02", items: [
       "Round9：侧条「贴当前空格」一键安排（当前时辰优先空格，减拖拽摩擦）",
       "Round9：导图关联线可编辑文案（关联/依赖/参考/阻塞/自定义）",
@@ -12274,6 +12279,26 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         glow.setAttribute("opacity", isLinkFrom ? "0.85" : "0.55");
         group.appendChild(glow);
       }
+      // Round10：排序闪位序号角标
+      if (isOrderFlash && this._orderFlashMeta && this._orderFlashMeta.id === n.id) {
+        const badge = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        badge.setAttribute("class", "mm-order-badge");
+        const br = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        br.setAttribute("x", pos.w - 22); br.setAttribute("y", -12);
+        br.setAttribute("width", 34); br.setAttribute("height", 18);
+        br.setAttribute("rx", 9);
+        br.setAttribute("fill", "#4ade80");
+        badge.appendChild(br);
+        const bt = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        bt.setAttribute("x", pos.w - 5); bt.setAttribute("y", 1);
+        bt.setAttribute("text-anchor", "middle");
+        bt.setAttribute("fill", "#0a1a10");
+        bt.setAttribute("font-size", "10");
+        bt.setAttribute("font-weight", "800");
+        bt.textContent = String(this._orderFlashMeta.idx);
+        badge.appendChild(bt);
+        group.appendChild(badge);
+      }
       // 主体
       const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
       rect.setAttribute("width", pos.w); rect.setAttribute("height", pos.h);
@@ -12563,9 +12588,13 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       const walkDone = (n) => { if (n.meta && n.meta.done) doneCnt++; n.children.forEach(walkDone); };
       walkDone(root);
       const doneTag = doneCnt ? `<span style="color:#4ade80;">✅ ${doneCnt}</span>` : "";
+      let linkCnt = 0;
+      const walkLink = (n) => { if (n.meta && n.meta.link) linkCnt++; n.children.forEach(walkLink); };
+      walkLink(root);
+      const linkTag = linkCnt ? `<span style="color:#ffd8a8;">关联 ${linkCnt}</span>` : "";
       const dots = KNOWLEDGE_DIMENSIONS.map((d) =>
         `<span class="mm-dimdot" style="background:${d.color};opacity:${dimSet.has(d.code) ? 1 : 0.22};" title="${d.name} ${d.code}${dimSet.has(d.code) ? " ✓" : " 未覆盖"}"></span>`).join("");
-      this.els.stats.innerHTML = `${focusTag}${doneTag}<span>${total} 节点</span><span>主线 ${mains.length}</span><span>支线 ${sides.length}</span><span>子步 ${kids.length}</span><span>总时长 ${totalMin || "—"}分</span><span class="mm-stats-dims" title="7 维覆盖">${dots} ${dimSet.size}/${KNOWLEDGE_DIMENSIONS.length}</span>`;
+      this.els.stats.innerHTML = `${focusTag}${doneTag}${linkTag}<span>${total} 节点</span><span>主线 ${mains.length}</span><span>支线 ${sides.length}</span><span>子步 ${kids.length}</span><span>总时长 ${totalMin || "—"}分</span><span class="mm-stats-dims" title="7 维覆盖">${dots} ${dimSet.size}/${KNOWLEDGE_DIMENSIONS.length}</span>`;
     }
     _renderLegend() {
       if (!this.els.legend) return;
@@ -13451,17 +13480,36 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     _flashOrder(id, parent) {
       this._orderFlashId = id;
       this.selectedId = id;
+      // Round10：记下同级序号，渲染角标
+      const idx = parent.children.findIndex((c) => c.id === id);
+      this._orderFlashMeta = {
+        id,
+        idx: idx + 1,
+        total: parent.children.length,
+        label: parent._isRoot ? "主线" : "同级",
+      };
       this.render();
       this.centerOn(id);
-      const idx = parent.children.findIndex((c) => c.id === id);
-      const label = parent._isRoot ? "主线" : "同级";
-      toast(label + " 第 " + (idx + 1) + " / " + parent.children.length, "success", 1400);
-      haptic(12);
+      this._showNodePanel && this._showNodePanel(id);
+      toast(this._orderFlashMeta.label + " 第 " + this._orderFlashMeta.idx + " / " + this._orderFlashMeta.total, "success", 1600);
+      haptic(16);
       clearTimeout(this._orderFlashTimer);
       this._orderFlashTimer = setTimeout(() => {
         this._orderFlashId = null;
+        this._orderFlashMeta = null;
         this.render();
-      }, 700);
+        this._updateFloatBar && this._updateFloatBar();
+      }, 1100);
+    }
+    // Round10：统一选中 + 居中 + 浮动条，避免点选后条不出现
+    selectNode(id, opts) {
+      opts = opts || {};
+      if (!id || !this.findNode(id)) return;
+      this.selectedId = id;
+      this.render();
+      if (opts.center !== false) this.centerOn(id);
+      if (opts.panel) this._showNodePanel && this._showNodePanel(id);
+      requestAnimationFrame(() => this._updateFloatBar && this._updateFloatBar());
     }
     promote(id) {
       // 提升：上移为父节点的兄弟（插到父节点之后）
@@ -13906,7 +13954,9 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
     async _onImportJsonFileChange(file) {
       if (!file) return;
       try {
-        const text = await file.text();
+        let text = await file.text();
+        // Round10：去 BOM / 零宽字符，提升粘贴/导出文件兼容
+        text = String(text || "").replace(/^\uFEFF/, "").replace(/\u200B/g, "");
         const name = (file.name || "").toLowerCase();
         let root = null;
         let layout = "lr";
@@ -13915,10 +13965,18 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
         if (name.endsWith(".json") || /^\s*[{[]/.test(text)) {
           let data;
           try { data = JSON.parse(text); } catch (e) {
-            throw new Error("JSON 解析失败：" + (e.message || e));
+            // 尝试截掉前后杂质再解析
+            const m = text.match(/\{[\s\S]*\}/);
+            if (m) {
+              try { data = JSON.parse(m[0]); } catch (e2) {
+                throw new Error("JSON 解析失败：" + (e.message || e));
+              }
+            } else {
+              throw new Error("JSON 解析失败：" + (e.message || e));
+            }
           }
           const parsed = this._parseImportedMindmap(data);
-          if (!parsed || !parsed.root) throw new Error("不是有效的导图 JSON（需要 kind=mandala-mindmap 或含 root 树）");
+          if (!parsed || !parsed.root) throw new Error("不是有效的导图 JSON（需要 kind=mandala-mindmap、导图库记录或含 root 树）");
           root = parsed.root;
           layout = parsed.layout || "lr";
           taskText = parsed.taskText || root.text || "导入导图";
@@ -13928,6 +13986,8 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
           if (!root) throw new Error("未能从文本解析出导图结构");
           taskText = root.text || "导入大纲";
         }
+        if (!root || typeof root !== "object") throw new Error("导图根节点无效");
+        if (!Array.isArray(root.children)) root.children = [];
         root._isRoot = true;
         this.root = root;
         this.layout = layout;
@@ -13959,9 +14019,18 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
       if (data.id && Array.isArray(data.children)) {
         return { root: data, layout: "lr", taskText: data.text || "" };
       }
-      // 全量备份里的 mindmaps[0]
-      if (Array.isArray(data.mindmaps) && data.mindmaps[0] && data.mindmaps[0].root) {
-        const rec = data.mindmaps[0];
+      // 全量备份里的 mindmaps（取最近更新）
+      if (Array.isArray(data.mindmaps) && data.mindmaps.length) {
+        const sorted = data.mindmaps.slice().filter((x) => x && x.root).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        if (sorted[0]) {
+          const rec = sorted[0];
+          return { root: rec.root, layout: rec.layout || "lr", taskText: rec.taskText || rec.root.text || "" };
+        }
+      }
+      // 备份嵌套：data.extra.mindmaps / data.hatchMindmaps
+      const nested = (data.extra && data.extra.mindmaps) || data.hatchMindmaps;
+      if (Array.isArray(nested) && nested[0] && nested[0].root) {
+        const rec = nested[0];
         return { root: rec.root, layout: rec.layout || "lr", taskText: rec.taskText || rec.root.text || "" };
       }
       if (data.root && Array.isArray(data.root.children)) {
@@ -14608,6 +14677,7 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
             this.selectedId = id;
             this._showNodePanel(id);
             this.render();
+            this._updateFloatBar && this._updateFloatBar();
             this._dragging = { id, moved: false, startX: e.clientX, startY: e.clientY };
           }
           return;
@@ -14681,6 +14751,7 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
             tp = { mode: "node", id, x: t.clientX, y: t.clientY, moved: false };
             this.selectedId = id;
             this.render();
+            this._updateFloatBar && this._updateFloatBar();
           } else {
             tp = { mode: "pan", x: t.clientX, y: t.clientY, ox: this.view.x, oy: this.view.y };
           }
@@ -19204,11 +19275,12 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   // Round8：侧条触屏长按拖入时辰格（HTML5 DnD 在多数安卓 WebView 不可用）
   let sdTouch = null; // { btn, src, startX, startY, holdTimer, ghost, axis }
   let sdLongPressed = false;
-  function applySideSourceToCell(src, period, cell) {
+  function applySideSourceToCell(src, period, cell, opts) {
+    opts = opts || {};
     if (!src) return false;
     if (src.kind === "inbox") {
-      dropInboxItemToCell(src.idx, period, cell);
-      if (state.realm === "record") {
+      dropInboxItemToCell(src.idx, period, cell, { silent: !!opts.silent });
+      if (!opts.silent && state.realm === "record") {
         const it = inboxItems[src.idx];
         toast("已安排到格子", "success", 4200, {
           label: "开始计时",
@@ -19219,7 +19291,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         });
         renderRecord();
       }
-      renderSideDrawer();
+      if (!opts.skipSideRefresh) renderSideDrawer();
       return true;
     }
     if (src.kind === "cell") {
@@ -19233,15 +19305,18 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       targetTasks.push(task);
       setCellTasks(period, cell, targetTasks);
       renderAll();
-      renderSideDrawer();
+      if (!opts.skipSideRefresh) renderSideDrawer();
       haptic(30);
-      toast("已移动到第 " + (cell + 1) + " 格", "success");
+      if (!opts.silent) toast("已移动到第 " + (cell + 1) + " 格", "success");
       return true;
     }
     return false;
   }
-  // Round9：解析「贴当前空格」目标——今日优先当前时辰空格，否则当前浏览时辰的首个空格
-  function resolveStickTargetCell() {
+  // Round9/10：解析贴格目标；mode=next 时从游标起找下一空格（连贴）
+  let sdStickCursor = null; // { p, c } 上次贴格后的游标
+  function resolveStickTargetCell(opts) {
+    opts = opts || {};
+    const wantNext = !!opts.next;
     let p = Math.max(0, state.activePeriod | 0);
     let preferC = 0;
     if (typeof isToday === "function" && isToday(state.currentDate)) {
@@ -19250,24 +19325,43 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       if (cp >= 0) p = cp;
       if (gc >= 0) preferC = gc % CELLS_PER_PERIOD;
     }
-    if (!getCellTasks(p, preferC).length) {
-      return { p, c: preferC, empty: true, label: (PERIOD_NAMES[p] || "") + " 第" + (preferC + 1) + "格" };
+    if (wantNext && sdStickCursor && sdStickCursor.p === p) {
+      preferC = (sdStickCursor.c + 1) % CELLS_PER_PERIOD;
     }
-    for (let c = 0; c < CELLS_PER_PERIOD; c++) {
+    // 从 preferC 起环形找空格
+    for (let i = 0; i < CELLS_PER_PERIOD; i++) {
+      const c = (preferC + i) % CELLS_PER_PERIOD;
       if (!getCellTasks(p, c).length) {
         return { p, c, empty: true, label: (PERIOD_NAMES[p] || "") + " 第" + (c + 1) + "格" };
       }
     }
+    // 全满：贴到 preferC（追加）
     return { p, c: preferC, empty: false, label: (PERIOD_NAMES[p] || "") + " 第" + (preferC + 1) + "格" };
   }
-  function stickSideRowToCurrentCell(src) {
+  function stickSideRowToCurrentCell(src, opts) {
     if (!src) return false;
-    const tgt = resolveStickTargetCell();
-    const ok = applySideSourceToCell(src, tgt.p, tgt.c);
+    opts = opts || {};
+    const tgt = resolveStickTargetCell(opts);
+    const ok = applySideSourceToCell(src, tgt.p, tgt.c, { silent: true, skipSideRefresh: true });
     if (ok) {
-      if (src.kind === "inbox") closeSideDrawer();
+      sdStickCursor = { p: tgt.p, c: tgt.c };
       jumpToCell(tgt.p, tgt.c);
-      if (!tgt.empty) toast("该格已有任务，已追加到 " + tgt.label, "info", 2200);
+      const taskName = (() => {
+        if (src.kind === "inbox") return (inboxItems[src.idx] && inboxItems[src.idx].text) || "任务";
+        const arr = getCellTasks(tgt.p, tgt.c);
+        return (arr[arr.length - 1] && arr[arr.length - 1].text) || "任务";
+      })();
+      // Round10：贴格后可开钟（记录摩擦↓）；侧条保持打开以便连贴
+      toast("已贴到 " + tgt.label + (tgt.empty ? "" : "（追加）"), "success", 4200, {
+        label: "开始计时",
+        onClick: () => {
+          setRealm("record");
+          startCellTimer(tgt.p, tgt.c, String(taskName).split("\n")[0] || "未命名任务");
+          renderRecord();
+        },
+      });
+      if (!opts.keepOpen && src.kind === "inbox" && !opts.next) closeSideDrawer();
+      renderSideDrawer();
     }
     return ok;
   }
@@ -20882,7 +20976,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     }
   }
 
-  function dropInboxItemToCell(idx, period, cell) {
+  function dropInboxItemToCell(idx, period, cell, opts) {
+    opts = opts || {};
     const it = inboxItems[idx];
     if (!it) return;
     const text = (it.text || "").trim();
@@ -20920,7 +21015,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     renderInboxGridPreview();
     renderMandala(); // 主曼陀罗同步更新
     const pname = PERIOD_NAMES[period] || `第${period + 1}时辰`;
-    toast(`已安排到 ${pname} 第${cell + 1}格`, "success");
+    if (!opts.silent) toast(`已安排到 ${pname} 第${cell + 1}格`, "success");
     haptic(30); // 安排落位震感
   }
 
@@ -21846,16 +21941,15 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     });
     if (!rows.length) {
       el.sdTasks.innerHTML = '<div class="sd-empty">' + (q ? "无匹配任务" : (tag ? "「" + escapeHtml(tag) + "」下暂无待办" : "暂无待办 · 可从收集箱加标签")) + "</div>";
-      if (el.sdTaskLabel) { el.sdTaskLabel.hidden = false; el.sdTaskLabel.textContent = "任务 · 贴当前空格 / 长按拖入"; }
+      if (el.sdTaskLabel) { el.sdTaskLabel.hidden = false; el.sdTaskLabel.textContent = "任务 · 贴当前 / 贴下一空格"; }
       return;
     }
-    const stickHint = (() => {
-      const t = resolveStickTargetCell();
-      return t.label + (t.empty ? "（空）" : "（追加）");
-    })();
+    const stickNow = resolveStickTargetCell({ next: false });
+    const stickNext = resolveStickTargetCell({ next: true });
+    const stickHint = stickNow.label + (stickNow.empty ? "（空）" : "（追加）");
     if (el.sdTaskLabel) {
       el.sdTaskLabel.hidden = false;
-      el.sdTaskLabel.textContent = "任务（" + rows.length + "）· 贴 → " + stickHint;
+      el.sdTaskLabel.textContent = "任务（" + rows.length + "）· 当前贴 → " + stickHint;
     }
     el.sdTasks.innerHTML = rows.map((r, i) => {
       const loc = r.kind === "cell" ? (PERIOD_NAMES[r.p] + " 第" + (r.c + 1) + "格") : "未安排";
@@ -21863,13 +21957,15 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       const tagPills = (r.tags || []).slice(0, 3).map((tg) => '<span class="sd-task-tagpill' + (tg === tag ? " hit" : "") + '">标签·' + escapeHtml(trunc(tg, 10)) + "</span>").join("");
       const hierLine = (r.hier && r.hier.length) ? '<span class="sd-task-hier">' + r.hier.map((h) => escapeHtml(h)).join(" · ") + "</span>" : "";
       const noteLine = r.note ? '<span class="sd-task-note">备注 · ' + escapeHtml(trunc(r.note, 36)) + "</span>" : "";
-      const stickBtn = '<button type="button" class="sd-stick-btn" data-stick="' + i + '" title="一键贴到' + escapeHtml(stickHint) + '">'
-        + (r.kind === "inbox" ? "贴当前空格" : "移到当前格") + "</button>";
-      return '<div class="sd-task" draggable="true" data-i="' + i + '" title="拖到时辰格子安排 · 或点「贴当前空格」">'
+      const stickBtns = r.kind === "inbox"
+        ? ('<button type="button" class="sd-stick-btn" data-stick="' + i + '" data-mode="cur" title="贴到' + escapeHtml(stickHint) + '">贴当前</button>'
+          + '<button type="button" class="sd-stick-btn ghost" data-stick="' + i + '" data-mode="next" title="贴到下一空格 · ' + escapeHtml(stickNext.label) + '">贴下一空格</button>')
+        : ('<button type="button" class="sd-stick-btn" data-stick="' + i + '" data-mode="cur" title="移到' + escapeHtml(stickHint) + '">移到当前格</button>');
+      return '<div class="sd-task" draggable="true" data-i="' + i + '" title="一键贴格 · 或长按拖入">'
         + '<span class="sd-task-top">' + kindBadge + '<span class="sd-task-text">' + escapeHtml(r.text) + "</span></span>"
         + hierLine + noteLine
         + '<span class="sd-task-meta">' + tagPills + '<span class="sd-task-loc">' + escapeHtml(loc) + "</span></span>"
-        + '<span class="sd-task-actions">' + stickBtn + '<span class="sd-drag-hint">⋮⋮ 长按拖入</span></span>'
+        + '<span class="sd-task-actions">' + stickBtns + '<span class="sd-drag-hint">⋮⋮ 长按拖入</span></span>'
         + "</div>";
     }).join("");
     el.sdTasks.querySelectorAll(".sd-stick-btn").forEach((b) => {
@@ -21877,13 +21973,17 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         e.stopPropagation();
         e.preventDefault();
         const i = parseInt(b.getAttribute("data-stick"), 10);
+        const mode = b.getAttribute("data-mode") || "cur";
         const r = rows[i];
         if (!r) return;
         const src = r.kind === "inbox"
           ? { kind: "inbox", idx: r.idx }
           : { kind: "cell", p: r.p, c: r.c, ti: r.ti };
         haptic(18);
-        stickSideRowToCurrentCell(src);
+        stickSideRowToCurrentCell(src, {
+          next: mode === "next",
+          keepOpen: mode === "next" || r.kind === "inbox",
+        });
       });
     });
     el.sdTasks.querySelectorAll(".sd-task").forEach((btn) => {

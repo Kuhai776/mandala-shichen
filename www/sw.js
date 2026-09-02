@@ -1,6 +1,6 @@
 // 曼陀罗时辰 Service Worker
 // 策略：network-first（优先网络，失败回退缓存），避免缓存旧资源导致页面卡死
-const CACHE_NAME = "mandala-v107"; // v107 Round9：贴当前空格+关联文案+导出回退 // v106 Round8
+const CACHE_NAME = "mandala-v108"; // v108 Round10：贴下一空格+排序角标+导入容错 // v107 Round9
 const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.json"];
 
 self.addEventListener("install", (event) => {
