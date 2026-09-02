@@ -129,9 +129,14 @@ const SW_VER = "20260902r7";
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
   const APP_VERSION = "2.7.24";
-  const APP_BUILD = 106; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
+  const APP_BUILD = 107; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
   const APP_VERSION_DATE = "2026-09-02";
   const APP_CHANGELOG = [
+    { v: "2.7.24·107", date: "2026-09-02", items: [
+      "Round9：侧条「贴当前空格」一键安排（当前时辰优先空格，减拖拽摩擦）",
+      "Round9：导图关联线可编辑文案（关联/依赖/参考/阻塞/自定义）",
+      "Round9：导出插件缺失时优雅回退；安卓画板安全区与提示再收紧",
+    ]},
     { v: "2.7.24·106", date: "2026-09-02", items: [
       "Round8：侧条任务触屏长按拖入时辰格（安卓 WebView，不依赖桌面 HTML5 拖放）",
       "Round8：导出走原生分享/写入通道（分享文件 / 写入文档目录 / 网页下载三级回退）",
@@ -12086,17 +12091,19 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       const m = from.meta || (from.meta = {});
       if (m.link === toId) {
         delete m.link;
+        delete m.linkLabel;
         this._linkFrom = null;
         this.render();
         toast("已清除关联", "info");
         return true;
       }
       m.link = toId;
+      if (!m.linkLabel) m.linkLabel = "关联";
       this._linkFrom = null;
       this.selectedId = fromId;
       this.render();
       this._showNodePanel && this._showNodePanel(fromId);
-      toast("🔗 已关联 → " + trunc(to.text || "节点", 16), "success");
+      toast("🔗 已关联 → " + trunc(to.text || "节点", 16) + "（可点连线改文案）", "success");
       haptic(18);
       return true;
     }
@@ -12483,25 +12490,42 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
               vis.setAttribute("opacity", "0.75");
               vis.setAttribute("pointer-events", "none");
               this.els.g.appendChild(vis);
-              // Round8：关联线中文标签（中点）
+              // Round8/9：关联线中文标签（可自定义 meta.linkLabel）
+              const labelText = String((n.meta && n.meta.linkLabel) || "关联").trim() || "关联";
               const midX = (x1 + x2) / 2;
               const midY = (y1 + y2) / 2 - 6;
+              const labW = Math.max(32, Math.min(96, 12 + labelText.length * 11));
               const labBg = document.createElementNS(NS, "rect");
-              labBg.setAttribute("x", midX - 16); labBg.setAttribute("y", midY - 10);
-              labBg.setAttribute("width", 32); labBg.setAttribute("height", 14);
-              labBg.setAttribute("rx", 4);
-              labBg.setAttribute("fill", "rgba(20,16,8,.72)");
-              labBg.setAttribute("pointer-events", "none");
+              labBg.setAttribute("class", "mm-link-label-bg");
+              labBg.setAttribute("x", midX - labW / 2); labBg.setAttribute("y", midY - 10);
+              labBg.setAttribute("width", labW); labBg.setAttribute("height", 16);
+              labBg.setAttribute("rx", 5);
+              labBg.setAttribute("fill", "rgba(20,16,8,.78)");
+              labBg.setAttribute("stroke", "rgba(255,169,77,.35)");
+              labBg.setAttribute("stroke-width", "1");
+              labBg.style.cursor = "pointer";
+              labBg.dataset.linkFrom = n.id;
+              labBg.dataset.linkTo = t.id;
+              const openMenu = (e) => {
+                e.stopPropagation();
+                this._showLinkEdgeMenu(n.id, t.id, e.clientX || midX, e.clientY || midY);
+              };
+              labBg.addEventListener("click", openMenu);
               this.els.g.appendChild(labBg);
               const lab = document.createElementNS(NS, "text");
-              lab.setAttribute("x", midX); lab.setAttribute("y", midY + 1);
+              lab.setAttribute("class", "mm-link-label");
+              lab.setAttribute("x", midX); lab.setAttribute("y", midY + 2);
               lab.setAttribute("text-anchor", "middle");
               lab.setAttribute("dominant-baseline", "middle");
               lab.setAttribute("fill", "#ffd8a8");
               lab.setAttribute("font-size", "10");
               lab.setAttribute("font-weight", "700");
-              lab.setAttribute("pointer-events", "none");
-              lab.textContent = "关联";
+              lab.style.cursor = "pointer";
+              lab.style.pointerEvents = "auto";
+              lab.dataset.linkFrom = n.id;
+              lab.dataset.linkTo = t.id;
+              lab.textContent = trunc(labelText, 8);
+              lab.addEventListener("click", openMenu);
               this.els.g.appendChild(lab);
               // 目标端小圆点 + 起点小箭头感
               const dot = document.createElementNS(NS, "circle");
@@ -12614,34 +12638,68 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       this._updateFloatBar && this._updateFloatBar();
       setTimeout(() => { this._focusedNode = null; this.render(); }, 1200);
     }
-    // Round6：关联线点选菜单（反转 / 删除）
+    // Round6/9：关联线点选菜单（改文案 / 反转 / 删除）
     _showLinkEdgeMenu(fromId, toId, cx, cy) {
       document.querySelectorAll(".mm-link-menu").forEach((el) => el.remove());
       const from = this.findNode(fromId);
       const to = this.findNode(toId);
       if (!from || !to) return;
+      const curLabel = String((from.meta && from.meta.linkLabel) || "关联").trim() || "关联";
+      const presets = ["关联", "依赖", "参考", "阻塞", "先后"];
       const menu = document.createElement("div");
       menu.className = "mm-link-menu";
       menu.innerHTML =
         '<div class="mm-lm-title">🔗 ' + escapeHtml(trunc(from.text, 10)) + " → " + escapeHtml(trunc(to.text, 10)) + "</div>"
+        + '<div class="mm-lm-label-row"><label>文案</label><input type="text" class="mm-lm-input" maxlength="12" value="' + escapeHtml(curLabel) + '" placeholder="如：依赖" /></div>'
+        + '<div class="mm-lm-presets">' + presets.map((p) =>
+          '<button type="button" class="mm-lm-chip' + (p === curLabel ? " on" : "") + '" data-lab="' + escapeHtml(p) + '">' + escapeHtml(p) + "</button>"
+        ).join("") + "</div>"
+        + '<button type="button" data-a="save">✓ 保存文案</button>'
         + '<button type="button" data-a="rev">⇄ 反转方向</button>'
         + '<button type="button" data-a="del" class="danger">🗑 删除关联</button>'
         + '<button type="button" data-a="cancel">取消</button>';
       const canvas = this.els.canvas;
       const rect = canvas.getBoundingClientRect();
-      menu.style.left = Math.max(8, Math.min(rect.width - 180, cx - rect.left - 70)) + "px";
-      menu.style.top = Math.max(8, Math.min(rect.height - 130, cy - rect.top + 8)) + "px";
+      menu.style.left = Math.max(8, Math.min(rect.width - 200, cx - rect.left - 80)) + "px";
+      menu.style.top = Math.max(8, Math.min(rect.height - 220, cy - rect.top + 8)) + "px";
       canvas.appendChild(menu);
+      const inp = menu.querySelector(".mm-lm-input");
       const close = () => menu.remove();
+      const applyLabel = (text) => {
+        const v = String(text || "").trim().slice(0, 12) || "关联";
+        this.pushHistory();
+        const m = from.meta || (from.meta = {});
+        m.linkLabel = v;
+        this.render();
+        toast("关联文案：「" + v + "」", "success");
+        haptic(12);
+        close();
+      };
+      menu.querySelectorAll(".mm-lm-chip").forEach((chip) => {
+        chip.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (inp) inp.value = chip.getAttribute("data-lab") || "关联";
+          menu.querySelectorAll(".mm-lm-chip").forEach((x) => x.classList.toggle("on", x === chip));
+        });
+      });
+      if (inp) {
+        inp.addEventListener("keydown", (e) => {
+          e.stopPropagation();
+          if (e.key === "Enter") { e.preventDefault(); applyLabel(inp.value); }
+          if (e.key === "Escape") { e.preventDefault(); close(); }
+        });
+        setTimeout(() => { try { inp.focus(); inp.select(); } catch (_) {} }, 30);
+      }
       menu.addEventListener("click", (e) => {
         const btn = e.target.closest("[data-a]");
         if (!btn) return;
         e.stopPropagation();
         const a = btn.dataset.a;
         if (a === "cancel") { close(); return; }
+        if (a === "save") { applyLabel(inp && inp.value); return; }
         if (a === "del") {
           this.pushHistory();
-          if (from.meta) delete from.meta.link;
+          if (from.meta) { delete from.meta.link; delete from.meta.linkLabel; }
           this.render();
           toast("已删除关联", "info");
           close();
@@ -12649,9 +12707,11 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         }
         if (a === "rev") {
           this.pushHistory();
-          if (from.meta) delete from.meta.link;
+          const keepLabel = (from.meta && from.meta.linkLabel) || "关联";
+          if (from.meta) { delete from.meta.link; delete from.meta.linkLabel; }
           const tm = to.meta || (to.meta = {});
           tm.link = from.id;
+          tm.linkLabel = keepLabel;
           this.render();
           toast("⇄ 已反转关联方向", "success");
           close();
@@ -19180,6 +19240,37 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     }
     return false;
   }
+  // Round9：解析「贴当前空格」目标——今日优先当前时辰空格，否则当前浏览时辰的首个空格
+  function resolveStickTargetCell() {
+    let p = Math.max(0, state.activePeriod | 0);
+    let preferC = 0;
+    if (typeof isToday === "function" && isToday(state.currentDate)) {
+      const cp = getCurrentPeriod();
+      const gc = getCurrentGlobalCell();
+      if (cp >= 0) p = cp;
+      if (gc >= 0) preferC = gc % CELLS_PER_PERIOD;
+    }
+    if (!getCellTasks(p, preferC).length) {
+      return { p, c: preferC, empty: true, label: (PERIOD_NAMES[p] || "") + " 第" + (preferC + 1) + "格" };
+    }
+    for (let c = 0; c < CELLS_PER_PERIOD; c++) {
+      if (!getCellTasks(p, c).length) {
+        return { p, c, empty: true, label: (PERIOD_NAMES[p] || "") + " 第" + (c + 1) + "格" };
+      }
+    }
+    return { p, c: preferC, empty: false, label: (PERIOD_NAMES[p] || "") + " 第" + (preferC + 1) + "格" };
+  }
+  function stickSideRowToCurrentCell(src) {
+    if (!src) return false;
+    const tgt = resolveStickTargetCell();
+    const ok = applySideSourceToCell(src, tgt.p, tgt.c);
+    if (ok) {
+      if (src.kind === "inbox") closeSideDrawer();
+      jumpToCell(tgt.p, tgt.c);
+      if (!tgt.empty) toast("该格已有任务，已追加到 " + tgt.label, "info", 2200);
+    }
+    return ok;
+  }
   function moveSdGhost(st, x, y) {
     if (!st || !st.ghost) return;
     st.ghost.style.left = x + "px";
@@ -21755,23 +21846,46 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     });
     if (!rows.length) {
       el.sdTasks.innerHTML = '<div class="sd-empty">' + (q ? "无匹配任务" : (tag ? "「" + escapeHtml(tag) + "」下暂无待办" : "暂无待办 · 可从收集箱加标签")) + "</div>";
-      if (el.sdTaskLabel) { el.sdTaskLabel.hidden = false; el.sdTaskLabel.textContent = "任务 · 长按拖到时辰格子"; }
+      if (el.sdTaskLabel) { el.sdTaskLabel.hidden = false; el.sdTaskLabel.textContent = "任务 · 贴当前空格 / 长按拖入"; }
       return;
     }
-    if (el.sdTaskLabel) { el.sdTaskLabel.hidden = false; el.sdTaskLabel.textContent = "任务（" + rows.length + "）· 长按拖到时辰格子"; }
+    const stickHint = (() => {
+      const t = resolveStickTargetCell();
+      return t.label + (t.empty ? "（空）" : "（追加）");
+    })();
+    if (el.sdTaskLabel) {
+      el.sdTaskLabel.hidden = false;
+      el.sdTaskLabel.textContent = "任务（" + rows.length + "）· 贴 → " + stickHint;
+    }
     el.sdTasks.innerHTML = rows.map((r, i) => {
       const loc = r.kind === "cell" ? (PERIOD_NAMES[r.p] + " 第" + (r.c + 1) + "格") : "未安排";
       const kindBadge = r.kind === "cell" ? '<span class="sd-kind cell">已安排</span>' : '<span class="sd-kind inbox">待安排</span>';
       const tagPills = (r.tags || []).slice(0, 3).map((tg) => '<span class="sd-task-tagpill' + (tg === tag ? " hit" : "") + '">标签·' + escapeHtml(trunc(tg, 10)) + "</span>").join("");
       const hierLine = (r.hier && r.hier.length) ? '<span class="sd-task-hier">' + r.hier.map((h) => escapeHtml(h)).join(" · ") + "</span>" : "";
       const noteLine = r.note ? '<span class="sd-task-note">备注 · ' + escapeHtml(trunc(r.note, 36)) + "</span>" : "";
-      return '<div class="sd-task" draggable="true" data-i="' + i + '" title="拖到时辰格子安排 · 点击定位">'
+      const stickBtn = '<button type="button" class="sd-stick-btn" data-stick="' + i + '" title="一键贴到' + escapeHtml(stickHint) + '">'
+        + (r.kind === "inbox" ? "贴当前空格" : "移到当前格") + "</button>";
+      return '<div class="sd-task" draggable="true" data-i="' + i + '" title="拖到时辰格子安排 · 或点「贴当前空格」">'
         + '<span class="sd-task-top">' + kindBadge + '<span class="sd-task-text">' + escapeHtml(r.text) + "</span></span>"
         + hierLine + noteLine
         + '<span class="sd-task-meta">' + tagPills + '<span class="sd-task-loc">' + escapeHtml(loc) + "</span></span>"
-        + '<span class="sd-drag-hint">⋮⋮ 长按拖入格子</span>'
+        + '<span class="sd-task-actions">' + stickBtn + '<span class="sd-drag-hint">⋮⋮ 长按拖入</span></span>'
         + "</div>";
     }).join("");
+    el.sdTasks.querySelectorAll(".sd-stick-btn").forEach((b) => {
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const i = parseInt(b.getAttribute("data-stick"), 10);
+        const r = rows[i];
+        if (!r) return;
+        const src = r.kind === "inbox"
+          ? { kind: "inbox", idx: r.idx }
+          : { kind: "cell", p: r.p, c: r.c, ti: r.ti };
+        haptic(18);
+        stickSideRowToCurrentCell(src);
+      });
+    });
     el.sdTasks.querySelectorAll(".sd-task").forEach((btn) => {
       const i = parseInt(btn.dataset.i, 10);
       const makeSrc = () => {
@@ -21800,6 +21914,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       });
       // Round8：触屏长按 300ms 拖到时辰格子（安卓主路径）
       btn.addEventListener("touchstart", (e) => {
+        if (e.target.closest(".sd-stick-btn")) return;
         if (!e.touches || e.touches.length !== 1) return;
         const t = e.touches[0];
         const src = makeSrc();
@@ -21891,7 +22006,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         const r = rows[i];
         if (!r) return;
         if (r.kind === "cell") { closeSideDrawer(); jumpToCell(r.p, r.c); }
-        else toast("长按任务拖到时辰格子即可安排", "info", 2200);
+        else toast("点「贴当前空格」一键安排，或长按拖到格子", "info", 2400);
       });
     });
   }
@@ -23930,10 +24045,11 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     }, 4000);
     return true;
   }
-  // Round8：原生 APK / 安卓 WebView 导出通道
+  // Round8/9：原生 APK / 安卓 WebView 导出通道
   // 1) Capacitor Filesystem 写入文档目录 + Share 分享文件
   // 2) Web Share API（带 files）
-  // 3) <a download> 回退
+  // 3) <a download> 回退（插件未安装时仍可用）
+  let _exportNativeWarned = false;
   async function saveOrShareBlob(blob, filename) {
     if (!blob) throw new Error("空文件");
     const safe = sanitizeDownloadName(filename, "download.bin");
@@ -23941,23 +24057,26 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     const plugins = Cap && Cap.Plugins ? Cap.Plugins : null;
     const NativeFs = plugins && plugins.Filesystem ? plugins.Filesystem : null;
     const NativeShare = plugins && plugins.Share ? plugins.Share : null;
+    // Round9：原生壳但未 sync 插件 → 静默降级，仅首次轻提示
+    if (IS_NATIVE && !NativeFs && !NativeShare && !_exportNativeWarned) {
+      _exportNativeWarned = true;
+      console.info("[export] Share/Filesystem 插件未接入，将使用系统分享或浏览器下载回退。安装：npm i @capacitor/share @capacitor/filesystem && npx cap sync android");
+    }
     // 1) Capacitor Filesystem + Share
     if (IS_NATIVE && NativeFs) {
       try {
         const b64 = await blobToBase64(blob);
         const path = "mandala-exports/" + safe;
+        const dir = (NativeFs.Directory && NativeFs.Directory.Documents) || "DOCUMENTS";
         await NativeFs.writeFile({
           path,
           data: b64,
-          directory: (NativeFs.Directory && NativeFs.Directory.Documents) || "DOCUMENTS",
+          directory: dir,
           recursive: true,
         });
         let uri = "";
         try {
-          const uriRes = await NativeFs.getUri({
-            path,
-            directory: (NativeFs.Directory && NativeFs.Directory.Documents) || "DOCUMENTS",
-          });
+          const uriRes = await NativeFs.getUri({ path, directory: dir });
           uri = (uriRes && (uriRes.uri || uriRes.path)) || "";
         } catch (_) {}
         if (NativeShare && uri) {
@@ -23976,9 +24095,30 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
             }
           }
         }
+        // 无 Share 插件：仅落盘也算成功
         return { ok: true, via: "native-file" };
       } catch (e) {
-        console.warn("[export] native filesystem failed", e);
+        console.warn("[export] native filesystem failed，改用回退通道", e);
+      }
+    }
+    // 1b) 仅有 Share、无 Filesystem：尝试分享文本摘要（JSON 截断）或跳过
+    if (IS_NATIVE && NativeShare && !NativeFs) {
+      try {
+        // 小文本可直接分享；大文件仍走 Web Share / 锚点
+        if (blob.size < 180000 && (blob.type || "").includes("json")) {
+          const text = await blob.text();
+          await NativeShare.share({
+            title: safe,
+            text: text.slice(0, 90000),
+            dialogTitle: "导出数据",
+          });
+          return { ok: true, via: "native-share-text" };
+        }
+      } catch (e) {
+        if (e && /cancel|abort/i.test(String(e.message || e))) {
+          return { ok: true, via: "native-share-text", cancelledShare: true };
+        }
+        console.warn("[export] share-text failed", e);
       }
     }
     // 2) Web Share Level 2（部分安卓 WebView / Chrome 可用）
@@ -23998,7 +24138,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     }
     // 3) 传统下载锚点
     triggerAnchorDownload(blob, safe);
-    return { ok: true, via: "anchor" };
+    return { ok: true, via: "anchor", softNative: IS_NATIVE && !NativeFs };
   }
   function downloadBlobFile(blob, filename) {
     if (!blob) { toast("导出失败：空文件", "error"); return false; }
@@ -24009,9 +24149,12 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         toast(res.via === "native-file" ? "文件已写入文档目录（未分享）" : "已取消分享", "info");
         return;
       }
-      // 仅原生落盘且未分享时提示路径；分享/锚点由调用方 toast
       if (res.via === "native-file") {
         toast("已写入应用文档目录，可在文件管理中查看", "success");
+      } else if (res.via === "native-share-text") {
+        toast("已通过系统分享导出（文本）", "success");
+      } else if (res.softNative && res.via === "anchor") {
+        toast("已尝试下载；若失败请用系统分享或安装导出插件后重打包", "info", 3200);
       }
     }).catch((e) => {
       try {
