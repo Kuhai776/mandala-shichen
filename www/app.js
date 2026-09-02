@@ -129,9 +129,27 @@ const SW_VER = "20260902r7";
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
   const APP_VERSION = "2.7.24";
-  const APP_BUILD = 108; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
+  const APP_BUILD = 112; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
   const APP_VERSION_DATE = "2026-09-02";
   const APP_CHANGELOG = [
+    { v: "2.7.24·112", date: "2026-09-02", items: [
+      "Round13：边轨贴齐九宫格（随格子定位）+ 窄屏藏置顶钮",
+      "Round13：记录页多钟条支持跨日带到今日/清跨日；走秒轻量刷新不闪烁",
+      "Round13：导图底栏「估时」+ 微移（12px）加深手动调整",
+    ]},
+    { v: "2.7.24·111", date: "2026-09-02", items: [
+      "Round12深：导图安卓底栏浮动条 + 长按编辑 + 主轴滑动改同级顺序",
+      "Round12深：记录页多钟条与底栏避让；格子走秒徽标跟 tick 刷新",
+      "Round12深：边轨更紧凑（藏置顶钮）+ 大纲/导出带关联文案",
+    ]},
+    { v: "2.7.24·110", date: "2026-09-02", items: [
+      "Round12：侧条「全部贴入」— 当前标签下待安排一键连贴空格",
+    ]},
+    { v: "2.7.24·109", date: "2026-09-02", items: [
+      "Round11：侧条改为主九宫格贴边浮动轨（非左隐藏整页），小标签→任务→拖/点贴格",
+      "Round11：记录页内嵌多钟条（启动/暂停/切下一钟/结束命名）；修复结束归档时长文案",
+      "Round11：导图安卓触控分清点选/长按拖移；节点与任务可手动调整",
+    ]},
     { v: "2.7.24·108", date: "2026-09-02", items: [
       "Round10：侧条「贴下一空格」循环连贴；贴格后可一键开始计时",
       "Round10：导图排序序号角标 + 选中回弹浮动条；导入容错（BOM/备份多图）",
@@ -1924,6 +1942,7 @@ const SW_VER = "20260902r7";
     ogAddInput: document.getElementById("ogAddInput"),
     ogAddBtn: document.getElementById("ogAddBtn"),
     recordOngoingList: document.getElementById("recordOngoingList"),
+    recordClockStrip: document.getElementById("recordClockStrip"),
     quickRecordDialog: document.getElementById("quickRecordDialog"),
     closeQuickRecord: document.getElementById("closeQuickRecord"),
     qrTitle: document.getElementById("qrTitle"),
@@ -3322,10 +3341,18 @@ const SW_VER = "20260902r7";
     }
     // 切到目标 realm 时重新渲染对应页面（与 renderAll 的条件渲染配合）
     if (realm === "plan") renderMandala();
-    if (realm === "record") renderRecord();
+    if (realm === "record") {
+      renderRecord();
+      renderRecordClockStrip(); // Round12：进记录页立刻刷新多钟条
+    }
     if (realm === "review") renderReview();
+    document.body.classList.toggle("realm-record", realm === "record");
+    document.body.classList.toggle("realm-plan", realm === "plan");
     updateChatPlaceholder();
     updateStageProgressColor();
+    if (document.body.classList.contains("side-drawer-open")) {
+      requestAnimationFrame(() => positionEdgeRail());
+    }
   }
 
   // 三才切换时联动环节进度条颜色
@@ -3497,7 +3524,7 @@ const SW_VER = "20260902r7";
       renderMandala();
       renderRecord();
       haptic(20);
-      toast("⏱️ 已记录 " + spentMin + " 分钟 → " + (PERIOD_NAMES[period] || "第" + (period + 1) + "辰") + " 第" + (cell + 1) + "格", "success");
+      toast("⏱️ 已记录 " + formatSpentPrecise(duration) + " → " + (PERIOD_NAMES[period] || "第" + (period + 1) + "辰") + " 第" + (cell + 1) + "格", "success");
     };
     if (opts.quick && !isUnnamed) {
       doCommit(t.taskText);
@@ -3732,7 +3759,10 @@ const SW_VER = "20260902r7";
   }
   function _startTimerTick() {
     if (_timerTick) return;
-    _timerTick = setInterval(renderRunningTimerBar, 1000);
+    // Round13：优先轻量走秒；结构变化时再全量重绘，避免安卓每秒闪烁
+    _timerTick = setInterval(() => {
+      if (!_tryLightTimerRefresh()) renderRunningTimerBar();
+    }, 1000);
   }
   function _stopTimerTick() {
     if (_timerTick) { clearInterval(_timerTick); _timerTick = null; }
@@ -3799,9 +3829,16 @@ const SW_VER = "20260902r7";
     const today = state.currentDate;
     const todayTimers = Object.keys(runningTimers).map((k) => runningTimers[k]).filter((t) => t && t.date === today);
     const staleTimers = Object.keys(runningTimers).map((k) => runningTimers[k]).filter((t) => t && t.date !== today);
-    if (!todayTimers.length && !staleTimers.length) { bar.hidden = true; bar.innerHTML = ""; return; }
+    if (!todayTimers.length && !staleTimers.length) {
+      bar.hidden = true;
+      bar.innerHTML = "";
+      bar.dataset.sig = "";
+      renderRecordClockStrip([], []);
+      return;
+    }
     bar.hidden = false;
     todayTimers.sort((a, b) => (!!a.pausedAt === !!b.pausedAt) ? 0 : (a.pausedAt ? 1 : -1));
+    bar.dataset.sig = _timerSig(todayTimers, staleTimers);
     let sumHtml = "";
     if (todayTimers.length >= 2 || staleTimers.length) {
       const runN = todayTimers.filter((t) => !t.pausedAt).length;
@@ -3845,6 +3882,183 @@ const SW_VER = "20260902r7";
       + todayTimers.map((t) => chipHtml(t, false)).join("")
       + staleTimers.map((t) => chipHtml(t, true)).join("")
       + "</div>";
+    renderRecordClockStrip(todayTimers, staleTimers);
+    refreshCellTimerBadges(); // Round12：格子上的走秒徽标跟 tick 走，不全页重绘
+  }
+  // Round12：轻量刷新格子计时徽标（记录/计划页）
+  function refreshCellTimerBadges() {
+    document.querySelectorAll(".cell[data-period][data-cell]").forEach((cellEl) => {
+      const p = parseInt(cellEl.dataset.period, 10), c = parseInt(cellEl.dataset.cell, 10);
+      if (isNaN(p) || isNaN(c)) return;
+      const t = getRunningTimer(p, c);
+      let badge = cellEl.querySelector(".cell-timer-elapsed");
+      if (!t) {
+        if (badge) badge.remove();
+        cellEl.classList.remove("timing", "timing-paused");
+        return;
+      }
+      const paused = !!t.pausedAt;
+      const elMs = timerElapsedOf(t);
+      const mm = Math.floor(elMs / 60000), ss = Math.floor((elMs % 60000) / 1000);
+      const text = String(mm).padStart(2, "0") + ":" + String(ss).padStart(2, "0");
+      if (!badge) {
+        const wrap = cellEl.querySelector(".cell-timer-controls");
+        if (!wrap) return;
+        badge = document.createElement("span");
+        badge.className = "cell-timer-elapsed";
+        wrap.insertBefore(badge, wrap.firstChild);
+      }
+      badge.textContent = text;
+      badge.classList.toggle("paused", paused);
+      cellEl.classList.toggle("timing", !paused);
+      cellEl.classList.toggle("timing-paused", paused);
+      const btn = cellEl.querySelector(".cell-timer-btn");
+      if (btn) {
+        btn.className = "cell-timer-btn" + (paused ? " paused" : " running");
+        btn.textContent = paused ? "▶" : "⏸";
+      }
+    });
+  }
+  function _fmtTimerClock(t) {
+    const elSec = Math.floor(timerElapsedOf(t) / 1000);
+    const hh = String(Math.floor(elSec / 3600)).padStart(2, "0");
+    const mm = String(Math.floor((elSec % 3600) / 60)).padStart(2, "0");
+    const ss = String(elSec % 60).padStart(2, "0");
+    return hh !== "00" ? hh + ":" + mm + ":" + ss : mm + ":" + ss;
+  }
+  // Round13：结构未变时只改走秒数字，避免安卓 WebView 每秒重绘闪烁
+  function _timerSig(todayTimers, staleTimers) {
+    const keyOf = (t, stale) => (stale ? "s:" : "t:") + (t.date || "") + "|" + t.period + "|" + t.cell + "|" + (!!t.pausedAt ? "p" : "r");
+    return todayTimers.map((t) => keyOf(t, false)).join(",") + "#" + (staleTimers || []).map((t) => keyOf(t, true)).join(",");
+  }
+  function _tryLightTimerRefresh() {
+    const today = state.currentDate;
+    const todayTimers = Object.keys(runningTimers).map((k) => runningTimers[k]).filter((t) => t && t.date === today);
+    const staleTimers = Object.keys(runningTimers).map((k) => runningTimers[k]).filter((t) => t && t.date !== today);
+    todayTimers.sort((a, b) => (!!a.pausedAt === !!b.pausedAt) ? 0 : (a.pausedAt ? 1 : -1));
+    const sig = _timerSig(todayTimers, staleTimers);
+    const bar = document.getElementById("runningTimerBar");
+    const strip = el.recordClockStrip || document.getElementById("recordClockStrip");
+    const barOk = bar && !bar.hidden && bar.dataset.sig === sig;
+    const stripOk = strip && ((!todayTimers.length && !staleTimers.length && strip.hidden)
+      || (!strip.hidden && strip.dataset.sig === sig));
+    if (!todayTimers.length && !staleTimers.length) return false;
+    if (!barOk && !(strip && !strip.hidden && strip.dataset.sig === sig)) return false;
+    const patchChip = (root, t, stale) => {
+      if (!root) return;
+      root.querySelectorAll(stale ? ".timer-chip.stale, .rcs-chip.stale" : ".timer-chip:not(.stale), .rcs-chip:not(.stale)").forEach((chip) => {
+        if (parseInt(chip.dataset.p, 10) !== t.period || parseInt(chip.dataset.c, 10) !== t.cell) return;
+        if (stale && (chip.dataset.date || "") !== (t.date || "")) return;
+        const clock = chip.querySelector(".timer-clock, .rcs-clock");
+        if (clock) clock.textContent = _fmtTimerClock(t);
+      });
+    };
+    todayTimers.forEach((t) => { patchChip(bar, t, false); patchChip(strip, t, false); });
+    staleTimers.forEach((t) => { patchChip(bar, t, true); patchChip(strip, t, true); });
+    refreshCellTimerBadges();
+    return !!(barOk || stripOk);
+  }
+  // Round11：记录页内嵌多钟条（开/停/切下一钟/结束命名），与底部条同源
+  function renderRecordClockStrip(todayTimers, staleTimers) {
+    const strip = el.recordClockStrip || document.getElementById("recordClockStrip");
+    if (!strip) return;
+    if (todayTimers == null) {
+      const today = state.currentDate;
+      todayTimers = Object.keys(runningTimers).map((k) => runningTimers[k]).filter((t) => t && t.date === today);
+      staleTimers = Object.keys(runningTimers).map((k) => runningTimers[k]).filter((t) => t && t.date !== today);
+      todayTimers.sort((a, b) => (!!a.pausedAt === !!b.pausedAt) ? 0 : (a.pausedAt ? 1 : -1));
+    }
+    staleTimers = staleTimers || [];
+    if (!todayTimers.length && !staleTimers.length) {
+      strip.hidden = true;
+      strip.innerHTML = "";
+      strip.dataset.sig = "";
+      return;
+    }
+    strip.hidden = false;
+    strip.dataset.sig = _timerSig(todayTimers, staleTimers);
+    const runN = todayTimers.filter((t) => !t.pausedAt).length;
+    const pauseN = todayTimers.length - runN;
+    const chip = (t, stale) => {
+      const paused = !!t.pausedAt;
+      return '<div class="rcs-chip' + (paused ? " paused" : "") + (stale ? " stale" : "") + '"'
+        + ' data-p="' + t.period + '" data-c="' + t.cell + '"'
+        + (stale ? ' data-date="' + escapeHtml(t.date || "") + '"' : "") + ">"
+        + "<span>" + (stale ? "📅" : (paused ? "⏸" : "⏱")) + "</span>"
+        + "<span>" + escapeHtml(trunc(t.taskText || "未命名", 10)) + "</span>"
+        + '<span class="rcs-clock">' + _fmtTimerClock(t) + "</span>"
+        + (stale
+          ? ('<button type="button" data-rcs="bring" data-date="' + escapeHtml(t.date || "") + '" data-p="' + t.period + '" data-c="' + t.cell + '" title="带到今日续计">→今</button>')
+          : ('<button type="button" data-rcs="toggle" data-p="' + t.period + '" data-c="' + t.cell + '" title="' + (paused ? "恢复" : "暂停") + '">' + (paused ? "▶" : "⏸") + "</button>"
+            + '<button type="button" data-rcs="next" data-p="' + t.period + '" data-c="' + t.cell + '" title="暂停并开始下一钟">⏭</button>'
+            + '<button type="button" data-rcs="stop" data-p="' + t.period + '" data-c="' + t.cell + '" title="结束·命名">■</button>'))
+        + "</div>";
+    };
+    strip.innerHTML =
+      '<div class="rcs-sum">⏱ 多钟协作 · <b class="run">' + runN + " 在跑</b>"
+      + (pauseN ? ' · <b class="pause">' + pauseN + " 暂停</b>" : "")
+      + (staleTimers.length ? ' · <b class="stale">' + staleTimers.length + " 跨日</b>" : "")
+      + "</div>"
+      + '<div class="rcs-chips">'
+      + todayTimers.map((t) => chip(t, false)).join("")
+      + staleTimers.map((t) => chip(t, true)).join("")
+      + "</div>"
+      + '<div class="rcs-ops">'
+      + (runN ? '<button type="button" data-rcs="pause-all">⏸ 全暂停</button>' : "")
+      + (todayTimers.length ? '<button type="button" data-rcs="stop-all">■ 全结束</button>' : "")
+      + (staleTimers.length ? '<button type="button" data-rcs="bring-today" class="accent">📅 带到今日</button>' : "")
+      + (staleTimers.length ? '<button type="button" data-rcs="discard-stale" class="danger">🗑 清跨日</button>' : "")
+      + "</div>";
+    if (!strip._bound) {
+      strip._bound = true;
+      strip.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-rcs]");
+        if (!btn) {
+          const chipEl = e.target.closest(".rcs-chip");
+          if (chipEl) {
+            if (chipEl.classList.contains("stale") && chipEl.dataset.date && chipEl.dataset.date !== state.currentDate) {
+              state.currentDate = chipEl.dataset.date;
+              if (el.datePicker) el.datePicker.value = chipEl.dataset.date;
+              renderAll();
+            }
+            jumpToCell(parseInt(chipEl.dataset.p, 10), parseInt(chipEl.dataset.c, 10));
+          }
+          return;
+        }
+        e.stopPropagation();
+        const act = btn.dataset.rcs;
+        const p = parseInt(btn.dataset.p, 10), c = parseInt(btn.dataset.c, 10);
+        if (act === "toggle") {
+          const t = getRunningTimer(p, c);
+          if (!t) return;
+          if (t.pausedAt) startCellTimer(p, c);
+          else pauseCellTimer(p, c);
+          if (state.realm === "record") renderRecord();
+          else renderMandala();
+        } else if (act === "next") {
+          const t = getRunningTimer(p, c);
+          if (t && !t.pausedAt) pauseCellTimer(p, c);
+          const others = Object.values(runningTimers).filter((x) => x && x.date === state.currentDate && x.pausedAt && !(x.period === p && x.cell === c));
+          if (others[0]) startCellTimer(others[0].period, others[0].cell, others[0].taskText);
+          else toast("没有可切换的下一钟", "info", 1800);
+          if (state.realm === "record") renderRecord();
+          else renderMandala();
+        } else if (act === "stop") {
+          e.preventDefault();
+          stopCellTimer(p, c, { quick: !!e.shiftKey });
+        } else if (act === "bring") {
+          openBringTimerCellPicker(btn.dataset.date, p, c);
+        } else if (act === "pause-all") {
+          pauseAllTodayTimers();
+        } else if (act === "stop-all") {
+          stopAllTodayTimers();
+        } else if (act === "bring-today") {
+          bringStaleTimersToToday();
+        } else if (act === "discard-stale") {
+          discardStaleTimers();
+        }
+      });
+    }
   }
   // 启动时恢复未结束的计时（刷新/重进不丢）+ Round2 跨日清理
   function initRunningTimers() {
@@ -11944,8 +12158,9 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     _collectSizes(n, map) {
       map = map || new Map();
       const lines = Math.max(1, Math.ceil(this._textWidth(n.text) / 210));
-      const w = Math.min(Math.max(120, Math.round(this._textWidth(n.text)) + 46), 330);
-      const h = 44 + (lines - 1) * 18 + (n.meta && (n.meta.verify || n.meta.risk === "high" || n.meta.risk === "med") ? 16 : 0);
+      const w = Math.min(Math.max(128, Math.round(this._textWidth(n.text)) + 52), 330);
+      // Round11：触控节点至少 48px 高，便于安卓点选/长按
+      const h = Math.max(48, 48 + (lines - 1) * 18 + (n.meta && (n.meta.verify || n.meta.risk === "high" || n.meta.risk === "med") ? 16 : 0));
       map.set(n.id, { w, h });
       n.children.forEach((c) => this._collectSizes(c, map));
       return map;
@@ -12036,24 +12251,46 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       if (!p) { bar.hidden = true; return; }
       const rect = this.els.canvas.getBoundingClientRect();
       if (!rect.width) { bar.hidden = true; return; }
-      // Round7：先显示再量尺寸，避免 hidden 时 offsetWidth=0 导致定位飘偏、按钮点不中
       bar.hidden = false;
       bar.style.visibility = "hidden";
-      const cx = p.x * this.view.scale + this.view.x + p.w * this.view.scale / 2;
-      const topY = p.y * this.view.scale + this.view.y;
-      const bw = bar.offsetWidth || 280;
-      const bh = bar.offsetHeight || 48;
-      const nodeH = p.h * this.view.scale;
-      const left = Math.max(4, Math.min(rect.width - bw - 4, cx - bw / 2));
-      let top = topY - bh - 10;
-      if (top < 4) top = topY + nodeH + 10;
-      // 下方也溢出时贴底
-      if (top + bh > rect.height - 4) top = Math.max(4, rect.height - bh - 4);
-      bar.style.left = left + "px";
-      bar.style.top = top + "px";
+      // Round12：粗指针/窄屏 → 底栏吸附，避免浮在节点上点不准
+      const coarse = (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) || rect.width < 720;
+      bar.classList.toggle("mm-float-dock", coarse);
+      bar.classList.toggle("compact", rect.width < 640 || coarse);
+      if (coarse) {
+        bar.style.left = "50%";
+        bar.style.right = "auto";
+        bar.style.top = "auto";
+        bar.style.bottom = "max(10px, env(safe-area-inset-bottom, 0px))";
+        bar.style.transform = "translateX(-50%)";
+        bar.style.maxWidth = "calc(100% - 12px)";
+      } else {
+        bar.style.transform = "";
+        bar.style.bottom = "auto";
+        bar.style.right = "auto";
+        const cx = p.x * this.view.scale + this.view.x + p.w * this.view.scale / 2;
+        const topY = p.y * this.view.scale + this.view.y;
+        const bw = bar.offsetWidth || 280;
+        const bh = bar.offsetHeight || 48;
+        const nodeH = p.h * this.view.scale;
+        const left = Math.max(4, Math.min(rect.width - bw - 4, cx - bw / 2));
+        let top = topY - bh - 10;
+        if (top < 4) top = topY + nodeH + 10;
+        if (top + bh > rect.height - 4) top = Math.max(4, rect.height - bh - 4);
+        bar.style.left = left + "px";
+        bar.style.top = top + "px";
+      }
       bar.style.visibility = "visible";
-      bar.classList.toggle("compact", rect.width < 640);
       bar.classList.add("mm-float-ready");
+      const isTask = !!(this._taskTextSet && this._taskTextSet.has((n.text || "").trim()));
+      bar.classList.toggle("mm-task-sel", isTask);
+      const estBtn = bar.querySelector('[data-a="est"]');
+      if (estBtn) {
+        const em = n.meta && n.meta.est_min;
+        const lab = estBtn.querySelector("b");
+        if (lab) lab.textContent = em ? ("⏱" + em) : "估时";
+        estBtn.title = em ? ("改估时（当前 " + em + " 分）") : "改估时（分钟）";
+      }
       const linkBtn = bar.querySelector('[data-a="link"]');
       if (linkBtn) linkBtn.classList.toggle("on", !!this._linkFrom);
       this._updateNavCrumb && this._updateNavCrumb();
@@ -13415,6 +13652,42 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         }
       };
     }
+    // Round13：快捷改估时（不必打开右侧详情面板）
+    editEstMin(id) {
+      const n = this.findNode(id);
+      if (!n || n._isRoot) { toast("请先选中节点", "info"); return; }
+      const cur = (n.meta && n.meta.est_min) || "";
+      const v = prompt("预估时长（分钟，留空清除）", cur === "" || cur == null ? "15" : String(cur));
+      if (v === null) return;
+      this.pushHistory();
+      n.meta = n.meta || {};
+      const num = parseInt(String(v).trim(), 10);
+      if (!String(v).trim() || isNaN(num) || num <= 0) {
+        delete n.meta.est_min;
+        toast("已清除估时", "info", 1400);
+      } else {
+        n.meta.est_min = num;
+        toast("⏱ 估时 " + num + " 分", "success", 1400);
+      }
+      this.save();
+      this.render();
+      this._showNodePanel && this._showNodePanel(id);
+      this._updateFloatBar && this._updateFloatBar();
+      haptic(12);
+    }
+    // Round13：12px 网格微移（安卓微调摆放，不必长按拖）
+    nudgeNode(id, dx, dy) {
+      const n = this.findNode(id);
+      if (!n || n._isRoot) return;
+      this.pushHistory();
+      n.meta = n.meta || {};
+      n.meta.dx = Math.round(((n.meta.dx || 0) + dx) / 12) * 12;
+      n.meta.dy = Math.round(((n.meta.dy || 0) + dy) / 12) * 12;
+      this.save();
+      this.render();
+      this._updateFloatBar && this._updateFloatBar();
+      haptic(8);
+    }
     addChild(id) {
       const n = this.findNode(id);
       if (!n) return;
@@ -13791,7 +14064,12 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       const walk = (n, depth) => {
         const prefix = "　".repeat(Math.max(0, depth - 1)) + (depth === 0 ? "🧠 " : (n.type === "side" ? "└ " : (n.type === "child" ? "· " : "• ")));
         const min = n.meta && n.meta.est_min ? `（${n.meta.est_min}min）` : "";
-        lines.push(`<div class="mm-ol-item" data-id="${n.id}" style="padding-left:${depth * 16}px;">${prefix}${escapeHtml(n.text)}${min}</div>`);
+        let link = "";
+        if (n.meta && n.meta.link) {
+          const to = this.findNode(n.meta.link);
+          link = to ? ` <span class="mm-ol-link">→${escapeHtml(n.meta.linkLabel || "关联")}·${escapeHtml(trunc(to.text || "", 10))}</span>` : "";
+        }
+        lines.push(`<div class="mm-ol-item" data-id="${n.id}" style="padding-left:${depth * 16}px;">${prefix}${escapeHtml(n.text)}${min}${link}</div>`);
         n.children.forEach((c) => walk(c, depth + 1));
       };
       walk(this.root, 0);
@@ -13859,14 +14137,20 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         const min = n.meta && n.meta.est_min ? `（${n.meta.est_min}分）` : "";
         const dim = n.meta && n.meta.target_dim ? ` [${n.meta.target_dim}]` : "";
         const risk = n.meta && n.meta.risk === "high" ? " ⚠高" : (n.meta && n.meta.risk === "med" ? " ⚠中" : "");
-        lines.push("  ".repeat(depth) + (depth === 0 ? "🧠 " : "- ") + n.text + min + dim + risk);
+        let link = "";
+        if (n.meta && n.meta.link) {
+          const to = this.findNode(n.meta.link);
+          const lab = (n.meta.linkLabel || "关联");
+          link = to ? ` →${lab}·${trunc(to.text || "", 12)}` : ` →${lab}`;
+        }
+        lines.push("  ".repeat(depth) + (depth === 0 ? "🧠 " : "- ") + n.text + min + dim + risk + link);
         n.children.forEach((c) => walk(c, depth + 1));
       };
       walk(this.root, 0);
       const totalMin = this._sumMin(this.root);
       const text = lines.join("\n") + `\n\n共 ${this._countNodes(this.root)} 节点 · 预估 ${totalMin || 0} 分钟`;
       copyText(text);
-      toast("已复制文本大纲", "success");
+      toast("已复制文本大纲（含关联）", "success");
     }
     exportMermaid() {
       if (!this.root) return;
@@ -14722,22 +15006,23 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
         const nodeEl = e.target.closest ? e.target.closest("[data-node]") : null;
         if (nodeEl) this.editNode(nodeEl.getAttribute("data-node"));
       });
-      // ================= 触屏支持（安卓手机）=================
-      // 单指：空白=平移 / 节点=拖拽改隶属（>8px 判定）/ 未拖动=选中+双触编辑
-      // 双指：pinch 缩放（以两指中心为锚）
+      // ================= Round12 触屏（安卓优先加深）=================
+      // 点选=短按；长按武装拖移；长按未拖=编辑；同级轴滑=改序；双指缩放
       let tp = null;
       this._lastTap = null;
-      const TAP_MS = 400, DRAG_PX = 8;
+      const TAP_MS = 420, DRAG_PX = 12, LONG_PRESS_MS = 260, SWIPE_PX = 52;
+      const clearLp = () => {
+        if (tp && tp.lpTimer) { clearTimeout(tp.lpTimer); tp.lpTimer = null; }
+      };
       els.canvas.addEventListener("touchstart", (e) => {
         if (!els.dialog || !els.dialog.open) return;
         const touches = e.touches;
         if (touches.length === 1) {
           const t = touches[0];
           const hit = document.elementFromPoint(t.clientX, t.clientY);
-          // v94 task ↩ 角标：触屏点击直达时间格子
+          if (hit && hit.closest && hit.closest(".mm-float-bar")) return; // 交给浮动条自己处理
           const jumpEl = hit && hit.closest ? hit.closest("[data-mm-jump]") : null;
           if (jumpEl) { this.jumpToTask(jumpEl.getAttribute("data-mm-jump")); return; }
-          // 折叠按钮
           const foldEl = hit && hit.closest ? hit.closest("[data-fold]") : null;
           if (foldEl) {
             const id = foldEl.getAttribute("data-fold");
@@ -14748,14 +15033,19 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
           const nodeEl = hit && hit.closest ? hit.closest("[data-node]") : null;
           if (nodeEl) {
             const id = nodeEl.getAttribute("data-node");
-            tp = { mode: "node", id, x: t.clientX, y: t.clientY, moved: false };
-            this.selectedId = id;
-            this.render();
-            this._updateFloatBar && this._updateFloatBar();
+            tp = { mode: "node", id, x: t.clientX, y: t.clientY, moved: false, armed: false, swiped: false, lpTimer: null };
+            this.selectNode(id, { center: false, panel: false });
+            tp.lpTimer = setTimeout(() => {
+              if (!tp || tp.mode !== "node" || tp.moved || tp.swiped) return;
+              tp.armed = true;
+              haptic(18);
+              toast("↕ 拖改位置/隶属 · 松手未拖=编辑", "info", 1500);
+            }, LONG_PRESS_MS);
           } else {
             tp = { mode: "pan", x: t.clientX, y: t.clientY, ox: this.view.x, oy: this.view.y };
           }
         } else if (touches.length === 2) {
+          clearLp();
           const dx = touches[0].clientX - touches[1].clientX, dy = touches[0].clientY - touches[1].clientY;
           tp = { mode: "pinch", d0: Math.max(1, Math.hypot(dx, dy)), s0: this.view.scale, mx: (touches[0].clientX + touches[1].clientX) / 2, my: (touches[0].clientY + touches[1].clientY) / 2, ox: this.view.x, oy: this.view.y };
         }
@@ -14783,36 +15073,68 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
           this._applyView();
         } else if (tp.mode === "node" && touches.length === 1) {
           const t = touches[0];
-          if (!tp.moved && Math.abs(t.clientX - tp.x) + Math.abs(t.clientY - tp.y) > DRAG_PX) {
+          const dx = t.clientX - tp.x, dy = t.clientY - tp.y;
+          const dist = Math.abs(dx) + Math.abs(dy);
+          // Round12：未长按 · 沿布局主轴滑动 → 同级改序（左右布局用上下滑，上下布局用左右滑）
+          if (!tp.armed && !tp.swiped && !tp.moved && dist > SWIPE_PX) {
+            const lr = this.layout === "lr";
+            const axisOk = lr ? (Math.abs(dy) > Math.abs(dx) * 1.25) : (Math.abs(dx) > Math.abs(dy) * 1.25);
+            if (axisOk) {
+              clearLp();
+              tp.swiped = true;
+              const dir = lr ? (dy < 0 ? -1 : 1) : (dx < 0 ? -1 : 1);
+              this.moveNode(tp.id, dir);
+              haptic(20);
+              toast(dir < 0 ? "↑ 已上移同级" : "↓ 已下移同级", "success", 1400);
+              tp.mode = "done";
+              return;
+            }
+          }
+          if (!tp.armed && dist > DRAG_PX && !tp.swiped) {
+            clearLp();
+            tp = { mode: "pan", x: tp.x, y: tp.y, ox: this.view.x, oy: this.view.y };
+            this.view.x = tp.ox + (t.clientX - tp.x);
+            this.view.y = tp.oy + (t.clientY - tp.y);
+            this._applyView();
+            return;
+          }
+          if (tp.armed && !tp.moved && dist > 4) {
             tp.moved = true;
             this._beginDragVisual(tp.id, t.clientX, t.clientY);
-            haptic(15);
+            haptic(12);
           }
           if (tp.moved) this._moveDragVisual(t.clientX, t.clientY);
         }
       }, { passive: false });
       const endTouch = (e) => {
         if (!tp) return;
+        const was = tp;
+        clearLp();
         const t = e.changedTouches && e.changedTouches[0];
-        if (tp.mode === "node") {
-          if (tp.moved && t) {
+        if (was.mode === "node") {
+          if (was.moved && t) {
             this._endDragVisual(t.clientX, t.clientY);
             haptic(20);
+          } else if (was.swiped || was.mode === "done") {
+            /* 已改序 */
+          } else if (was.armed && !was.moved) {
+            // Round12：长按未拖 → 直接编辑（安卓更自然）
+            this.editNode(was.id);
+            haptic(15);
           } else {
-            // Round5：关联绘制模式下点第二个节点即连线
             if (this._linkFrom) {
-              this.completeLinkTo(tp.id);
+              this.completeLinkTo(was.id);
               tp = null;
               return;
             }
-            // 未拖动：单击选中 + 双触（500ms 内两次点同一节点）编辑
             const now = Date.now();
-            if (this._lastTap && this._lastTap.id === tp.id && now - this._lastTap.t < TAP_MS) {
-              this.editNode(tp.id);
+            if (this._lastTap && this._lastTap.id === was.id && now - this._lastTap.t < TAP_MS) {
+              this.editNode(was.id);
               this._lastTap = null;
             } else {
-              this._lastTap = { id: tp.id, t: now };
-              this._showNodePanel(tp.id);
+              this._lastTap = { id: was.id, t: now };
+              this._showNodePanel(was.id);
+              this._updateFloatBar && this._updateFloatBar();
             }
           }
         }
@@ -14820,7 +15142,6 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
       };
       els.canvas.addEventListener("touchend", endTouch, { passive: true });
       els.canvas.addEventListener("touchcancel", endTouch, { passive: true });
-      // 触屏拖动 ghost 期间禁止页面滚动
       els.canvas.style.touchAction = "none";
       // 浮层编辑
       els.floatInput.addEventListener("keydown", (e) => {
@@ -14829,8 +15150,7 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
         else if (e.key === "Escape") { e.preventDefault(); this._finishEdit && this._finishEdit(false); }
       });
       els.floatOk.addEventListener("click", () => this._finishEdit && this._finishEdit(true));
-      // 浮动操作条（选中节点后出现）：增删改移，触屏/桌面通用；事件隔离画布手势
-      // Round1：pointerdown 只 stopPropagation，禁止 preventDefault——否则会吞掉后续 click，按钮点不动
+      // 浮动操作条
       if (els.floatBar) {
         const stopBubble = (e) => { e.stopPropagation(); };
         els.floatBar.addEventListener("pointerdown", stopBubble);
@@ -14842,6 +15162,11 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
           const a = btn.dataset.a;
           if (a === "child") this.addChild(this.selectedId);
           else if (a === "edit") this.editNode(this.selectedId);
+          else if (a === "est") this.editEstMin(this.selectedId);
+          else if (a === "nudge-l") this.nudgeNode(this.selectedId, -24, 0);
+          else if (a === "nudge-r") this.nudgeNode(this.selectedId, 24, 0);
+          else if (a === "nudge-u") this.nudgeNode(this.selectedId, 0, -24);
+          else if (a === "nudge-d") this.nudgeNode(this.selectedId, 0, 24);
           else if (a === "fold") this.toggleFold(this.selectedId);
           else if (a === "accordion") this.accordionSiblings(this.selectedId);
           else if (a === "up") this.moveNode(this.selectedId, -1);
@@ -14867,12 +15192,10 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
             this.cancelLinkMode();
           }
           else if (this.focusId) {
-            // 聚焦态：Esc 先退出聚焦返回全景
             e.preventDefault(); e.stopPropagation();
             this.clearFocus();
           }
           else if (this.selectedId) {
-            // 先取消选中（Esc 第二下才关闭对话框）
             e.preventDefault(); e.stopPropagation();
             this.selectedId = null;
             if (this.els.nodePanel) this.els.nodePanel.hidden = true;
@@ -19345,23 +19668,24 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     const ok = applySideSourceToCell(src, tgt.p, tgt.c, { silent: true, skipSideRefresh: true });
     if (ok) {
       sdStickCursor = { p: tgt.p, c: tgt.c };
-      jumpToCell(tgt.p, tgt.c);
+      if (!opts.silentBatch) jumpToCell(tgt.p, tgt.c);
       const taskName = (() => {
         if (src.kind === "inbox") return (inboxItems[src.idx] && inboxItems[src.idx].text) || "任务";
         const arr = getCellTasks(tgt.p, tgt.c);
         return (arr[arr.length - 1] && arr[arr.length - 1].text) || "任务";
       })();
-      // Round10：贴格后可开钟（记录摩擦↓）；侧条保持打开以便连贴
-      toast("已贴到 " + tgt.label + (tgt.empty ? "" : "（追加）"), "success", 4200, {
-        label: "开始计时",
-        onClick: () => {
-          setRealm("record");
-          startCellTimer(tgt.p, tgt.c, String(taskName).split("\n")[0] || "未命名任务");
-          renderRecord();
-        },
-      });
+      if (!opts.silentBatch) {
+        toast("已贴到 " + tgt.label + (tgt.empty ? "" : "（追加）"), "success", 4200, {
+          label: "开始计时",
+          onClick: () => {
+            setRealm("record");
+            startCellTimer(tgt.p, tgt.c, String(taskName).split("\n")[0] || "未命名任务");
+            renderRecord();
+          },
+        });
+      }
       if (!opts.keepOpen && src.kind === "inbox" && !opts.next) closeSideDrawer();
-      renderSideDrawer();
+      if (!opts.silentBatch) renderSideDrawer();
     }
     return ok;
   }
@@ -21817,17 +22141,44 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     sdSelectedTag = "";
     sdTagsCollapsed = false;
     el.sideDrawer.classList.add("open");
-    if (el.sideDrawerMask) el.sideDrawerMask.hidden = false;
-    document.body.classList.add("side-drawer-open"); // 隐藏左缘把手
+    el.sideDrawer.classList.remove("expanded");
+    // Round11：浮动边轨 — 透明遮罩仅用于点外部收起，不挡成「整页」
+    if (el.sideDrawerMask) {
+      el.sideDrawerMask.hidden = false;
+      el.sideDrawerMask.classList.add("edge-rail-mask");
+    }
+    document.body.classList.add("side-drawer-open");
     renderSideDrawer();
+    positionEdgeRail();
     updateSideHandleCount();
-    if (el.sdSearch) setTimeout(() => { try { el.sdSearch.focus(); } catch (e) {} }, 220);
   }
   function closeSideDrawer() {
     if (!el.sideDrawer) return;
-    el.sideDrawer.classList.remove("open");
-    if (el.sideDrawerMask) el.sideDrawerMask.hidden = true;
+    el.sideDrawer.classList.remove("open", "expanded");
+    if (el.sideDrawerMask) {
+      el.sideDrawerMask.hidden = true;
+      el.sideDrawerMask.classList.remove("edge-rail-mask");
+    }
     document.body.classList.remove("side-drawer-open");
+  }
+  // Round13：边轨贴齐当前九宫格（计划/记录），随格子 top/高度定位
+  function positionEdgeRail() {
+    const drawer = el.sideDrawer;
+    if (!drawer || !drawer.classList.contains("open") || !drawer.classList.contains("edge-rail")) return;
+    const grid = (state.realm === "record"
+      ? (document.getElementById("recordGrid") || el.recordGrid)
+      : el.mandalaGrid) || el.mandalaGrid;
+    if (!grid) return;
+    const gr = grid.getBoundingClientRect();
+    if (!gr.width || gr.bottom < 40) return;
+    const top = Math.max(8, Math.round(gr.top));
+    const bottomSafe = 72 + (parseInt(getComputedStyle(document.documentElement).getPropertyValue("--safe-bottom")) || 0);
+    const maxH = Math.max(180, Math.min(Math.round(gr.height + 28), window.innerHeight - top - bottomSafe));
+    drawer.style.top = top + "px";
+    drawer.style.maxHeight = maxH + "px";
+    // 贴在九宫格左缘内侧，窄屏仍保最小边距
+    const left = Math.max(4, Math.min(14, Math.round(gr.left) - 2));
+    drawer.style.left = left + "px";
   }
   function toggleSdPin(tag) {
     if (!tag) return;
@@ -21851,6 +22202,9 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       if (pa >= 0 && pb >= 0) return pa - pb;
       return a.localeCompare(b, "zh");
     });
+    // Round11：有选中标签时加宽边轨以展示任务
+    if (el.sideDrawer) el.sideDrawer.classList.toggle("expanded", !!(sdSelectedTag || q));
+    requestAnimationFrame(() => positionEdgeRail());
     if (!tags.length && !q) {
       el.sdTags.className = "sd-tags sd-tags-strip";
       el.sdTags.innerHTML = '<div class="sd-empty">暂无标签。给收集箱或格子任务加 tag 后，这里自动出现。</div>';
@@ -21951,7 +22305,13 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       el.sdTaskLabel.hidden = false;
       el.sdTaskLabel.textContent = "任务（" + rows.length + "）· 当前贴 → " + stickHint;
     }
-    el.sdTasks.innerHTML = rows.map((r, i) => {
+    const inboxRows = rows.filter((r) => r.kind === "inbox");
+    const batchBar = inboxRows.length >= 2
+      ? ('<div class="sd-batch-bar">'
+        + '<button type="button" class="sd-stick-btn sd-batch-all" id="sdBatchStickAll" title="把当前列表中全部待安排依次贴到空格（连贴）">⚡ 全部贴入（' + inboxRows.length + "）</button>"
+        + "</div>")
+      : "";
+    el.sdTasks.innerHTML = batchBar + rows.map((r, i) => {
       const loc = r.kind === "cell" ? (PERIOD_NAMES[r.p] + " 第" + (r.c + 1) + "格") : "未安排";
       const kindBadge = r.kind === "cell" ? '<span class="sd-kind cell">已安排</span>' : '<span class="sd-kind inbox">待安排</span>';
       const tagPills = (r.tags || []).slice(0, 3).map((tg) => '<span class="sd-task-tagpill' + (tg === tag ? " hit" : "") + '">标签·' + escapeHtml(trunc(tg, 10)) + "</span>").join("");
@@ -21968,7 +22328,27 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         + '<span class="sd-task-actions">' + stickBtns + '<span class="sd-drag-hint">⋮⋮ 长按拖入</span></span>'
         + "</div>";
     }).join("");
+    const batchBtn = el.sdTasks.querySelector("#sdBatchStickAll");
+    if (batchBtn) {
+      batchBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        // 从后往前贴：inbox 删除后索引不乱；每项贴下一空格
+        const list = inboxRows.slice().sort((a, b) => b.idx - a.idx);
+        let n = 0;
+        list.forEach((r) => {
+          if (stickSideRowToCurrentCell({ kind: "inbox", idx: r.idx }, { next: true, keepOpen: true, silentBatch: true })) n++;
+        });
+        if (n) {
+          haptic(25);
+          toast("⚡ 已贴入 " + n + " 项待安排（连贴空格）", "success", 2800);
+          renderSideDrawer();
+          renderMandala();
+        } else toast("没有可贴入的待办", "info");
+      });
+    }
     el.sdTasks.querySelectorAll(".sd-stick-btn").forEach((b) => {
+      if (b.id === "sdBatchStickAll") return;
       b.addEventListener("click", (e) => {
         e.stopPropagation();
         e.preventDefault();
@@ -22145,6 +22525,17 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     if (el.sidebarToggle) el.sidebarToggle.addEventListener("click", () => { el.sideDrawer.classList.contains("open") ? closeSideDrawer() : openSideDrawer(); });
     if (el.sideDrawerClose) el.sideDrawerClose.addEventListener("click", closeSideDrawer);
     if (el.sideDrawerMask) el.sideDrawerMask.addEventListener("click", closeSideDrawer);
+    // Round13：旋转/改尺寸时边轨贴格重算
+    if (!window._edgeRailPosBound) {
+      window._edgeRailPosBound = true;
+      let _erT = null;
+      const rePos = () => {
+        clearTimeout(_erT);
+        _erT = setTimeout(() => positionEdgeRail(), 60);
+      };
+      window.addEventListener("resize", rePos, { passive: true });
+      window.addEventListener("orientationchange", rePos, { passive: true });
+    }
     // Round2：侧栏搜索
     if (el.sdSearch && !el.sdSearch._bound) {
       el.sdSearch._bound = true;

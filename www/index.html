@@ -86,7 +86,7 @@
       } catch (e) { console.warn("[polyfill] dialog 降级失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260902r10" />
+  <link rel="stylesheet" href="styles.css?v=20260902r13" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
   <script src="lib/mermaid.min.js"></script>
@@ -94,7 +94,7 @@
 <body>
   <!-- 顶部状态栏 -->
   <header class="app-header">
-    <button class="icon-btn sidebar-toggle" id="sidebarToggle" aria-label="打开标签侧边栏" title="标签任务（左滑也可呼出）">☰</button>
+    <button class="icon-btn sidebar-toggle" id="sidebarToggle" aria-label="打开标签边轨" title="标签→任务→贴格（浮动边轨）">☰</button>
     <div class="header-left">
       <h1 class="app-title">曼陀罗时辰 <span class="version-badge" id="versionBadge" title="点击查看更新日志">v2.7.11</span></h1>
       <p class="app-subtitle" id="dateLabel">AI 对话式日程规划</p>
@@ -215,6 +215,8 @@
         <div class="record-timer-hint" id="recordTimerHint" title="多时钟：任意时刻最多一口钟在跑；开新钟自动暂停旧钟；■ 结束会弹命名并写入本格">
           ⏱ 正计时：格子右上 <b>⏱启动</b> → <b>⏸暂停</b> → <b>■结束·命名</b> · 来了别的事就开新钟
         </div>
+        <!-- Round11：记录页内嵌多钟条（开/停/切下一钟/结束命名） -->
+        <div class="record-clock-strip" id="recordClockStrip" hidden></div>
         <!-- 过去时辰快览（点击跳转） -->
         <div class="review-period-nav" id="recordPeriodNav"></div>
         <!-- 持续事项：记录侧自定义的常做事项，一键快速记录到格子 -->
@@ -1354,7 +1356,7 @@
           <span class="mm-logo">🧠</span>
           <div class="mm-title-text">
             <span class="mm-task-title" id="mmTaskTitle">孵化思维导图</span>
-            <small class="mm-task-sub" id="mmTaskSub">双击编辑 · 同级拖改顺序 · 拖到异级改隶属 · 点关联线改文案</small>
+            <small class="mm-task-sub" id="mmTaskSub">点选 · 长按拖/编辑 · 估时/微移 · 底栏调整</small>
           </div>
         </div>
         <div class="mm-toolbar">
@@ -1394,7 +1396,7 @@
           <svg id="mmSvg" xmlns="http://www.w3.org/2000/svg">
             <g id="mmCanvasG"></g>
           </svg>
-          <div class="mm-hint" id="mmHint">触屏：单指平移 · 长按拖节点 · 双指缩放 · 点选后用下方浮动条</div>
+          <div class="mm-hint" id="mmHint">安卓：点选 · 长按拖/松手编辑 · 估时·微移 · 主轴滑改序</div>
           <div class="mm-stats" id="mmStats"></div>
           <div class="mm-legend" id="mmLegend"></div>
           <div class="mm-node-panel" id="mmNodePanel" hidden></div>
@@ -1403,17 +1405,22 @@
           <div class="mm-search-res" id="mmSearchRes" hidden></div>
           <div class="mm-float-edit" id="mmFloatEdit" hidden><textarea id="mmFloatInput" rows="2"></textarea><div class="mm-fe-actions"><span class="mm-fe-hint">Enter 保存 · Esc 取消</span><button type="button" class="tool-btn mm-fe-ok" id="mmFloatOk">✓</button></div></div>
           <div class="mm-float-bar" id="mmFloatBar" hidden>
-            <button type="button" data-a="child" title="添加子节点 (Tab)"><i>➕</i><b>子节点</b></button>
             <button type="button" data-a="edit" title="编辑文本 (Enter)"><i>✏️</i><b>编辑</b></button>
+            <button type="button" data-a="est" title="改估时（分钟）"><i>⏱</i><b>估时</b></button>
+            <button type="button" data-a="up" title="上移同级"><i>↑</i><b>上移</b></button>
+            <button type="button" data-a="down" title="下移同级"><i>↓</i><b>下移</b></button>
+            <button type="button" data-a="child" title="添加子节点 (Tab)"><i>➕</i><b>子节点</b></button>
+            <button type="button" data-a="nudge-l" data-sec="1" title="微移左（12px 网格）"><i>←</i><b>左</b></button>
+            <button type="button" data-a="nudge-u" data-sec="1" title="微移上"><i>↑</i><b>上</b></button>
+            <button type="button" data-a="nudge-d" data-sec="1" title="微移下"><i>↓</i><b>下</b></button>
+            <button type="button" data-a="nudge-r" data-sec="1" title="微移右"><i>→</i><b>右</b></button>
             <button type="button" data-a="fold" data-sec="1" title="折叠/展开本支 (C)"><i>▾</i><b>折叠</b></button>
-            <button type="button" data-a="accordion" data-sec="1" title="手风琴：折叠同级其他分支 (Shift+C)"><i>▤</i><b>手风琴</b></button>
-            <button type="button" data-a="up" title="上移同级（Alt+↑）"><i>↑</i></button>
-            <button type="button" data-a="down" title="下移同级（Alt+↓）"><i>↓</i></button>
+            <button type="button" data-a="accordion" data-sec="1" title="手风琴：折叠同级其他分支"><i>▤</i><b>手风琴</b></button>
             <button type="button" data-a="promote" data-sec="1" title="提升为兄弟节点"><i>⇄</i><b>提升</b></button>
             <button type="button" data-a="demote" data-sec="1" title="降级为上一兄弟的子节点"><i>⤵</i><b>降级</b></button>
-            <button type="button" data-a="focus" data-sec="1" title="聚焦此节点（只看这一支，Esc 退出）"><i>🎯</i><b>聚焦</b></button>
-            <button type="button" data-a="link" title="绘制关联线：再点另一个节点（Alt+←/→）"><i>🔗</i><b>关联</b></button>
-            <button type="button" data-a="jump" title="回到时间格子（已安排）或打开待办（未安排）"><i>↩</i><b>回格子</b></button>
+            <button type="button" data-a="focus" data-sec="1" title="聚焦此节点"><i>🎯</i><b>聚焦</b></button>
+            <button type="button" data-a="link" title="绘制关联线"><i>🔗</i><b>关联</b></button>
+            <button type="button" data-a="jump" title="回到时间格子或待办"><i>↩</i><b>回格子</b></button>
             <button type="button" data-a="del" title="删除节点 (Del)"><i>🗑</i><b>删除</b></button>
           </div>
         </div>
@@ -1916,17 +1923,17 @@
     </div>
   </dialog>
 
-  <!-- 🏷 左侧标签抽屉：左缘把手 ➢ / 左滑 / ☰ 呼出 → 选标签 → 显示对应 task -->
-  <div class="side-handle" id="sideHandle" title="点我或左滑呼出标签侧边栏" role="button" aria-label="打开标签侧边栏">➢</div>
+  <!-- Round11：主九宫格贴边浮动轨（非左隐藏整页）— 小标签 → 任务 → 拖/点贴时辰格 -->
+  <div class="side-handle" id="sideHandle" title="点我展开标签边轨（贴格）" role="button" aria-label="打开标签边轨">➢</div>
   <div class="side-drawer-mask" id="sideDrawerMask" hidden></div>
-  <aside class="side-drawer" id="sideDrawer" aria-label="标签任务侧边栏">
+  <aside class="side-drawer edge-rail" id="sideDrawer" aria-label="标签任务边轨">
     <div class="sd-head">
-      <span class="sd-title">🏷 标签任务 · 贴格 / 拖入</span>
-      <button class="icon-btn" id="sideDrawerClose" aria-label="关闭">✕</button>
+      <span class="sd-title">🏷 贴格</span>
+      <button class="icon-btn" id="sideDrawerClose" aria-label="收起边轨">✕</button>
     </div>
     <div class="sd-body">
       <div class="sd-search-wrap">
-        <input type="search" id="sdSearch" class="sd-search" placeholder="搜索标签或任务…" autocomplete="off" enterkeyhint="search" />
+        <input type="search" id="sdSearch" class="sd-search" placeholder="搜标签/任务…" autocomplete="off" enterkeyhint="search" />
       </div>
       <div class="sd-section-label">标签</div>
       <div class="sd-tags" id="sdTags"></div>
@@ -1935,6 +1942,6 @@
     </div>
   </aside>
 
-  <script src="app.js?v=20260902r10" defer></script>
+  <script src="app.js?v=20260902r13" defer></script>
 </body>
 </html>
