@@ -129,12 +129,22 @@ const SW_VER = "20260902r7";
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
   const APP_VERSION = "2.7.24";
-  const APP_BUILD = 104; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
+  const APP_BUILD = 106; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
   const APP_VERSION_DATE = "2026-09-02";
   const APP_CHANGELOG = [
+    { v: "2.7.24·106", date: "2026-09-02", items: [
+      "Round8：侧条任务触屏长按拖入时辰格（安卓 WebView，不依赖桌面 HTML5 拖放）",
+      "Round8：导出走原生分享/写入通道（分享文件 / 写入文档目录 / 网页下载三级回退）",
+      "Round8：导图同级拖拽改主线顺序（插入线提示）；关联线中文「关联」标签",
+    ]},
+    { v: "2.7.24·105", date: "2026-09-02", items: [
+      "Round7收尾：侧条任务可拖入时辰格；记录条状展示 + 多任务自动缩格；暂停可切下一钟",
+      "Round7收尾：导图安卓画板空间加大（弱化点阵/图例）、导出按钮全中文；精确时长用「分/秒」",
+      "Round7收尾：层级徽标样式与侧条半透明圆形标签补齐",
+    ]},
     { v: "2.7.24·104", date: "2026-09-02", items: [
       "Round7：计划页移除正计时锚点/描边（正计时仅保留在记录页）",
-      "Round7：导图 JSON 导出/导入往返修复（工具栏⬇JSON/⬆导入 + 导图库导入）；下载 append 兼容 WebView",
+      "Round7：导图数据导出/导入往返修复（工具栏导出数据/导入 + 导图库导入）；下载 append 兼容 WebView",
       "Round7：导图浮动条命中/定位修复、主线/支线/子步语义标、拖拽 hit-test 与 12px 网格吸附",
     ]},
     { v: "2.7.23·103", date: "2026-09-01", items: [
@@ -2934,6 +2944,14 @@ const SW_VER = "20260902r7";
           span.className = "task-text";
           span.textContent = taskText(t);
           item.appendChild(span);
+          // Round7：层级徽标 + tag 条
+          appendTaskHierarchyUI(item, t);
+          if (t.tag) {
+            const tagStrip = document.createElement("span");
+            tagStrip.className = "task-tag-strip";
+            tagStrip.textContent = "#" + t.tag;
+            item.appendChild(tagStrip);
+          }
 
           // 拖拽单条任务
           item.addEventListener("dragstart", (e) => {
@@ -2966,6 +2984,7 @@ const SW_VER = "20260902r7";
 
           contentEl.appendChild(item);
         });
+        applyCellTaskDensity(cellEl, tasks.filter((t) => !t.sticky).length);
         // 属性 meta 行
         const first = tasks[0];
         const metaParts = [];
@@ -3402,6 +3421,7 @@ const SW_VER = "20260902r7";
     return true;
   }
   // 暂停指定钟：冻结累计，时钟停走（不写入记录）
+  // Round7：暂停后可一键切换到下一口已暂停钟，或跳过保持全停
   function pauseCellTimer(period, cell) {
     const key = timerKeyOf(state.currentDate, period, cell);
     const t = runningTimers[key];
@@ -3410,9 +3430,22 @@ const SW_VER = "20260902r7";
     t.pausedAt = Date.now();
     save(RUNNING_TIMERS_KEY, runningTimers);
     renderRunningTimerBar();
-    renderMandala();
+    if (state.realm === "record") renderRecord();
+    else renderMandala();
     haptic(15);
-    toast("⏸ 已暂停 · " + trunc(String(t.taskText || ""), 14) + "（累计 " + Math.round(timerElapsedOf(t) / 60000) + " 分钟）", "info", 2000);
+    const others = Object.values(runningTimers).filter((x) => x && x.date === state.currentDate && x.pausedAt && !(x.period === period && x.cell === cell));
+    const next = others[0];
+    if (next) {
+      toast("⏸ 已暂停 · " + trunc(String(t.taskText || ""), 12) + "（累计 " + formatSpentPrecise(timerElapsedOf(t)) + "）", "info", 5200, {
+        label: "开始下一钟",
+        onClick: () => {
+          startCellTimer(next.period, next.cell, next.taskText);
+          if (state.realm === "record") renderRecord();
+        },
+      });
+    } else {
+      toast("⏸ 已暂停 · " + trunc(String(t.taskText || ""), 14) + "（累计 " + formatSpentPrecise(timerElapsedOf(t)) + "）", "info", 2200);
+    }
     return true;
   }
   // v95 停止正计时：先弹「完成计时」命名弹窗（结束 → 命名 → 写入，步骤明确）
@@ -3431,16 +3464,20 @@ const SW_VER = "20260902r7";
       const duration = timerElapsedOf(cur);
       delete runningTimers[key];
       save(RUNNING_TIMERS_KEY, runningTimers);
-      const spentMin = Math.max(1, Math.round(duration / 60000));
+      // Round7：精确到秒写入 spent（可累加）
+      const addSec = Math.max(1, Math.round(duration / 1000));
       const rec = getCellRecord(period, cell) || {};
-      if (name) rec.actual = rec.actual ? (rec.actual + "; " + name) : name;
-      else if (!rec.actual) rec.actual = cur.taskText;
-      if (rec.spent && /^~?\d+min$/i.test(String(rec.spent).trim())) {
-        const prev = parseInt(String(rec.spent).replace(/[^\d]/g, ""), 10) || 0;
-        rec.spent = (prev + spentMin) + "min";
-      } else if (!rec.spent) {
-        rec.spent = spentMin + "min";
+      if (name) {
+        // 条状记录：用换行分隔，避免一长串「连续串联」
+        const parts = String(rec.actual || "").split(/\n|; /).map((s) => s.trim()).filter(Boolean);
+        if (!parts.includes(name)) parts.push(name);
+        rec.actual = parts.join("\n");
+      } else if (!rec.actual) {
+        rec.actual = cur.taskText;
       }
+      const prevSec = parseSpentToSec(rec.spent);
+      rec.spent = formatSpentPrecise((prevSec + addSec) * 1000);
+      rec.timerMs = (rec.timerMs || 0) + duration;
       rec.timerStart = cur.startTime;
       rec.timerEnd = Date.now();
       rec.timerAuto = true;
@@ -3532,6 +3569,75 @@ const SW_VER = "20260902r7";
     if (t && !t.pausedAt) { pauseCellTimer(period, cell); return false; }
     return startCellTimer(period, cell, taskText);
   }
+  // Round7+：任务层级徽标文案（主线 / 支线 / 子步）
+  function getTaskHierarchyInfo(t) {
+    if (!t || t.sticky) return null;
+    const ml = t.mainline ? getMainline(t.mainline) : null;
+    const parts = [];
+    if (ml) {
+      parts.push({ cls: "hier-ml", text: "主线·" + trunc(ml.name, 8), color: ml.color || "#7c5cff" });
+      if (t.sideline) {
+        const sl = (ml.sidelines || []).find((s) => s.id === t.sideline);
+        if (sl) parts.push({ cls: "hier-sl", text: "支线·" + trunc(sl.name, 8) });
+      }
+    }
+    if (t.parentId || (t.text && String(t.text).indexOf("↳") >= 0)) {
+      parts.push({ cls: "hier-child", text: "子步" });
+    }
+    return parts.length ? parts : null;
+  }
+  function appendTaskHierarchyUI(item, t) {
+    const hier = getTaskHierarchyInfo(t);
+    if (!hier) return;
+    const wrap = document.createElement("div");
+    wrap.className = "task-hier-row";
+    hier.forEach((h) => {
+      const b = document.createElement("span");
+      b.className = "task-hier-badge " + h.cls;
+      if (h.color) b.style.setProperty("--hier-c", h.color);
+      b.textContent = h.text;
+      wrap.appendChild(b);
+    });
+    item.appendChild(wrap);
+  }
+  function applyCellTaskDensity(cellEl, nTasks) {
+    if (!cellEl) return;
+    cellEl.classList.remove("dense-2", "dense-3", "dense-4");
+    if (nTasks >= 5) cellEl.classList.add("dense-4");
+    else if (nTasks >= 4) cellEl.classList.add("dense-3");
+    else if (nTasks >= 3) cellEl.classList.add("dense-2");
+  }
+  // 精确时长文案（秒级，写入记录 spent）——全中文「分/秒」
+  function formatSpentPrecise(ms) {
+    const sec = Math.max(1, Math.round(Number(ms) / 1000));
+    if (sec < 60) return sec + "秒";
+    const m = Math.floor(sec / 60), s = sec % 60;
+    if (s === 0) return m + "分";
+    return m + "分" + String(s).padStart(2, "0") + "秒";
+  }
+  function parseSpentToSec(spent) {
+    const s = String(spent || "").trim();
+    if (!s) return 0;
+    // 中文：3分05秒 / 3分 / 45秒
+    const c1 = s.match(/^~?(\d+)\s*分\s*(\d+)\s*秒$/);
+    if (c1) return parseInt(c1[1], 10) * 60 + parseInt(c1[2], 10);
+    const c2 = s.match(/^~?(\d+)\s*分$/);
+    if (c2) return parseInt(c2[1], 10) * 60;
+    const c3 = s.match(/^~?(\d+)\s*秒$/);
+    if (c3) return parseInt(c3[1], 10);
+    // 兼容旧英文：3min05s / 3min / 45s
+    const m1 = s.match(/^~?(\d+)\s*min\s*(\d+)\s*s$/i);
+    if (m1) return parseInt(m1[1], 10) * 60 + parseInt(m1[2], 10);
+    const m2 = s.match(/^~?(\d+)\s*min(\d+)s$/i);
+    if (m2) return parseInt(m2[1], 10) * 60 + parseInt(m2[2], 10);
+    const m3 = s.match(/^~?(\d+)\s*min$/i);
+    if (m3) return parseInt(m3[1], 10) * 60;
+    const m4 = s.match(/^~?(\d+)\s*s$/i);
+    if (m4) return parseInt(m4[1], 10);
+    const m5 = s.match(/(\d+)/);
+    return m5 ? parseInt(m5[1], 10) * 60 : 0;
+  }
+
   // Round1/Round7：正计时锚点控件——仅记录页使用（计划页已去除）——⏱启动 / ⏸暂停 / ▶恢复 + ■结束命名
   function attachCellTimerControls(cellEl, period, cell, taskTextHint) {
     if (!cellEl) return;
@@ -4985,6 +5091,8 @@ const SW_VER = "20260902r7";
           item.appendChild(cb);
           item.appendChild(bar);
           item.appendChild(span);
+          // Round7：记录页与计划同款层级 + tag 条
+          appendTaskHierarchyUI(item, t);
           // Round1：条状 tag（记录页计划继承）
           if (t.tag) {
             const tagStrip = document.createElement("span");
@@ -5031,6 +5139,7 @@ const SW_VER = "20260902r7";
           planList.appendChild(item);
         });
         cellEl.appendChild(planList);
+        applyCellTaskDensity(cellEl, planTasks.filter((t) => !t.sticky).length);
       }
 
       const contentEl = document.createElement("div");
@@ -5043,10 +5152,17 @@ const SW_VER = "20260902r7";
           contentEl.appendChild(spent);
         }
         if (record.actual) {
-          const actual = document.createElement("div");
-          actual.className = "record-actual";
-          actual.textContent = record.actual;
-          contentEl.appendChild(actual);
+          // Round7：条状拆分，不再整段连续串联
+          const parts = String(record.actual).split(/\n|; /).map((s) => s.trim()).filter(Boolean);
+          const strip = document.createElement("div");
+          strip.className = "record-actual-strips";
+          parts.forEach((p) => {
+            const chip = document.createElement("div");
+            chip.className = "record-actual-chip";
+            chip.textContent = p;
+            strip.appendChild(chip);
+          });
+          contentEl.appendChild(strip);
         }
         if (record.note) {
           const note = document.createElement("div");
@@ -11528,7 +11644,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
           ctx.fillRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           canvas.toBlob((blob) => {
-            if (!blob) { toast("PNG 导出失败", "error"); return; }
+            if (!blob) { toast("图片导出失败", "error"); return; }
             const a = document.createElement("a");
             a.href = URL.createObjectURL(blob);
             const d = new Date();
@@ -11538,16 +11654,16 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
             a.click();
             document.body.removeChild(a);
             setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-            toast("已导出 PNG（2x 高清）", "success");
+            toast("已导出流程图图片（高清）", "success");
           }, "image/png");
         } catch (e) {
-          toast("PNG 导出失败：" + (e.message || e), "error");
+          toast("图片导出失败：" + (e.message || e), "error");
         }
       };
-      img.onerror = () => toast("PNG 导出失败（SVG 序列化异常）", "error");
+      img.onerror = () => toast("图片导出失败（画布序列化异常）", "error");
       img.src = svgUrl;
     } catch (e) {
-      toast("PNG 导出失败：" + (e.message || e), "error");
+      toast("图片导出失败：" + (e.message || e), "error");
     }
   }
 
@@ -12188,7 +12304,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         rb.setAttribute("font-weight", "800");
         rb.setAttribute("style", "pointer-events:none");
         rb.setAttribute("letter-spacing", "0.5");
-        rb.textContent = "根 · ROOT";
+        rb.textContent = "根节点";
         group.appendChild(rb);
       } else {
         const typeLabel = n.type === "side" ? "支线" : (n.type === "child" ? "子步" : "主线");
@@ -12367,6 +12483,26 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
               vis.setAttribute("opacity", "0.75");
               vis.setAttribute("pointer-events", "none");
               this.els.g.appendChild(vis);
+              // Round8：关联线中文标签（中点）
+              const midX = (x1 + x2) / 2;
+              const midY = (y1 + y2) / 2 - 6;
+              const labBg = document.createElementNS(NS, "rect");
+              labBg.setAttribute("x", midX - 16); labBg.setAttribute("y", midY - 10);
+              labBg.setAttribute("width", 32); labBg.setAttribute("height", 14);
+              labBg.setAttribute("rx", 4);
+              labBg.setAttribute("fill", "rgba(20,16,8,.72)");
+              labBg.setAttribute("pointer-events", "none");
+              this.els.g.appendChild(labBg);
+              const lab = document.createElementNS(NS, "text");
+              lab.setAttribute("x", midX); lab.setAttribute("y", midY + 1);
+              lab.setAttribute("text-anchor", "middle");
+              lab.setAttribute("dominant-baseline", "middle");
+              lab.setAttribute("fill", "#ffd8a8");
+              lab.setAttribute("font-size", "10");
+              lab.setAttribute("font-weight", "700");
+              lab.setAttribute("pointer-events", "none");
+              lab.textContent = "关联";
+              this.els.g.appendChild(lab);
               // 目标端小圆点 + 起点小箭头感
               const dot = document.createElementNS(NS, "circle");
               dot.setAttribute("cx", x2); dot.setAttribute("cy", y2); dot.setAttribute("r", 3.5);
@@ -12405,7 +12541,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       const doneTag = doneCnt ? `<span style="color:#4ade80;">✅ ${doneCnt}</span>` : "";
       const dots = KNOWLEDGE_DIMENSIONS.map((d) =>
         `<span class="mm-dimdot" style="background:${d.color};opacity:${dimSet.has(d.code) ? 1 : 0.22};" title="${d.name} ${d.code}${dimSet.has(d.code) ? " ✓" : " 未覆盖"}"></span>`).join("");
-      this.els.stats.innerHTML = `${focusTag}${doneTag}<span>${total} 节点</span><span>主线 ${mains.length}</span><span>支线 ${sides.length}</span><span>子步 ${kids.length}</span><span>总时长 ${totalMin || "—"}min</span><span class="mm-stats-dims" title="7 维覆盖">${dots} ${dimSet.size}/${KNOWLEDGE_DIMENSIONS.length}</span>`;
+      this.els.stats.innerHTML = `${focusTag}${doneTag}<span>${total} 节点</span><span>主线 ${mains.length}</span><span>支线 ${sides.length}</span><span>子步 ${kids.length}</span><span>总时长 ${totalMin || "—"}分</span><span class="mm-stats-dims" title="7 维覆盖">${dots} ${dimSet.size}/${KNOWLEDGE_DIMENSIONS.length}</span>`;
     }
     _renderLegend() {
       if (!this.els.legend) return;
@@ -13225,11 +13361,41 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       this.pushHistory();
       const [n] = parent.children.splice(idx, 1);
       parent.children.splice(to, 0, n);
+      this._flashOrder(id, parent);
+    }
+    // Round8：拖到同级节点前/后插入，改主线（或同级）顺序
+    reorderBefore(dragId, targetId, before) {
+      if (!dragId || !targetId || dragId === targetId) return false;
+      const parent = this.findParent(dragId);
+      const tParent = this.findParent(targetId);
+      if (!parent || !tParent || parent.id !== tParent.id) return false;
+      const from = parent.children.findIndex((c) => c.id === dragId);
+      let to = parent.children.findIndex((c) => c.id === targetId);
+      if (from < 0 || to < 0) return false;
+      if (!before) to += 1;
+      // 从原位移除后，目标下标需回退
+      const [n] = parent.children.splice(from, 1);
+      if (from < to) to -= 1;
+      if (to < 0) to = 0;
+      if (to > parent.children.length) to = parent.children.length;
+      // 位置未变
+      if (to === from) {
+        parent.children.splice(from, 0, n);
+        return false;
+      }
+      this.pushHistory();
+      parent.children.splice(to, 0, n);
+      this._flashOrder(dragId, parent);
+      return true;
+    }
+    _flashOrder(id, parent) {
       this._orderFlashId = id;
+      this.selectedId = id;
       this.render();
       this.centerOn(id);
+      const idx = parent.children.findIndex((c) => c.id === id);
       const label = parent._isRoot ? "主线" : "同级";
-      toast(label + " 第 " + (to + 1) + " / " + parent.children.length, "success", 1400);
+      toast(label + " 第 " + (idx + 1) + " / " + parent.children.length, "success", 1400);
       haptic(12);
       clearTimeout(this._orderFlashTimer);
       this._orderFlashTimer = setTimeout(() => {
@@ -13311,11 +13477,16 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     }
 
     // ---------- 拖拽视觉（桌面 + 触屏共用）----------
+    _clearDragHints() {
+      if (!this.els.g) return;
+      this.els.g.querySelectorAll(".mm-drop-hint, .mm-reorder-hint, .mm-reorder-label").forEach((h) => h.remove());
+    }
     _beginDragVisual(id, x, y) {
       const nodeEl = this.els.g.querySelector(`[data-node="${id}"]`);
       if (nodeEl) nodeEl.classList.add("mm-drag-source"); // 源节点虚影
       this._dragId = id;
       this._dragTarget = null;
+      this._dragReorder = null; // Round8：{ targetId, before }
       const n = this.findNode(id);
       this._dragGhost = document.createElement("div");
       this._dragGhost.className = "mm-drag-ghost";
@@ -13336,10 +13507,65 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       if (this._dragGhost) this._dragGhost.style.visibility = "visible";
       const tNode = target && target.closest ? target.closest("[data-node]") : null;
       const tId = tNode ? tNode.getAttribute("data-node") : null;
-      if (tId !== this._dragTarget) {
-        this.els.g.querySelectorAll(".mm-drop-hint").forEach((h) => h.remove());
-        this._dragTarget = tId;
-        if (tId && tId !== this._dragId) {
+      let reorder = null;
+      if (tId && tId !== this._dragId) {
+        const parent = this.findParent(this._dragId);
+        const tParent = this.findParent(tId);
+        // Round8：同级（尤其根下主线）→ 前/后插入改顺序，不改隶属
+        if (parent && tParent && parent.id === tParent.id) {
+          const tp = this._nodePos.get(tId);
+          if (tp) {
+            const rect = this.els.canvas.getBoundingClientRect();
+            const cx = (x - rect.left - this.view.x) / this.view.scale;
+            const cy = (y - rect.top - this.view.y) / this.view.scale;
+            // 左右布局比垂直位置；上下/放射布局比水平位置
+            const before = (this.layout === "lr")
+              ? (cy < tp.y + tp.h / 2)
+              : (cx < tp.x + tp.w / 2);
+            reorder = { targetId: tId, before };
+          }
+        }
+      }
+      const reorderKey = reorder ? (reorder.targetId + (reorder.before ? ":b" : ":a")) : "";
+      const targetKey = reorder ? ("ord:" + reorderKey) : ("rep:" + (tId || ""));
+      if (targetKey !== this._dragTarget) {
+        this._clearDragHints();
+        this._dragTarget = targetKey;
+        this._dragReorder = reorder;
+        if (reorder) {
+          const tp = this._nodePos.get(reorder.targetId);
+          if (tp) {
+            const NS = "http://www.w3.org/2000/svg";
+            const line = document.createElementNS(NS, "line");
+            line.setAttribute("class", "mm-reorder-hint");
+            if (this.layout === "lr") {
+              const yy = reorder.before ? tp.y - 6 : tp.y + tp.h + 6;
+              line.setAttribute("x1", tp.x - 4); line.setAttribute("x2", tp.x + tp.w + 4);
+              line.setAttribute("y1", yy); line.setAttribute("y2", yy);
+            } else {
+              const xx = reorder.before ? tp.x - 6 : tp.x + tp.w + 6;
+              line.setAttribute("x1", xx); line.setAttribute("x2", xx);
+              line.setAttribute("y1", tp.y - 4); line.setAttribute("y2", tp.y + tp.h + 4);
+            }
+            line.setAttribute("stroke", "#4ade80");
+            line.setAttribute("stroke-width", 3);
+            line.setAttribute("stroke-linecap", "round");
+            this.els.g.appendChild(line);
+            const lab = document.createElementNS(NS, "text");
+            lab.setAttribute("class", "mm-reorder-label");
+            lab.setAttribute("x", tp.x + tp.w / 2);
+            lab.setAttribute("y", this.layout === "lr"
+              ? (reorder.before ? tp.y - 12 : tp.y + tp.h + 18)
+              : (tp.y - 10));
+            lab.setAttribute("text-anchor", "middle");
+            lab.setAttribute("fill", "#4ade80");
+            lab.setAttribute("font-size", "11");
+            lab.setAttribute("font-weight", "700");
+            const parent = this.findParent(this._dragId);
+            lab.textContent = (parent && parent._isRoot ? "插入主线顺序" : "插入同级顺序");
+            this.els.g.appendChild(lab);
+          }
+        } else if (tId && tId !== this._dragId) {
           const tp = this._nodePos.get(tId);
           if (tp) {
             const hint = document.createElementNS("http://www.w3.org/2000/svg", "rect");
@@ -13353,23 +13579,44 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
             this.els.g.appendChild(hint);
           }
         }
+      } else if (reorder) {
+        this._dragReorder = reorder;
       }
     }
     _endDragVisual(x, y) {
-      this.els.g.querySelectorAll(".mm-drop-hint").forEach((h) => h.remove());
+      this._clearDragHints();
       this.els.g.querySelectorAll(".mm-drag-source").forEach((el2) => el2.classList.remove("mm-drag-source"));
       if (this._dragGhost) {
         this._dragGhost.style.visibility = "hidden";
       }
       const did = this._dragId;
+      const reorder = this._dragReorder;
       const target = (x != null && y != null) ? document.elementFromPoint(x, y) : null;
       if (this._dragGhost) { this._dragGhost.remove(); this._dragGhost = null; }
       const tNode = target && target.closest ? target.closest("[data-node]") : null;
       const tId = tNode ? tNode.getAttribute("data-node") : null;
       this._dragId = null;
       this._dragTarget = null;
-      // 拖到节点上 → 改隶属（清手动偏移，融入新位置）
+      this._dragReorder = null;
+      // Round8：同级拖放 → 改顺序（主线优先体验）
+      if (did && reorder && reorder.targetId) {
+        if (this.reorderBefore(did, reorder.targetId, reorder.before)) return;
+      }
+      // 拖到异级节点上 → 改隶属（清手动偏移，融入新位置）
       if (did && tId && tId !== did) {
+        const parent = this.findParent(did);
+        const tParent = this.findParent(tId);
+        if (parent && tParent && parent.id === tParent.id) {
+          // 同级但未算出插入位：按落点再判一次
+          const tp = this._nodePos.get(tId);
+          if (tp) {
+            const rect = this.els.canvas.getBoundingClientRect();
+            const cy = (y - rect.top - this.view.y) / this.view.scale;
+            const cx = (x - rect.left - this.view.x) / this.view.scale;
+            const before = (this.layout === "lr") ? (cy < tp.y + tp.h / 2) : (cx < tp.x + tp.w / 2);
+            if (this.reorderBefore(did, tId, before)) return;
+          }
+        }
         const n = this.findNode(did);
         if (n && n.meta) { n.meta.dx = 0; n.meta.dy = 0; }
         this.reparent(did, tId);
@@ -13400,7 +13647,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
             this.render();
             this.centerOn(did);
             haptic(12);
-            toast("📍 已摆放（12px 网格）· 拖到节点=改隶属 · ⟳=恢复自动布局", "info", 2400);
+            toast("📍 已摆放（12px 网格）· 同级拖=改顺序 · 拖到异级=改隶属", "info", 2400);
           }
         }
       }
@@ -13483,25 +13730,25 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
           ctx.fillRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           canvas.toBlob((blob) => {
-            if (!blob) { toast("PNG 导出失败", "error"); return; }
+            if (!blob) { toast("图片导出失败", "error"); return; }
             const d = new Date(); const p = (n) => String(n).padStart(2, "0");
             const fname = `孵化思维导图_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}.png`;
             if (downloadBlobFile(blob, fname)) {
-              toast("已导出思维导图 PNG（2x 高清）", "success");
+              toast("已导出思维导图图片（高清）", "success");
             }
           }, "image/png");
         };
-        img.onerror = () => toast("PNG 导出失败（SVG 序列化异常）", "error");
+        img.onerror = () => toast("图片导出失败（画布序列化异常）", "error");
         img.src = svgUrl;
       } catch (e) {
-        toast("PNG 导出失败：" + (e.message || e), "error");
+        toast("图片导出失败：" + (e.message || e), "error");
       }
     }
     exportText() {
       if (!this.root) return;
       const lines = [];
       const walk = (n, depth) => {
-        const min = n.meta && n.meta.est_min ? `（${n.meta.est_min}min）` : "";
+        const min = n.meta && n.meta.est_min ? `（${n.meta.est_min}分）` : "";
         const dim = n.meta && n.meta.target_dim ? ` [${n.meta.target_dim}]` : "";
         const risk = n.meta && n.meta.risk === "high" ? " ⚠高" : (n.meta && n.meta.risk === "med" ? " ⚠中" : "");
         lines.push("  ".repeat(depth) + (depth === 0 ? "🧠 " : "- ") + n.text + min + dim + risk);
@@ -13532,7 +13779,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       lines.push("classDef side fill:#3a2a12,stroke:#ffa94d,color:#ffd9a8;");
       lines.push("classDef child fill:#102a3a,stroke:#4dc3ff,color:#b8e8ff;");
       copyText(lines.join("\n"));
-      toast("已复制 Mermaid 语法", "success");
+      toast("已复制流程图语法", "success");
     }
     exportMarkdown() {
       if (!this.root) return;
@@ -13540,7 +13787,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       const walk = (n, depth) => {
         const indent = "  ".repeat(depth);
         const icon = n.meta && n.meta.icon && !n._isRoot ? n.meta.icon + " " : "";
-        const min = n.meta && n.meta.est_min ? `（${n.meta.est_min}min）` : "";
+        const min = n.meta && n.meta.est_min ? `（${n.meta.est_min}分）` : "";
         const dim = n.meta && n.meta.target_dim ? ` \`${n.meta.target_dim}\`` : "";
         const risk = n.meta && n.meta.risk === "high" ? " ⚠高" : (n.meta && n.meta.risk === "med" ? " ⚠中" : "");
         const note = n.meta && n.meta.note ? ` — ${n.meta.note}` : "";
@@ -13551,7 +13798,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       const totalMin = this._sumMin(this.root);
       lines.push(`\n> 共 ${this._countNodes(this.root)} 节点 · 预估 ${totalMin || 0} 分钟`);
       copyText(lines.join("\n"));
-      toast("已复制 Markdown 大纲（含图标/时长/维度/备注）", "success");
+      toast("已复制大纲文本（含图标/时长/维度/备注）", "success");
     }
     // 导出为独立 HTML 文件（浏览器直接打开即可查看导图，可分享）
     exportHtml() {
@@ -13565,11 +13812,11 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
       const blob = new Blob([html], { type: "text/html;charset=utf-8" });
       const fname = sanitizeDownloadName((this.root.text || "mindmap"), "mindmap") + ".html";
       if (downloadBlobFile(blob, fname)) {
-        toast("已导出交互式 HTML（浏览器打开即可查看/分享）", "success");
+        toast("已导出可离线打开的网页", "success");
       }
     }
 
-    // Round7：导图 JSON 完整导出（树 + 布局 + 手动偏移，可往返导入）
+    // Round7：导图数据完整导出（树 + 布局 + 手动偏移，可往返导入）
     exportJson() {
       if (!this.root) { toast("没有可导出的导图", "warn"); return; }
       try {
@@ -13583,7 +13830,7 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
         };
         const fname = "mindmap-" + sanitizeDownloadName(payload.taskText, "map") + ".json";
         if (downloadBackupFile(payload, fname)) {
-          toast("⬇ 导图 JSON 已导出（可「⬆ 导入」完整还原）", "success");
+          toast("⬇ 导图数据已导出（可「⬆ 导入数据」完整还原）", "success");
         }
       } catch (e) {
         toast("导图导出失败：" + (e && e.message ? e.message : e), "error");
@@ -13732,13 +13979,13 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
                 <button data-a="open" title="打开编辑">打开</button>
                 <button data-a="hist" title="历史版本（回退）">历史</button>
                 <button data-a="rename" title="重命名">改名</button>
-                <button data-a="export" title="导出为 JSON 文件">导出</button>
+                <button data-a="export" title="导出为数据文件">导出</button>
                 <button data-a="del" title="删除（不可恢复）">删</button>
               </div>
             </div>`;
           }).join("")
         : `<div class="mm-lib-empty">暂无导图 · 点下方「＋ 新建」创建一张空白导图</div>`;
-      this.els.library.innerHTML = `<div class="mm-lib-head"><span>📚 导图库（${list.length}）</span><button id="mmLibImport" class="mm-tb" title="从 JSON 文件导入到导图库">⬆ 导入</button><button id="mmLibTpl" class="mm-tb">📄 模板</button><button id="mmLibNew" class="mm-tb">＋ 新建空白</button><button id="mmLibClose" class="icon-btn">✕</button></div>
+      this.els.library.innerHTML = `<div class="mm-lib-head"><span>📚 导图库（${list.length}）</span><button id="mmLibImport" class="mm-tb" title="从数据文件导入到导图库">⬆ 导入数据</button><button id="mmLibTpl" class="mm-tb">📄 模板</button><button id="mmLibNew" class="mm-tb">＋ 新建空白</button><button id="mmLibClose" class="icon-btn">✕</button></div>
         <div class="mm-lib-list">${items}</div>`;
       const lib = this.els.library;
       lib.querySelector("#mmLibClose").addEventListener("click", () => this.closeLibrary());
@@ -18893,6 +19140,59 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   // ---------- 拖拽任务移动 ----------
   let draggingSource = null; // {period, cell, index} 整格拖
   let draggingTaskSource = null; // {period, cell, idx} 单条拖
+  let draggingSideSource = null; // Round7：侧条拖源 {kind:'inbox'|'cell', idx|p,c,ti}
+  // Round8：侧条触屏长按拖入时辰格（HTML5 DnD 在多数安卓 WebView 不可用）
+  let sdTouch = null; // { btn, src, startX, startY, holdTimer, ghost, axis }
+  let sdLongPressed = false;
+  function applySideSourceToCell(src, period, cell) {
+    if (!src) return false;
+    if (src.kind === "inbox") {
+      dropInboxItemToCell(src.idx, period, cell);
+      if (state.realm === "record") {
+        const it = inboxItems[src.idx];
+        toast("已安排到格子", "success", 4200, {
+          label: "开始计时",
+          onClick: () => {
+            startCellTimer(period, cell, (it && it.text) || "未命名任务");
+            renderRecord();
+          },
+        });
+        renderRecord();
+      }
+      renderSideDrawer();
+      return true;
+    }
+    if (src.kind === "cell") {
+      if (src.p === period && src.c === cell) return false;
+      const sourceTasks = getCellTasks(src.p, src.c).slice();
+      const task = sourceTasks[src.ti];
+      if (!task) return false;
+      sourceTasks.splice(src.ti, 1);
+      setCellTasks(src.p, src.c, sourceTasks);
+      const targetTasks = getCellTasks(period, cell).slice();
+      targetTasks.push(task);
+      setCellTasks(period, cell, targetTasks);
+      renderAll();
+      renderSideDrawer();
+      haptic(30);
+      toast("已移动到第 " + (cell + 1) + " 格", "success");
+      return true;
+    }
+    return false;
+  }
+  function moveSdGhost(st, x, y) {
+    if (!st || !st.ghost) return;
+    st.ghost.style.left = x + "px";
+    st.ghost.style.top = y + "px";
+  }
+  function sdHighlightCellAt(x, y) {
+    document.querySelectorAll(".cell.drag-over").forEach((c) => c.classList.remove("drag-over"));
+    // 拖拽中抽屉半透明收起，需从格子命中
+    const hit = document.elementFromPoint(x, y);
+    const targetCell = hit && hit.closest(".cell");
+    if (targetCell) targetCell.classList.add("drag-over");
+    return targetCell;
+  }
   // 便利贴触屏拖拽状态（HTML5 DnD 在触屏不可用，长按 260ms 拖起到其他格子）
   let stickyTouch = null; // { chip, period, cell, idx, startX, startY, holdTimer, ghost }
   let stickyLongPressed = false;
@@ -18910,17 +19210,14 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   }
 
   function attachDragHandlers(cellEl, period, cell) {
-    // 注意：cellEl 本身不再 draggable，由内部 task-bar 单条拖拽
-    // 但保留 dragover/drop 用于接收单条任务拖入
+    // 格子接收：任务条 / 侧条待办 / 收集箱卡片
     cellEl.addEventListener("dragover", (e) => {
-      // 单条任务拖拽 → 高亮目标格子
-      if (draggingTaskSource) {
+      if (draggingTaskSource || draggingSideSource) {
         e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
+        e.dataTransfer.dropEffect = (draggingSideSource && draggingSideSource.kind === "inbox") ? "copy" : "move";
         cellEl.classList.add("drag-over");
         return;
       }
-      // 收集箱卡片/行拖入 → 同样高亮
       const types = e.dataTransfer && e.dataTransfer.types;
       if (types && types.includes("text/plain")) {
         e.preventDefault();
@@ -18934,32 +19231,51 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     cellEl.addEventListener("drop", (e) => {
       e.preventDefault();
       cellEl.classList.remove("drag-over");
-      // 单条任务拖拽
+      // Round7：侧条拖入时辰格子（主路径）
+      if (draggingSideSource) {
+        const src = draggingSideSource;
+        draggingSideSource = null;
+        applySideSourceToCell(src, period, cell);
+        return;
+      }
       if (draggingTaskSource) {
         const src = draggingTaskSource;
-        if (src.period === period && src.cell === cell) return; // 同格子不处理
+        if (src.period === period && src.cell === cell) return;
         const sourceTasks = getCellTasks(src.period, src.cell).slice();
         const task = sourceTasks[src.idx];
         if (!task) return;
-        // 从源格子移除
         sourceTasks.splice(src.idx, 1);
         setCellTasks(src.period, src.cell, sourceTasks);
-        // 添加到目标格子
         const targetTasks = getCellTasks(period, cell).slice();
         targetTasks.push(task);
         setCellTasks(period, cell, targetTasks);
         renderAll();
-        haptic(30); // 任务移动落格震感
-        toast(`已移动任务到第 ${cell + 1} 格`, "success");
+        haptic(30);
+        toast("已移动任务到第 " + (cell + 1) + " 格", "success");
         return;
       }
-      // 收集箱拖入（看板卡片 / 表格行）
       const raw = e.dataTransfer.getData("text/plain");
       if (!raw) return;
       let payload;
       try { payload = JSON.parse(raw); } catch (err) { payload = { idx: parseInt(raw, 10) }; }
+      if (payload && payload.source === "side" && payload.kind === "cell") {
+        if (payload.p === period && payload.c === cell) return;
+        const sourceTasks = getCellTasks(payload.p, payload.c).slice();
+        const task = sourceTasks[payload.ti];
+        if (!task) return;
+        sourceTasks.splice(payload.ti, 1);
+        setCellTasks(payload.p, payload.c, sourceTasks);
+        const targetTasks = getCellTasks(period, cell).slice();
+        targetTasks.push(task);
+        setCellTasks(period, cell, targetTasks);
+        renderAll();
+        renderSideDrawer();
+        toast("已移动到第 " + (cell + 1) + " 格", "success");
+        return;
+      }
       if (typeof payload.idx !== "number" || isNaN(payload.idx)) return;
       dropInboxItemToCell(payload.idx, period, cell);
+      renderSideDrawer();
     });
   }
 
@@ -21410,7 +21726,17 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       if (tag && !(it.tags || []).includes(tag)) return;
       if (it.done) return;
       if (q && !(String(it.text || "").toLowerCase().includes(q) || (it.tags || []).some((tg) => String(tg).toLowerCase().includes(q)))) return;
-      rows.push({ kind: "inbox", idx, text: it.text, tags: (it.tags || []).filter(Boolean) });
+      const hier = [];
+      if (it.mainline) {
+        const ml = getMainline(it.mainline);
+        if (ml) hier.push("主线·" + trunc(ml.name, 8));
+        if (it.sideline && ml) {
+          const sl = (ml.sidelines || []).find((s) => s.id === it.sideline);
+          if (sl) hier.push("支线·" + trunc(sl.name, 8));
+        }
+      }
+      if (it.parentId) hier.push("子步");
+      rows.push({ kind: "inbox", idx, text: it.text, tags: (it.tags || []).filter(Boolean), hier });
     });
     Object.entries(state.tasks[state.currentDate] || {}).forEach(([key, arr]) => {
       const parts = key.split("-");
@@ -21419,33 +21745,153 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         if (t.sticky || t.done) return;
         if (tag && t.tag !== tag) return;
         if (q && !(String(t.text || "").toLowerCase().includes(q) || String(t.tag || "").toLowerCase().includes(q))) return;
-        rows.push({ kind: "cell", p, c, ti, text: t.text, tags: t.tag ? [t.tag] : [], note: t.note || "" });
+        const hi = getTaskHierarchyInfo(t);
+        rows.push({
+          kind: "cell", p, c, ti, text: t.text,
+          tags: t.tag ? [t.tag] : [], note: t.note || "",
+          hier: hi ? hi.map((h) => h.text) : [],
+        });
       });
     });
     if (!rows.length) {
-      el.sdTasks.innerHTML = '<div class="sd-empty">' + (q ? "无匹配任务" : (tag ? "「#" + escapeHtml(tag) + "」下暂无待办任务" : "暂无待办任务")) + "</div>";
-      if (el.sdTaskLabel) { el.sdTaskLabel.hidden = false; el.sdTaskLabel.textContent = "任务"; }
+      el.sdTasks.innerHTML = '<div class="sd-empty">' + (q ? "无匹配任务" : (tag ? "「" + escapeHtml(tag) + "」下暂无待办" : "暂无待办 · 可从收集箱加标签")) + "</div>";
+      if (el.sdTaskLabel) { el.sdTaskLabel.hidden = false; el.sdTaskLabel.textContent = "任务 · 长按拖到时辰格子"; }
       return;
     }
-    if (el.sdTaskLabel) { el.sdTaskLabel.hidden = false; el.sdTaskLabel.textContent = "任务（" + rows.length + "）"; }
+    if (el.sdTaskLabel) { el.sdTaskLabel.hidden = false; el.sdTaskLabel.textContent = "任务（" + rows.length + "）· 长按拖到时辰格子"; }
     el.sdTasks.innerHTML = rows.map((r, i) => {
-      const loc = r.kind === "cell" ? (PERIOD_NAMES[r.p] + " 第" + (r.c + 1) + "格") : "待办 · 未安排";
-      const kindBadge = r.kind === "cell" ? '<span class="sd-kind cell">格子</span>' : '<span class="sd-kind inbox">收集</span>';
-      const tagPills = r.tags.slice(0, 4).map((tg) => '<span class="sd-task-tagpill' + (tg === tag ? " hit" : "") + '">#' + escapeHtml(trunc(tg, 12)) + "</span>").join("");
-      const noteLine = r.note ? '<span class="sd-task-note">📝 ' + escapeHtml(trunc(r.note, 40)) + "</span>" : "";
-      return '<button type="button" class="sd-task" data-i="' + i + '" title="点击跳转">'
+      const loc = r.kind === "cell" ? (PERIOD_NAMES[r.p] + " 第" + (r.c + 1) + "格") : "未安排";
+      const kindBadge = r.kind === "cell" ? '<span class="sd-kind cell">已安排</span>' : '<span class="sd-kind inbox">待安排</span>';
+      const tagPills = (r.tags || []).slice(0, 3).map((tg) => '<span class="sd-task-tagpill' + (tg === tag ? " hit" : "") + '">标签·' + escapeHtml(trunc(tg, 10)) + "</span>").join("");
+      const hierLine = (r.hier && r.hier.length) ? '<span class="sd-task-hier">' + r.hier.map((h) => escapeHtml(h)).join(" · ") + "</span>" : "";
+      const noteLine = r.note ? '<span class="sd-task-note">备注 · ' + escapeHtml(trunc(r.note, 36)) + "</span>" : "";
+      return '<div class="sd-task" draggable="true" data-i="' + i + '" title="拖到时辰格子安排 · 点击定位">'
         + '<span class="sd-task-top">' + kindBadge + '<span class="sd-task-text">' + escapeHtml(r.text) + "</span></span>"
-        + noteLine
+        + hierLine + noteLine
         + '<span class="sd-task-meta">' + tagPills + '<span class="sd-task-loc">' + escapeHtml(loc) + "</span></span>"
-        + "</button>";
+        + '<span class="sd-drag-hint">⋮⋮ 长按拖入格子</span>'
+        + "</div>";
     }).join("");
     el.sdTasks.querySelectorAll(".sd-task").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const r = rows[parseInt(btn.dataset.i, 10)];
+      const i = parseInt(btn.dataset.i, 10);
+      const makeSrc = () => {
+        const r = rows[i];
+        if (!r) return null;
+        return r.kind === "inbox"
+          ? { kind: "inbox", idx: r.idx }
+          : { kind: "cell", p: r.p, c: r.c, ti: r.ti };
+      };
+      btn.addEventListener("dragstart", (e) => {
+        const r = rows[i];
         if (!r) return;
-        closeSideDrawer();
-        if (r.kind === "cell") jumpToCell(r.p, r.c);
-        else { const ib = document.getElementById("realmFabInbox"); if (ib) ib.click(); }
+        draggingSideSource = makeSrc();
+        btn.classList.add("dragging");
+        const payload = r.kind === "inbox"
+          ? { source: "side", kind: "inbox", idx: r.idx }
+          : { source: "side", kind: "cell", p: r.p, c: r.c, ti: r.ti };
+        e.dataTransfer.effectAllowed = r.kind === "inbox" ? "copy" : "move";
+        e.dataTransfer.setData("text/plain", JSON.stringify(payload));
+        haptic(12);
+      });
+      btn.addEventListener("dragend", () => {
+        btn.classList.remove("dragging");
+        draggingSideSource = null;
+        document.querySelectorAll(".cell.drag-over").forEach((c) => c.classList.remove("drag-over"));
+      });
+      // Round8：触屏长按 300ms 拖到时辰格子（安卓主路径）
+      btn.addEventListener("touchstart", (e) => {
+        if (!e.touches || e.touches.length !== 1) return;
+        const t = e.touches[0];
+        const src = makeSrc();
+        if (!src) return;
+        sdTouch = { btn, src, startX: t.clientX, startY: t.clientY, holdTimer: null, ghost: null, axis: null };
+        sdTouch.holdTimer = setTimeout(() => {
+          if (!sdTouch || sdTouch.btn !== btn) return;
+          if (sdTouch.axis === "y" || sdTouch.axis === "x") { sdTouch = null; return; }
+          const r = rows[i];
+          const ghost = document.createElement("div");
+          ghost.className = "kb-drag-ghost sd-drag-ghost";
+          ghost.innerHTML = `<span class="sticky-pin">🏷</span>${escapeHtml((r && r.text || "").slice(0, 28))}`;
+          document.body.appendChild(ghost);
+          sdTouch.ghost = ghost;
+          sdTouch.axis = "drag";
+          draggingSideSource = sdTouch.src;
+          btn.classList.add("dragging");
+          document.body.classList.add("sd-touch-dragging", "kb-touch-dragging");
+          haptic(25);
+          moveSdGhost(sdTouch, t.clientX, t.clientY);
+          sdHighlightCellAt(t.clientX, t.clientY);
+          showDragHint(t.clientX, t.clientY, "拖到时辰格子松手");
+        }, 300);
+      }, { passive: true });
+      btn.addEventListener("touchmove", (e) => {
+        if (!sdTouch || sdTouch.btn !== btn) return;
+        const t = e.touches[0];
+        if (sdTouch.ghost) {
+          e.preventDefault();
+          moveSdGhost(sdTouch, t.clientX, t.clientY);
+          const cell = sdHighlightCellAt(t.clientX, t.clientY);
+          let hint = "拖到时辰格子松手";
+          if (cell) {
+            const p = parseInt(cell.dataset.period, 10);
+            const c = parseInt(cell.dataset.cell, 10);
+            hint = "安排到 " + (!isNaN(p) && PERIOD_NAMES[p] || "") + (!isNaN(c) ? " 第" + (c + 1) + "格" : "");
+          }
+          showDragHint(t.clientX, t.clientY, hint);
+          return;
+        }
+        const dx = t.clientX - sdTouch.startX, dy = t.clientY - sdTouch.startY;
+        const adx = Math.abs(dx), ady = Math.abs(dy);
+        if (!sdTouch.axis && (adx > 12 || ady > 12)) {
+          sdTouch.axis = ady > adx * 1.15 ? "y" : (adx > ady * 1.15 ? "x" : "y");
+          if (sdTouch.holdTimer) { clearTimeout(sdTouch.holdTimer); sdTouch.holdTimer = null; }
+        }
+        if (sdTouch.holdTimer && (adx > 14 || ady > 14)) {
+          clearTimeout(sdTouch.holdTimer);
+          sdTouch.holdTimer = null;
+        }
+      }, { passive: false });
+      const endSdTouch = (e) => {
+        if (!sdTouch || sdTouch.btn !== btn) return;
+        const st = sdTouch;
+        sdTouch = null;
+        if (st.holdTimer) { clearTimeout(st.holdTimer); st.holdTimer = null; }
+        if (!st.ghost && (st.axis === "y" || st.axis === "x")) {
+          sdLongPressed = true;
+          setTimeout(() => { sdLongPressed = false; }, 350);
+          return;
+        }
+        if (!st.ghost) return;
+        const t = (e.changedTouches && e.changedTouches[0]) || (e.touches && e.touches[0]);
+        const x = t ? t.clientX : 0, y = t ? t.clientY : 0;
+        st.ghost.remove();
+        btn.classList.remove("dragging");
+        document.body.classList.remove("sd-touch-dragging", "kb-touch-dragging");
+        hideDragHint();
+        const targetCell = sdHighlightCellAt(x, y);
+        document.querySelectorAll(".cell.drag-over").forEach((c) => c.classList.remove("drag-over"));
+        draggingSideSource = null;
+        sdLongPressed = true;
+        setTimeout(() => { sdLongPressed = false; }, 400);
+        if (!targetCell) {
+          toast("未落到时辰格子", "info", 1600);
+          return;
+        }
+        const tPeriod = parseInt(targetCell.dataset.period, 10);
+        const tCell = parseInt(targetCell.dataset.cell, 10);
+        if (isNaN(tPeriod) || isNaN(tCell)) return;
+        applySideSourceToCell(st.src, tPeriod, tCell);
+        // 安排成功后收起侧条，露出格子反馈
+        if (st.src && st.src.kind === "inbox") closeSideDrawer();
+      };
+      btn.addEventListener("touchend", endSdTouch);
+      btn.addEventListener("touchcancel", endSdTouch);
+      btn.addEventListener("click", (e) => {
+        if (btn.classList.contains("dragging") || sdLongPressed) return;
+        const r = rows[i];
+        if (!r) return;
+        if (r.kind === "cell") { closeSideDrawer(); jumpToCell(r.p, r.c); }
+        else toast("长按任务拖到时辰格子即可安排", "info", 2200);
       });
     });
   }
@@ -23452,32 +23898,129 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   }
 
   // ---------- 导出/导入 ----------
-  // 公共：把备份对象 / 文本下载为文件（append 到 DOM，兼容 WebView / 桌面）
+  // 公共：把备份对象 / 文本下载为文件（原生分享优先，兼容 WebView / 桌面）
   function sanitizeDownloadName(name, fallback) {
     const raw = String(name || fallback || "download").trim() || "download";
     return raw.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").replace(/\s+/g, "-").slice(0, 100);
   }
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const s = String(reader.result || "");
+        const i = s.indexOf(",");
+        resolve(i >= 0 ? s.slice(i + 1) : s);
+      };
+      reader.onerror = () => reject(reader.error || new Error("读取失败"));
+      reader.readAsDataURL(blob);
+    });
+  }
+  function triggerAnchorDownload(blob, safe) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = safe;
+    a.rel = "noopener";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      try { a.remove(); } catch (_) {}
+      try { URL.revokeObjectURL(url); } catch (_) {}
+    }, 4000);
+    return true;
+  }
+  // Round8：原生 APK / 安卓 WebView 导出通道
+  // 1) Capacitor Filesystem 写入文档目录 + Share 分享文件
+  // 2) Web Share API（带 files）
+  // 3) <a download> 回退
+  async function saveOrShareBlob(blob, filename) {
+    if (!blob) throw new Error("空文件");
+    const safe = sanitizeDownloadName(filename, "download.bin");
+    const Cap = (typeof window !== "undefined" && window.Capacitor) ? window.Capacitor : null;
+    const plugins = Cap && Cap.Plugins ? Cap.Plugins : null;
+    const NativeFs = plugins && plugins.Filesystem ? plugins.Filesystem : null;
+    const NativeShare = plugins && plugins.Share ? plugins.Share : null;
+    // 1) Capacitor Filesystem + Share
+    if (IS_NATIVE && NativeFs) {
+      try {
+        const b64 = await blobToBase64(blob);
+        const path = "mandala-exports/" + safe;
+        await NativeFs.writeFile({
+          path,
+          data: b64,
+          directory: (NativeFs.Directory && NativeFs.Directory.Documents) || "DOCUMENTS",
+          recursive: true,
+        });
+        let uri = "";
+        try {
+          const uriRes = await NativeFs.getUri({
+            path,
+            directory: (NativeFs.Directory && NativeFs.Directory.Documents) || "DOCUMENTS",
+          });
+          uri = (uriRes && (uriRes.uri || uriRes.path)) || "";
+        } catch (_) {}
+        if (NativeShare && uri) {
+          try {
+            await NativeShare.share({
+              title: safe,
+              text: "曼陀罗时辰 · 导出文件",
+              url: uri,
+              dialogTitle: "导出文件",
+            });
+            return { ok: true, via: "native-share" };
+          } catch (shareErr) {
+            // 用户取消分享不算失败：文件已写入
+            if (shareErr && /cancel|abort/i.test(String(shareErr.message || shareErr))) {
+              return { ok: true, via: "native-file", cancelledShare: true };
+            }
+          }
+        }
+        return { ok: true, via: "native-file" };
+      } catch (e) {
+        console.warn("[export] native filesystem failed", e);
+      }
+    }
+    // 2) Web Share Level 2（部分安卓 WebView / Chrome 可用）
+    try {
+      if (typeof navigator !== "undefined" && navigator.share && navigator.canShare) {
+        const file = new File([blob], safe, { type: blob.type || "application/octet-stream" });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: safe, text: "曼陀罗时辰 · 导出文件" });
+          return { ok: true, via: "web-share" };
+        }
+      }
+    } catch (e) {
+      if (e && (e.name === "AbortError" || /cancel|abort/i.test(String(e.message || e)))) {
+        return { ok: true, via: "web-share", cancelledShare: true };
+      }
+      console.warn("[export] web share failed", e);
+    }
+    // 3) 传统下载锚点
+    triggerAnchorDownload(blob, safe);
+    return { ok: true, via: "anchor" };
+  }
   function downloadBlobFile(blob, filename) {
     if (!blob) { toast("导出失败：空文件", "error"); return false; }
-    try {
-      const safe = sanitizeDownloadName(filename, "download.bin");
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = safe;
-      a.rel = "noopener";
-      a.style.display = "none";
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => {
-        try { a.remove(); } catch (_) {}
-        try { URL.revokeObjectURL(url); } catch (_) {}
-      }, 4000);
-      return true;
-    } catch (e) {
-      toast("导出失败：" + (e && e.message ? e.message : e), "error");
-      return false;
-    }
+    // 异步通道；调用方仍可同步判断「已启动」
+    saveOrShareBlob(blob, filename).then((res) => {
+      if (!res || !res.ok) return;
+      if (res.cancelledShare) {
+        toast(res.via === "native-file" ? "文件已写入文档目录（未分享）" : "已取消分享", "info");
+        return;
+      }
+      // 仅原生落盘且未分享时提示路径；分享/锚点由调用方 toast
+      if (res.via === "native-file") {
+        toast("已写入应用文档目录，可在文件管理中查看", "success");
+      }
+    }).catch((e) => {
+      try {
+        triggerAnchorDownload(blob, sanitizeDownloadName(filename, "download.bin"));
+      } catch (_) {
+        toast("导出失败：" + (e && e.message ? e.message : e), "error");
+      }
+    });
+    return true;
   }
   function downloadBackupFile(data, filename) {
     try {

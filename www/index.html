@@ -23,7 +23,7 @@
           await Promise.all(keys.map(function (k) { return caches.delete(k); }));
         }
         // 检测当前 app.js 版本，若仍是旧的则强制带时间戳 reload
-        var APP_VERSION = "20260902r7";
+        var APP_VERSION = "20260902r7b";
         if (sessionStorage.getItem("mandala-app-ver") !== APP_VERSION) {
           sessionStorage.setItem("mandala-app-ver", APP_VERSION);
           if (!location.search || location.search.indexOf("t=") === -1) {
@@ -86,7 +86,7 @@
       } catch (e) { console.warn("[polyfill] dialog 降级失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260902r7" />
+  <link rel="stylesheet" href="styles.css?v=20260902r8" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
   <script src="lib/mermaid.min.js"></script>
@@ -1340,7 +1340,7 @@
     <div class="mlb-head">
       <span class="mlb-title">🕸 孵化过程图 · 放大查看</span>
       <span class="mlb-hint">可滚动查看完整流程图</span>
-      <button class="icon-btn" id="mlbDownloadBtn" title="导出为 PNG 图片">⬇ PNG</button>
+      <button class="icon-btn" id="mlbDownloadBtn" title="导出为图片">⬇ 图片</button>
       <button class="icon-btn" id="closeMermaidLightbox" aria-label="关闭">✕</button>
     </div>
     <div class="mlb-body" id="mermaidLightboxBody"></div>
@@ -1373,17 +1373,17 @@
           <button type="button" class="tool-btn mm-tb" id="mmFit" title="适应画布 (0)">⛶</button>
           <button type="button" class="tool-btn mm-tb" id="mmResetLayout" title="清除全部手动摆放偏移，恢复自动布局">⟳</button>
           <span class="mm-sep"></span>
-          <button type="button" class="tool-btn mm-tb" id="mmExportPng" title="导出当前思维导图为 PNG 图片">🖼 PNG</button>
+          <button type="button" class="tool-btn mm-tb" id="mmExportPng" title="导出当前思维导图为图片">🖼 图片</button>
           <button type="button" class="tool-btn mm-tb" id="mmExportText" title="复制文本大纲到剪贴板">📋 复制大纲</button>
-          <button type="button" class="tool-btn mm-tb" id="mmExportMmd" title="复制 Mermaid 流程图语法">📜 Mermaid</button>
-          <button type="button" class="tool-btn mm-tb" id="mmExportMd" title="复制 Markdown 大纲（含图标/时长/维度/备注）">📘 Markdown</button>
-          <button type="button" class="tool-btn mm-tb" id="mmExportHtml" title="导出为独立 HTML 文件（浏览器打开即可查看/分享）">🌐 HTML</button>
-          <button type="button" class="tool-btn mm-tb mm-export-json" id="mmExportJson" title="导出当前导图为 JSON 文件（可再导入完整还原）">⬇ JSON</button>
-          <button type="button" class="tool-btn mm-tb mm-import-json" id="mmImportJson" title="从 JSON 文件导入导图（完整还原节点树/布局/偏移）">⬆ 导入</button>
+          <button type="button" class="tool-btn mm-tb" id="mmExportMmd" title="复制流程图语法（便于其它工具打开）">📜 流程图</button>
+          <button type="button" class="tool-btn mm-tb" id="mmExportMd" title="复制大纲文本（含图标/时长/维度/备注）">📘 大纲文本</button>
+          <button type="button" class="tool-btn mm-tb" id="mmExportHtml" title="导出为可离线打开的网页文件">🌐 网页</button>
+          <button type="button" class="tool-btn mm-tb mm-export-json" id="mmExportJson" title="导出当前导图为数据文件（可再导入完整还原）">⬇ 导出数据</button>
+          <button type="button" class="tool-btn mm-tb mm-import-json" id="mmImportJson" title="从数据文件导入导图（完整还原节点树/布局/偏移）">⬆ 导入数据</button>
           <input type="file" id="mmImportJsonFile" accept=".json,application/json,.md,.markdown,.txt" hidden />
           <span class="mm-sep"></span>
           <button type="button" class="tool-btn mm-tb mm-apply" id="mmApply" title="把编辑后的导图同步回步骤列表（保持主线/支线/子步结构）">✓ 应用到列表</button>
-          <button type="button" class="tool-btn mm-tb" id="mmExportInbox" title="把导图节点转为收集箱任务（自动附带维度/建议 tag）">📥 转任务</button>
+          <button type="button" class="tool-btn mm-tb" id="mmExportInbox" title="把导图节点转为收集箱任务（自动附带维度/建议标签）">📥 转任务</button>
           <button type="button" class="tool-btn mm-tb" id="mmImportArticle" title="粘贴文章正文或输入链接，自动复现为可编辑思维导图">🔗 导入文章</button>
           <button type="button" class="tool-btn mm-tb mm-save" id="mmSave" title="保存思维导图到导图库（可随时回看编辑）">💾 保存</button>
           <button type="button" class="icon-btn" id="mmClose" aria-label="关闭">✕</button>
@@ -1921,7 +1921,7 @@
   <div class="side-drawer-mask" id="sideDrawerMask" hidden></div>
   <aside class="side-drawer" id="sideDrawer" aria-label="标签任务侧边栏">
     <div class="sd-head">
-      <span class="sd-title">🏷 标签任务</span>
+      <span class="sd-title">🏷 标签任务 · 拖到时辰格</span>
       <button class="icon-btn" id="sideDrawerClose" aria-label="关闭">✕</button>
     </div>
     <div class="sd-body">
@@ -1935,6 +1935,6 @@
     </div>
   </aside>
 
-  <script src="app.js?v=20260902r7" defer></script>
+  <script src="app.js?v=20260902r8" defer></script>
 </body>
 </html>
