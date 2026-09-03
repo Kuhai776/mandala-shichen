@@ -11651,7 +11651,7 @@ body.sd-touch-dragging .side-handle { opacity: 0; pointer-events: none; }
 
 
 /* ============================================================
- * Round14/15：边轨主题对齐 · 当前格开钟 · 快捷球 · 导图浮动条
+ * Round14/15/16：边轨主题对齐 · 当前格开钟 · 导图浮动条（应用内球已移除→通知栏）
  * ============================================================ */
 .side-drawer.edge-rail {
   background: var(--glass-bg, rgba(26, 26, 46, 0.88)) !important;
@@ -11731,38 +11731,77 @@ body.sd-touch-dragging .side-handle { opacity: 0; pointer-events: none; }
 .mm-node { touch-action: none; }
 .mm-node > rect { pointer-events: all; }
 
-.quick-timer-bubble {
-  position: fixed;
-  right: max(12px, env(safe-area-inset-right));
-  bottom: max(72px, calc(env(safe-area-inset-bottom) + 64px));
-  z-index: 1250;
-  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
-}
-.quick-timer-bubble[hidden] { display: none !important; }
-.qtb-main {
-  min-width: 56px; height: 44px; padding: 0 12px; border-radius: 999px;
-  border: 1px solid rgba(124,92,255,.45);
-  background: linear-gradient(135deg, var(--accent, #7c5cff), #5b8cff);
-  color: #fff; font-weight: 800; font-size: 12px; font-variant-numeric: tabular-nums;
-  box-shadow: 0 6px 20px rgba(124,92,255,.4);
-  cursor: pointer; touch-action: manipulation;
-}
-.qtb-main.paused { background: linear-gradient(135deg, #a78bfa, #7474a0); }
-.qtb-main.running { animation: timerPulseSoft 1.8s infinite; }
-.qtb-panel {
-  width: min(92vw, 280px);
-  background: var(--bg-card, #1e1e38);
-  border: 1px solid var(--border-active, rgba(124,92,255,.4));
-  border-radius: 14px; padding: 8px; box-shadow: 0 12px 28px rgba(0,0,0,.45);
-}
-.qtb-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-.qtb-lab { flex: 1; font-size: 11.5px; color: var(--text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.qtb-row button {
-  flex: 0 0 auto; min-height: 32px; padding: 4px 8px; border-radius: 8px; font-size: 11px; font-weight: 700;
-  border: 1px solid rgba(124,92,255,.35); background: rgba(124,92,255,.16); color: #d4c8ff; cursor: pointer;
-}
-.qtb-hint { font-size: 10px; color: var(--text-muted); line-height: 1.4; margin-top: 4px; }
 [data-theme="light"] .side-drawer.edge-rail {
   background: rgba(255,255,255,.92) !important;
 }
-[data-theme="light"] .qtb-panel { background: #fff; }
+
+
+/* Round17：溢出徽章 · 开钟触控 · 亮色边轨/浮动条 */
+.record-actual-chip.record-overflow-chip {
+  background: rgba(251, 191, 36, 0.14);
+  border-color: rgba(251, 191, 36, 0.45);
+  color: var(--text-primary, #f0f0ff);
+}
+.record-overflow-badge {
+  display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 999px;
+  font-size: 9.5px; font-weight: 800; letter-spacing: .3px; line-height: 1.45;
+  background: rgba(251, 191, 36, 0.92); color: #1a1200; vertical-align: middle;
+}
+.cell.has-overflow { box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.35); }
+@media (pointer: coarse), (max-width: 720px) {
+  .cell-timer-controls .cell-timer-btn,
+  .cell-timer-controls .cell-timer-end {
+    width: 32px; height: 32px; font-size: 13px; opacity: 1;
+  }
+  .cell-timer-btn.cell-timer-now {
+    width: 34px; height: 34px; font-size: 14px;
+  }
+  .cell-timer-controls { gap: 5px; top: 3px; right: 3px; z-index: 8; }
+}
+[data-theme="light"] .side-drawer.edge-rail {
+  background: rgba(255,255,255,.94) !important;
+  border-color: rgba(124,92,255,.28);
+  box-shadow: 0 10px 28px rgba(30,20,60,.12), 0 0 0 1px rgba(0,0,0,.06);
+}
+[data-theme="light"] .side-drawer.edge-rail .sd-task {
+  background: rgba(248,247,255,.96);
+  border-color: rgba(124,92,255,.18);
+}
+[data-theme="light"] .side-drawer.edge-rail .sd-stick-btn.sd-swap-btn {
+  color: #0f766e; border-color: rgba(20,184,166,.45); background: rgba(45,212,191,.16);
+}
+[data-theme="light"] .mm-float-bar {
+  background: rgba(255,255,255,.96) !important;
+  border-color: rgba(124,92,255,.35) !important;
+  color: #1a1a2e;
+}
+[data-theme="light"] .mm-float-bar button {
+  color: #1a1a2e !important;
+  background: rgba(124,92,255,.08);
+}
+[data-theme="light"] .record-overflow-badge { background: #f59e0b; color: #fff; }
+
+
+/* Round19：溢出角标 · 多钟在跑高亮 · 边轨拖入反馈 */
+.cell.has-overflow { position: relative; }
+.cell-overflow-mark {
+  position: absolute; left: 4px; bottom: 4px; z-index: 3;
+  font-size: 9px; font-weight: 800; line-height: 1.2;
+  padding: 1px 5px; border-radius: 6px;
+  background: rgba(251, 191, 36, 0.92); color: #1a1200;
+  pointer-events: none; letter-spacing: .2px;
+}
+[data-theme="light"] .cell-overflow-mark { background: #f59e0b; color: #fff; }
+.rcs-chip.active-run {
+  box-shadow: 0 0 0 1.5px rgba(45, 212, 191, 0.55), 0 4px 12px rgba(0,0,0,.18);
+  border-color: rgba(45, 212, 191, 0.45);
+}
+.cell.drag-over {
+  outline: 2px solid rgba(45, 212, 191, 0.65);
+  outline-offset: -2px;
+  background: rgba(45, 212, 191, 0.08);
+}
+.side-drawer.edge-rail .sd-task-label,
+#sdTaskLabel {
+  font-variant-numeric: tabular-nums;
+}

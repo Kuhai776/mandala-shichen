@@ -23,6 +23,9 @@
       "launchShowDuration": 1000,
       "backgroundColor": "#1a1a2e",
       "showSpinner": false
+    },
+    "LocalNotifications": {
+      "iconColor": "#7c5cff"
     }
   }
 }

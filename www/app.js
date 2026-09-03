@@ -103,6 +103,13 @@ const SW_VER = "20260902r7";
   const IS_NATIVE = typeof window !== "undefined" && !!window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
   const NativeHaptics = IS_NATIVE && window.Capacitor.Plugins && window.Capacitor.Plugins.Haptics ? window.Capacitor.Plugins.Haptics : null;
   const NativeStatusBar = IS_NATIVE && window.Capacitor.Plugins && window.Capacitor.Plugins.StatusBar ? window.Capacitor.Plugins.StatusBar : null;
+  // Round16：通知栏正计时（插件缺失时静默 no-op；网页/桌面无球）
+  function getLocalNotifications() {
+    try {
+      if (!IS_NATIVE || !window.Capacitor || !window.Capacitor.Plugins) return null;
+      return window.Capacitor.Plugins.LocalNotifications || null;
+    } catch (e) { return null; }
+  }
 
   // 统一震动接口：APK 用原生 Haptics，浏览器用 navigator.vibrate
   function haptic(pattern) {
@@ -129,9 +136,23 @@ const SW_VER = "20260902r7";
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
   const APP_VERSION = "2.7.24";
-  const APP_BUILD = 113; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
+  const APP_BUILD = 117; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
   const APP_VERSION_DATE = "2026-09-03";
   const APP_CHANGELOG = [
+    { v: "2.7.24·117", date: "2026-09-03", items: [
+      "Round19：多钟切钟顺序一致 · 通知栏口序+下一口 · 溢出/边轨/导图改名同步在跑钟",
+    ]},
+    { v: "2.7.24·116", date: "2026-09-03", items: [
+      "Round18：通知栏展示下一口钟名 · 边轨定位纯函数外置 · 切钟文案收紧",
+    ]},
+    { v: "2.7.24·115", date: "2026-09-03", items: [
+      "Round17：边轨/多钟/溢出徽章/导图改名同步格子 · 通知栏节流+切钟+记任务",
+      "Round17：安卓开钟钮触控加固 · 主题一致性 · 通知/边轨/导图轻量边界助手",
+    ]},
+    { v: "2.7.24·114", date: "2026-09-03", items: [
+      "Round16：去掉应用内快捷球，改通知栏正计时（暂停/恢复/结束）",
+      "Round16：开钟时申请通知权限；全停取消通知；无插件时网页静默",
+    ]},
     { v: "2.7.24·113", date: "2026-09-03", items: [
       "Round14/15：边轨主题对齐 + 格子任务交换（拖放/⇄交换钮）",
       "Round14/15：记录页当前格青绿开钟钮 + 超时溢出继承下一格",
@@ -3449,6 +3470,7 @@ const SW_VER = "20260902r7";
       renderMandala();
       toast("▶ 已恢复计时 · " + trunc(String(t.taskText || "任务"), 14), "success", 2000);
       haptic(20);
+      try { _timerNotifForce = true; syncTimerNotification({ requestPerm: true }); } catch (e) {}
       return true;
     }
     _pauseAllRunning(key);
@@ -3460,7 +3482,7 @@ const SW_VER = "20260902r7";
     const pausedN = Object.values(runningTimers).filter((x) => x.pausedAt && x.date === state.currentDate).length;
     toast("⏱️ 正计时已启动 · " + trunc(String(taskText || "任务"), 14) + (pausedN ? `（其余 ${pausedN} 钟已暂停）` : ""), "success", 2200);
     haptic(20);
-    try { renderQuickTimerBubble(); } catch (e) {}
+    try { _timerNotifForce = true; syncTimerNotification({ requestPerm: true }); } catch (e) {}
     return true;
   }
   // 暂停指定钟：冻结累计，时钟停走（不写入记录）
@@ -3476,8 +3498,17 @@ const SW_VER = "20260902r7";
     if (state.realm === "record") renderRecord();
     else renderMandala();
     haptic(15);
-    const others = Object.values(runningTimers).filter((x) => x && x.date === state.currentDate && x.pausedAt && !(x.period === period && x.cell === cell));
-    const next = others[0];
+    const allToday = Object.values(runningTimers).filter((x) => x && x.date === state.currentDate);
+    const Rpause = _r17();
+    let next = (Rpause && Rpause.pickNextTimer) ? Rpause.pickNextTimer(allToday, period, cell) : null;
+    if (next && next.period === period && next.cell === cell) next = null;
+    if (next && !next.pausedAt) {
+      /* 下一口若仍在跑则跳过，找暂停的 */
+      const paused = allToday.filter((x) => x.pausedAt && !(x.period === period && x.cell === cell));
+      next = paused[0] || null;
+    } else if (!next) {
+      next = allToday.find((x) => x.pausedAt && !(x.period === period && x.cell === cell)) || null;
+    }
     if (next) {
       toast("⏸ 已暂停 · " + trunc(String(t.taskText || ""), 12) + "（累计 " + formatSpentPrecise(timerElapsedOf(t)) + "）", "info", 5200, {
         label: "开始下一钟",
@@ -3489,6 +3520,7 @@ const SW_VER = "20260902r7";
     } else {
       toast("⏸ 已暂停 · " + trunc(String(t.taskText || ""), 14) + "（累计 " + formatSpentPrecise(timerElapsedOf(t)) + "）", "info", 2200);
     }
+    try { _timerNotifForce = true; syncTimerNotification(); } catch (e) {}
     return true;
   }
   // v95 停止正计时：先弹「完成计时」命名弹窗（结束 → 命名 → 写入，步骤明确）
@@ -3514,7 +3546,7 @@ const SW_VER = "20260902r7";
       });
       if (!Object.keys(runningTimers).length) _stopTimerTick();
       renderRunningTimerBar();
-      renderQuickTimerBubble && renderQuickTimerBubble();
+      try { _timerNotifForce = true; syncTimerNotification(); } catch (e) {}
       renderMandala();
       renderRecord();
       haptic(20);
@@ -3576,6 +3608,7 @@ const SW_VER = "20260902r7";
       if (!Object.keys(runningTimers).length) _stopTimerTick();
       closeDlg();
       renderRunningTimerBar();
+      try { _timerNotifForce = true; syncTimerNotification(); } catch (e) {}
       renderMandala();
       renderRecord();
       haptic(20);
@@ -3722,60 +3755,271 @@ const SW_VER = "20260902r7";
     return chunks;
   }
 
-  // Round14/15：应用内快捷球（非系统悬浮窗）——看钟/暂停/结束
-  function renderQuickTimerBubble() {
-    let fab = document.getElementById("quickTimerBubble");
+  // Round16/17：通知栏正计时 —— 暂停/恢复/结束/切钟/记任务（文案·节流见 MandalaR17）
+  const TIMER_NOTIF_ID = 16115;
+  const TIMER_ACTION_TYPE = "mandala_timer_actions";
+  const TIMER_NOTIF_CHANNEL = "mandala_timer";
+  let _timerNotifReady = false;
+  let _timerNotifListenerBound = false;
+  let _timerNotifSyncing = false;
+  let _timerNotifQueued = false;
+  let _timerNotifLastTitle = "";
+  let _timerNotifLastAt = 0;
+  let _timerNotifForce = false;
+  let _notifTickN = 0;
+
+  function _r17() { return (typeof window !== "undefined" && window.MandalaR17) || null; }
+
+  function cycleNextRunningTimer(curP, curC) {
     const list = Object.values(runningTimers || {}).filter((t) => t && t.date === state.currentDate);
-    if (!list.length) {
-      if (fab) fab.hidden = true;
-      return;
-    }
-    if (!fab) {
-      fab = document.createElement("div");
-      fab.id = "quickTimerBubble";
-      fab.className = "quick-timer-bubble";
-      fab.innerHTML = '<button type="button" class="qtb-main" id="qtbMain" title="快捷计时">⏱</button>'
-        + '<div class="qtb-panel" id="qtbPanel" hidden></div>';
-      document.body.appendChild(fab);
-      fab.querySelector("#qtbMain").addEventListener("click", (e) => {
-        e.stopPropagation();
-        const panel = fab.querySelector("#qtbPanel");
-        panel.hidden = !panel.hidden;
-        if (!panel.hidden) renderQuickTimerBubble();
+    if (list.length < 2) { toast("仅一口钟，无需切换", "info", 1600); return false; }
+    const R = _r17();
+    const next = (R && R.pickNextTimer) ? R.pickNextTimer(list, curP, curC) : (() => {
+      let idx = list.findIndex((t) => t.period === curP && t.cell === curC);
+      if (idx < 0) idx = 0;
+      return list[(idx + 1) % list.length];
+    })();
+    if (!next) return false;
+    startCellTimer(next.period, next.cell, next.taskText);
+    const ord = list.findIndex((t) => t === next || (t.period === next.period && t.cell === next.cell));
+    toast("⏭ 已切至 " + ((ord < 0 ? 1 : ord + 1) + "/" + list.length) + " · " + trunc(String(next.taskText || "任务"), 14), "success", 1800);
+    return true;
+  }
+
+  function notifQuickAddTask(period, cell) {
+    try {
+      setRealm("record");
+      jumpToCell(period, cell);
+      const name = prompt("记入本格任务名（写入计划任务）", "");
+      if (name === null) return;
+      const text = String(name).trim();
+      if (!text) { toast("已取消", "info"); return; }
+      const tasks = getCellTasks(period, cell).slice();
+      tasks.push(normalizeTask({ text: text }));
+      setCellTasks(period, cell, tasks);
+      const t = getRunningTimer(period, cell);
+      if (t && (!t.taskText || t.taskText === "未命名任务")) {
+        t.taskText = text;
+        save(RUNNING_TIMERS_KEY, runningTimers);
+      }
+      renderRecord();
+      renderMandala();
+      _timerNotifForce = true;
+      syncTimerNotification();
+      toast("✓ 已记入第" + (cell + 1) + "格 · " + trunc(text, 14), "success");
+      haptic(18);
+    } catch (e) { toast("记任务失败", "warn"); }
+  }
+
+  function syncMindmapRenameToCells(oldText, newText) {
+    const R = _r17();
+    let n = 0;
+    if (R && R.syncTextAcrossCells) {
+      n = R.syncTextAcrossCells({
+        oldText: oldText, newText: newText,
+        getCellTasks: getCellTasks, setCellTasks: setCellTasks,
+        periodCount: PERIOD_COUNT, cellsPerPeriod: CELLS_PER_PERIOD,
       });
+    } else {
+      const ot = String(oldText || "").trim();
+      const nt = String(newText || "").trim();
+      if (!ot || !nt || ot === nt) return 0;
+      for (let p = 0; p < PERIOD_COUNT; p++) {
+        for (let c = 0; c < CELLS_PER_PERIOD; c++) {
+          const arr = getCellTasks(p, c);
+          if (!arr || !arr.length) continue;
+          let changed = false;
+          const next = arr.map((t) => {
+            if (!t || t.sticky) return t;
+            if (String(t.text || "").trim() !== ot) return t;
+            changed = true; n++;
+            return Object.assign({}, t, { text: nt });
+          });
+          if (changed) setCellTasks(p, c, next);
+        }
+      }
     }
-    fab.hidden = false;
-    const run = list.find((t) => !t.pausedAt) || list[0];
-    const elMs = timerElapsedOf(run);
-    const mm = Math.floor(elMs / 60000), ss = Math.floor((elMs % 60000) / 1000);
-    const main = fab.querySelector("#qtbMain");
-    if (main) {
-      main.textContent = (run.pausedAt ? "⏸" : "⏱") + String(mm).padStart(2, "0") + ":" + String(ss).padStart(2, "0");
-      main.classList.toggle("paused", !!run.pausedAt);
-      main.classList.toggle("running", !run.pausedAt);
-    }
-    const panel = fab.querySelector("#qtbPanel");
-    if (panel && !panel.hidden) {
-      panel.innerHTML = list.map((t) => {
-        const dur = _fmtTimerDur(timerElapsedOf(t));
-        const lab = trunc(String(t.taskText || "任务"), 10);
-        return '<div class="qtb-row">'
-          + '<span class="qtb-lab">' + (t.pausedAt ? "⏸" : "▶") + " " + escapeHtml(lab) + " · " + dur + "</span>"
-          + '<button type="button" data-q="toggle" data-p="' + t.period + '" data-c="' + t.cell + '">' + (t.pausedAt ? "恢复" : "暂停") + "</button>"
-          + '<button type="button" data-q="end" data-p="' + t.period + '" data-c="' + t.cell + '">结束</button>'
-          + "</div>";
-      }).join("")
-        + '<div class="qtb-hint">系统通知栏快捷操作需安装 @capacitor/local-notifications（见 ROUND14.md）</div>';
-      panel.querySelectorAll("button[data-q]").forEach((b) => {
-        b.addEventListener("click", (e) => {
-          e.stopPropagation();
-          const p = parseInt(b.dataset.p, 10), c = parseInt(b.dataset.c, 10);
-          if (b.dataset.q === "toggle") toggleCellTimer(p, c);
-          else if (b.dataset.q === "end") stopCellTimer(p, c);
-          renderQuickTimerBubble();
-          if (state.realm === "record") renderRecord();
+    if (n > 0) {
+      // Round19：同步在跑/暂停钟的任务名，避免通知栏仍显示旧文案
+      try {
+        const ot = String(oldText || "").trim();
+        const nt = String(newText || "").trim();
+        Object.keys(runningTimers || {}).forEach((k) => {
+          const t = runningTimers[k];
+          if (t && String(t.taskText || "").trim() === ot) t.taskText = nt;
         });
+        save(RUNNING_TIMERS_KEY, runningTimers);
+        _timerNotifForce = true;
+        syncTimerNotification();
+        renderRunningTimerBar();
+      } catch (e) {}
+      try { renderMandala(); } catch (e) {}
+      try { if (state.realm === "record") renderRecord(); } catch (e) {}
+      toast("导图改名已同步 " + n + " 条格子任务", "success", 2200);
+    }
+    return n;
+  }
+
+  async function ensureTimerNotifReady() {
+    const LN = getLocalNotifications();
+    if (!LN) return null;
+    try {
+      if (typeof LN.requestPermissions === "function") {
+        await LN.requestPermissions();
+      }
+      if (typeof LN.createChannel === "function") {
+        try {
+          await LN.createChannel({
+            id: TIMER_NOTIF_CHANNEL,
+            name: "正计时",
+            description: "进行中的格子正计时与快捷操作",
+            importance: 3,
+            visibility: 1,
+            sound: "",
+            vibration: false,
+          });
+        } catch (e) { /* 通道已存在或平台不支持 */ }
+      }
+      if (typeof LN.registerActionTypes === "function") {
+        await LN.registerActionTypes({
+          types: [{
+            id: TIMER_ACTION_TYPE,
+            actions: [
+              { id: "pause", title: "暂停", foreground: true },
+              { id: "resume", title: "恢复", foreground: true },
+              { id: "next", title: "切钟", foreground: true },
+              { id: "add", title: "记任务", foreground: true },
+              { id: "stop", title: "结束", foreground: true },
+            ],
+          }],
+        });
+      }
+      if (!_timerNotifListenerBound && typeof LN.addListener === "function") {
+        _timerNotifListenerBound = true;
+        LN.addListener("localNotificationActionPerformed", (ev) => {
+          try {
+            const actionId = ev && ev.actionId;
+            const extra = (ev.notification && ev.notification.extra) || {};
+            const p = parseInt(extra.period, 10);
+            const c = parseInt(extra.cell, 10);
+            if (Number.isNaN(p) || Number.isNaN(c)) return;
+            if (!actionId || actionId === "tap") {
+              setRealm("record");
+              jumpToCell(p, c);
+              return;
+            }
+            if (actionId === "pause") {
+              const t = getRunningTimer(p, c);
+              if (t && !t.pausedAt) pauseCellTimer(p, c);
+            } else if (actionId === "resume") {
+              const t = getRunningTimer(p, c);
+              if (t && t.pausedAt) startCellTimer(p, c, t.taskText);
+            } else if (actionId === "next") {
+              cycleNextRunningTimer(p, c);
+            } else if (actionId === "add") {
+              notifQuickAddTask(p, c);
+            } else if (actionId === "stop") {
+              stopCellTimer(p, c);
+            }
+            if (state.realm === "record") renderRecord();
+            else renderMandala();
+            _timerNotifForce = true;
+            syncTimerNotification();
+          } catch (e) { /* 静默 */ }
+        });
+      }
+      _timerNotifReady = true;
+      return LN;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function cancelTimerNotification() {
+    const LN = getLocalNotifications();
+    if (!LN) return;
+    _timerNotifLastTitle = "";
+    try {
+      if (typeof LN.cancel === "function") {
+        await LN.cancel({ notifications: [{ id: TIMER_NOTIF_ID }] });
+      }
+    } catch (e) { /* 静默 */ }
+    try {
+      if (typeof LN.removeDeliveredNotifications === "function") {
+        await LN.removeDeliveredNotifications({ notifications: [{ id: TIMER_NOTIF_ID }] });
+      }
+    } catch (e) { /* 静默 */ }
+  }
+
+  async function syncTimerNotification(opts) {
+    opts = opts || {};
+    const LN = getLocalNotifications();
+    if (!LN) return; // 网页/桌面/未装插件：优雅 no-op
+    if (_timerNotifSyncing) { _timerNotifQueued = true; return; }
+    _timerNotifSyncing = true;
+    try {
+      const list = Object.values(runningTimers || {}).filter((t) => t && t.date === state.currentDate);
+      if (!list.length) {
+        await cancelTimerNotification();
+        return;
+      }
+      if (opts.requestPerm || !_timerNotifReady) {
+        const ok = await ensureTimerNotifReady();
+        if (!ok) return;
+      }
+      const R = _r17();
+      const run = (R && R.pickTimerForNotif) ? R.pickTimerForNotif(list) : (list.find((t) => !t.pausedAt) || list[0]);
+      let title, body;
+      if (R && R.buildNotifCopy) {
+        const copy = R.buildNotifCopy(run, list, PERIOD_NAMES, trunc);
+        title = copy.title;
+        body = copy.body;
+      } else {
+        const elMs = timerElapsedOf(run);
+        const timeStr = (R && R.formatNotifClock) ? R.formatNotifClock(elMs) : (() => {
+          const mm = Math.floor(elMs / 60000), ss = Math.floor((elMs % 60000) / 1000);
+          return String(mm).padStart(2, "0") + ":" + String(ss).padStart(2, "0");
+        })();
+        const cellLabel = (PERIOD_NAMES[run.period] || ("第" + (run.period + 1) + "辰")) + " 第" + (run.cell + 1) + "格";
+        const taskLab = trunc(String(run.taskText || "任务"), 16);
+        const status = run.pausedAt ? "已暂停" : "计时中";
+        title = (run.pausedAt ? "⏸ " : "⏱ ") + timeStr + " · " + taskLab;
+        body = status + " · " + cellLabel;
+        if (list.length > 1) {
+          const nxt = (R && R.pickNextTimer) ? R.pickNextTimer(list, run.period, run.cell) : list[0];
+          body += " · 下一口「" + trunc(String((nxt && nxt.taskText) || "任务"), 10) + "」";
+        }
+      }
+      const force = _timerNotifForce || !!opts.force || !!opts.requestPerm;
+      _timerNotifForce = false;
+      if (!force) {
+        if (R && R.shouldSkipNotifSchedule && R.shouldSkipNotifSchedule(_timerNotifLastTitle, title, _timerNotifLastAt, 4500, _timerNotifLastBody, body)) return;
+        if (!R && _timerNotifLastTitle === title && (Date.now() - _timerNotifLastAt) < 4500) return;
+      }
+      await LN.schedule({
+        notifications: [{
+          id: TIMER_NOTIF_ID,
+          title: title,
+          body: body,
+          channelId: TIMER_NOTIF_CHANNEL,
+          ongoing: true,
+          autoCancel: false,
+          silent: true,
+          sound: undefined,
+          actionTypeId: TIMER_ACTION_TYPE,
+          extra: { period: run.period, cell: run.cell, deep: "record-cell" },
+          schedule: { at: new Date(Date.now() + 80) },
+        }],
       });
+      _timerNotifLastTitle = title;
+      _timerNotifLastAt = Date.now();
+    } catch (e) { /* 静默 */ }
+    finally {
+      _timerNotifSyncing = false;
+      if (_timerNotifQueued) {
+        _timerNotifQueued = false;
+        syncTimerNotification(opts);
+      }
     }
   }
 
@@ -3805,48 +4049,61 @@ const SW_VER = "20260902r7";
       nowBtn.dataset.timerNow = "1";
       nowBtn.textContent = "▶";
       nowBtn.title = "当前格开钟 · 青绿快捷钮（多钟：开新钟会自动暂停其他在跑的钟）";
-      nowBtn.addEventListener("click", (e) => {
+      nowBtn.style.touchAction = "manipulation";
+      const fireNow = (e) => {
+        if (nowBtn._fired && Date.now() - nowBtn._fired < 380) return;
+        nowBtn._fired = Date.now();
         e.stopPropagation();
         e.preventDefault();
         const hint = taskTextHint || "未命名任务";
         startCellTimer(period, cell, hint);
-        renderQuickTimerBubble && renderQuickTimerBubble();
         if (state.realm === "record") renderRecord();
         else renderMandala();
-      });
+      };
+      nowBtn.addEventListener("pointerup", fireNow);
+      nowBtn.addEventListener("click", fireNow);
       wrap.appendChild(nowBtn);
     }
     const timerBtn = document.createElement("button");
     timerBtn.className = "cell-timer-btn" + (_rt ? (_rtPaused ? " paused" : " running") : "") + ((!_rt && isNowCell) ? " secondary" : "");
     timerBtn.dataset.timerBtn = "1";
     timerBtn.type = "button";
+    timerBtn.style.touchAction = "manipulation";
     timerBtn.title = !_rt
       ? "⏱ 启动正计时（来了别的事 → 开新钟会自动暂停这口；■ 结束时命名并写入记录）"
       : _rtPaused
         ? "▶ 恢复计时（累计不丢；恢复时其他在跑的钟自动暂停）"
         : "⏸ 暂停计时（保留累计；点 ■ 结束 → 命名 → 写入）";
     timerBtn.textContent = !_rt ? "⏱" : (_rtPaused ? "▶" : "⏸");
-    timerBtn.addEventListener("click", (e) => {
+    const fireToggle = (e) => {
+      if (timerBtn._fired && Date.now() - timerBtn._fired < 380) return;
+      timerBtn._fired = Date.now();
       e.stopPropagation();
       e.preventDefault();
       const hint = taskTextHint || (_rt && _rt.taskText) || "未命名任务";
       toggleCellTimer(period, cell, hint);
-      renderQuickTimerBubble && renderQuickTimerBubble();
       if (state.realm === "record") renderRecord();
       else renderMandala();
-    });
+    };
+    timerBtn.addEventListener("pointerup", fireToggle);
+    timerBtn.addEventListener("click", fireToggle);
     wrap.appendChild(timerBtn);
     if (_rt) {
       const endBtn = document.createElement("button");
       endBtn.className = "cell-timer-end";
       endBtn.type = "button";
+      endBtn.style.touchAction = "manipulation";
       endBtn.title = "■ 结束计时 → 命名并写入（Shift+点 = 已命名秒归档）";
       endBtn.textContent = "■";
-      endBtn.addEventListener("click", (e) => {
+      const fireEnd = (e) => {
+        if (endBtn._fired && Date.now() - endBtn._fired < 380) return;
+        endBtn._fired = Date.now();
         e.stopPropagation();
         e.preventDefault();
         stopCellTimer(period, cell, { quick: !!e.shiftKey });
-      });
+      };
+      endBtn.addEventListener("pointerup", fireEnd);
+      endBtn.addEventListener("click", fireEnd);
       wrap.appendChild(endBtn);
     }
     cellEl.appendChild(wrap);
@@ -3885,9 +4142,14 @@ const SW_VER = "20260902r7";
   function _startTimerTick() {
     if (_timerTick) return;
     // Round13：优先轻量走秒；结构变化时再全量重绘，避免安卓每秒闪烁
+    _notifTickN = 0;
     _timerTick = setInterval(() => {
       if (!_tryLightTimerRefresh()) renderRunningTimerBar();
-      try { renderQuickTimerBubble(); } catch (e) {}
+      // Round17：走秒每秒刷新 UI；通知栏约每 5 秒或强制时再写（降 Android 重刷）
+      _notifTickN++;
+      if (_notifTickN % 5 === 0) {
+        try { _timerNotifForce = true; syncTimerNotification(); } catch (e) {}
+      }
     }, 1000);
   }
   function _stopTimerTick() {
@@ -4107,7 +4369,8 @@ const SW_VER = "20260902r7";
     const pauseN = todayTimers.length - runN;
     const chip = (t, stale) => {
       const paused = !!t.pausedAt;
-      return '<div class="rcs-chip' + (paused ? " paused" : "") + (stale ? " stale" : "") + '"'
+      const active = !stale && !paused;
+      return '<div class="rcs-chip' + (paused ? " paused" : "") + (stale ? " stale" : "") + (active ? " active-run" : "") + '"'
         + ' data-p="' + t.period + '" data-c="' + t.cell + '"'
         + (stale ? ' data-date="' + escapeHtml(t.date || "") + '"' : "") + ">"
         + "<span>" + (stale ? "📅" : (paused ? "⏸" : "⏱")) + "</span>"
@@ -4164,8 +4427,12 @@ const SW_VER = "20260902r7";
         } else if (act === "next") {
           const t = getRunningTimer(p, c);
           if (t && !t.pausedAt) pauseCellTimer(p, c);
-          const others = Object.values(runningTimers).filter((x) => x && x.date === state.currentDate && x.pausedAt && !(x.period === p && x.cell === c));
-          if (others[0]) startCellTimer(others[0].period, others[0].cell, others[0].taskText);
+          const list = Object.values(runningTimers).filter((x) => x && x.date === state.currentDate);
+          const Rn = _r17();
+          let nxt = (Rn && Rn.pickNextTimer) ? Rn.pickNextTimer(list, p, c) : null;
+          if (nxt && nxt.period === p && nxt.cell === c) nxt = null;
+          if (!nxt) nxt = list.find((x) => x.pausedAt && !(x.period === p && x.cell === c)) || null;
+          if (nxt) startCellTimer(nxt.period, nxt.cell, nxt.taskText);
           else toast("没有可切换的下一钟", "info", 1800);
           if (state.realm === "record") renderRecord();
           else renderMandala();
@@ -4214,6 +4481,11 @@ const SW_VER = "20260902r7";
     const active = keys.filter((k) => runningTimers[k] && runningTimers[k].date === today);
     if (active.length || stale) _startTimerTick();
     renderRunningTimerBar();
+    try {
+      const oldFab = document.getElementById("quickTimerBubble");
+      if (oldFab) oldFab.remove();
+    } catch (e) {}
+    try { _timerNotifForce = true; syncTimerNotification({ requestPerm: !!(active.length) }); } catch (e) {}
   }
   // Round2：暂停今日全部在跑的钟
   function pauseAllTodayTimers() {
@@ -4229,6 +4501,7 @@ const SW_VER = "20260902r7";
     if (!n) { toast("没有在跑的钟", "info"); return; }
     save(RUNNING_TIMERS_KEY, runningTimers);
     renderRunningTimerBar();
+    try { _timerNotifForce = true; syncTimerNotification(); } catch (e) {}
     renderMandala();
     if (state.realm === "record") renderRecord();
     haptic(18);
@@ -4266,6 +4539,7 @@ const SW_VER = "20260902r7";
     save(RUNNING_TIMERS_KEY, runningTimers);
     if (!Object.keys(runningTimers).length) _stopTimerTick();
     renderRunningTimerBar();
+    try { _timerNotifForce = true; syncTimerNotification(); } catch (e) {}
     renderMandala();
     renderRecord();
     haptic(25);
@@ -5508,10 +5782,30 @@ const SW_VER = "20260902r7";
           strip.className = "record-actual-strips";
           parts.forEach((p) => {
             const chip = document.createElement("div");
-            chip.className = "record-actual-chip";
+            const R17 = _r17();
+            const isOvLine = (R17 && R17.isOverflowLabel) ? R17.isOverflowLabel(p) : /（续·溢出）|续·溢出/.test(p);
+            const ov = isOvLine || !!record.overflowInherit;
+            chip.className = "record-actual-chip" + (isOvLine || (ov && parts.length === 1) ? " record-overflow-chip" : "");
             chip.textContent = p;
+            if (isOvLine) {
+              const badge = document.createElement("span");
+              badge.className = "record-overflow-badge";
+              badge.textContent = "溢出";
+              chip.appendChild(document.createTextNode(" "));
+              chip.appendChild(badge);
+            }
             strip.appendChild(chip);
           });
+          if (record.overflowInherit) {
+            cellEl.classList.add("has-overflow");
+            if (!cellEl.querySelector(".cell-overflow-mark")) {
+              const mk = document.createElement("span");
+              mk.className = "cell-overflow-mark";
+              mk.textContent = "溢";
+              mk.title = "含溢出继承记录";
+              cellEl.appendChild(mk);
+            }
+          }
           contentEl.appendChild(strip);
         }
         if (record.note) {
@@ -13292,7 +13586,11 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       panel.hidden = false;
       const commit = (fn) => { this.pushHistory(); fn(); this.render(); this._showNodePanel(id); };
       const onCommit = (ev) => commit(() => {
-        if (ev.target.classList.contains("mm-pf-text")) n.text = ev.target.value;
+        if (ev.target.classList.contains("mm-pf-text")) {
+          const oldT = n.text;
+          n.text = ev.target.value;
+          try { if (String(oldT || "").trim() !== String(n.text || "").trim()) syncMindmapRenameToCells(oldT, n.text); } catch (e) {}
+        }
         if (ev.target.classList.contains("mm-pf-min")) { m.est_min = parseInt(ev.target.value, 10) || null; }
         if (ev.target.classList.contains("mm-pf-risk")) m.risk = ev.target.value || "";
         if (ev.target.classList.contains("mm-pf-dim")) m.target_dim = ev.target.value || "";
@@ -13826,7 +14124,14 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
           const node = this.findNode(cur);
           if (node) {
             const v = input.value.trim();
-            if (v && v !== node.text) { this.pushHistory(); node.text = v; this.render(); this._showNodePanel(cur); }
+            if (v && v !== node.text) {
+              const oldT = node.text;
+              this.pushHistory();
+              node.text = v;
+              try { syncMindmapRenameToCells(oldT, v); } catch (e) {}
+              this.render();
+              this._showNodePanel(cur);
+            }
           }
         }
       };
@@ -14854,11 +15159,17 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
       if (!n) return;
       const text = (n.text || "").trim();
       let found = null;
-      outer:
-      for (let p = 0; p < PERIOD_COUNT; p++) {
-        for (let c = 0; c < CELLS_PER_PERIOD; c++) {
-          const arr = getCellTasks(p, c);
-          if (arr.some((t) => (t.text || "").trim() === text)) { found = { p, c }; break outer; }
+      const R = (typeof window !== "undefined" && window.MandalaR17) || null;
+      if (R && R.findCellByText) {
+        found = R.findCellByText({ text: text, getCellTasks: getCellTasks, periodCount: PERIOD_COUNT, cellsPerPeriod: CELLS_PER_PERIOD });
+      }
+      if (!found) {
+        outer:
+        for (let p = 0; p < PERIOD_COUNT; p++) {
+          for (let c = 0; c < CELLS_PER_PERIOD; c++) {
+            const arr = getCellTasks(p, c);
+            if (arr.some((t) => (t.text || "").trim() === text)) { found = { p, c }; break outer; }
+          }
         }
       }
       // Round6：先关导图再跳格，用 rAF 减少闪一下空白
@@ -22384,13 +22695,26 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       : el.mandalaGrid) || el.mandalaGrid;
     if (!grid) return;
     const gr = grid.getBoundingClientRect();
+    // Round18：定位算法外置 MandalaR17.computeEdgeRailLayout（失败则本地兜底）
+    const R = _r17();
+    const layout = (R && R.computeEdgeRailLayout)
+      ? R.computeEdgeRailLayout(gr, window.innerHeight, parseInt(getComputedStyle(document.documentElement).getPropertyValue("--safe-bottom")) || 0, {
+          viewportW: window.innerWidth,
+          railWidth: drawer.classList.contains("expanded") ? 200 : 56,
+        })
+      : null;
+    if (layout) {
+      drawer.style.top = layout.top + "px";
+      drawer.style.maxHeight = layout.maxHeight + "px";
+      drawer.style.left = layout.left + "px";
+      return;
+    }
     if (!gr.width || gr.bottom < 40) return;
     const top = Math.max(8, Math.round(gr.top));
     const bottomSafe = 72 + (parseInt(getComputedStyle(document.documentElement).getPropertyValue("--safe-bottom")) || 0);
     const maxH = Math.max(180, Math.min(Math.round(gr.height + 28), window.innerHeight - top - bottomSafe));
     drawer.style.top = top + "px";
     drawer.style.maxHeight = maxH + "px";
-    // 贴在九宫格左缘内侧，窄屏仍保最小边距
     const left = Math.max(4, Math.min(14, Math.round(gr.left) - 2));
     drawer.style.left = left + "px";
   }
@@ -22509,7 +22833,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     });
     if (!rows.length) {
       el.sdTasks.innerHTML = '<div class="sd-empty">' + (q ? "无匹配任务" : (tag ? "「" + escapeHtml(tag) + "」下暂无待办" : "暂无待办 · 可从收集箱加标签")) + "</div>";
-      if (el.sdTaskLabel) { el.sdTaskLabel.hidden = false; el.sdTaskLabel.textContent = "任务 · 贴当前 / 贴下一空格"; }
+      if (el.sdTaskLabel) { el.sdTaskLabel.hidden = false; el.sdTaskLabel.textContent = "任务 · 贴入当前格 / 下一空格"; }
       return;
     }
     const stickNow = resolveStickTargetCell({ next: false });
@@ -22517,7 +22841,8 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     const stickHint = stickNow.label + (stickNow.empty ? "（空）" : "（追加）");
     if (el.sdTaskLabel) {
       el.sdTaskLabel.hidden = false;
-      el.sdTaskLabel.textContent = "任务（" + rows.length + "）· 当前贴 → " + stickHint;
+      const curMark = sdStickCursor ? (" · 游标第" + (sdStickCursor.c + 1) + "格") : "";
+      el.sdTaskLabel.textContent = "任务（" + rows.length + "）· 贴入目标 → " + stickHint + curMark;
     }
     const inboxRows = rows.filter((r) => r.kind === "inbox");
     const batchBar = inboxRows.length >= 2
@@ -22536,7 +22861,7 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
           + '<button type="button" class="sd-stick-btn ghost" data-stick="' + i + '" data-mode="next" title="贴到下一空格 · ' + escapeHtml(stickNext.label) + '">贴下一空格</button>')
         : ('<button type="button" class="sd-stick-btn" data-stick="' + i + '" data-mode="cur" title="移到空格 / 有任务则交换 · ' + escapeHtml(stickHint) + '">移/换当前</button>'
           + '<button type="button" class="sd-stick-btn ghost sd-swap-btn" data-stick="' + i + '" data-mode="swap" title="与当前格首条任务交换">⇄ 交换</button>');
-      return '<div class="sd-task" draggable="true" data-i="' + i + '" title="拖到格子：空=移入 · 有任务=交换">'
+      return '<div class="sd-task" draggable="true" data-i="' + i + '" title="拖到格子：空格移入 · 有任务则交换（Shift=追加）">'
         + '<span class="sd-task-top">' + kindBadge + '<span class="sd-task-text">' + escapeHtml(r.text) + "</span></span>"
         + hierLine + noteLine
         + '<span class="sd-task-meta">' + tagPills + '<span class="sd-task-loc">' + escapeHtml(loc) + "</span></span>"

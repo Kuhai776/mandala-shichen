@@ -45,7 +45,7 @@
 
 | 能力 | 状态 | 说明 |
 |------|------|------|
-| **应用内快捷球** | ✅ 已做 | 右下角球：看时长 / 暂停恢复 / 结束；随 tick 刷新 |
+| **应用内快捷球** | ⚠ 已由 Round16 移除 | 改通知栏（见 ROUND16.md / 114） |
 | **通知栏操作** | ⚠ 未装插件 | 工程依赖无 `@capacitor/local-notifications`；要做需：`npm i @capacitor/local-notifications` + Android 权限 + action callback |
 | **系统悬浮球** | ⚠ 未做原生 | 需 `SYSTEM_ALERT_WINDOW` + 自定义 Capacitor 插件/前台服务；成本高，本轮用应用内球替代 |
 | 后台保活前台服务 | ❌ 未做 | 需原生 Foreground Service；WebView  alone 不可靠 |
