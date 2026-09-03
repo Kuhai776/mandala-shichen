@@ -129,9 +129,14 @@ const SW_VER = "20260902r7";
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
   const APP_VERSION = "2.7.24";
-  const APP_BUILD = 112; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
-  const APP_VERSION_DATE = "2026-09-02";
+  const APP_BUILD = 113; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
+  const APP_VERSION_DATE = "2026-09-03";
   const APP_CHANGELOG = [
+    { v: "2.7.24·113", date: "2026-09-03", items: [
+      "Round14/15：边轨主题对齐 + 格子任务交换（拖放/⇄交换钮）",
+      "Round14/15：记录页当前格青绿开钟钮 + 超时溢出继承下一格",
+      "Round14/15：导图 depends_on→关联线、长按拖节点、浮动条可点；应用内快捷球",
+    ]},
     { v: "2.7.24·112", date: "2026-09-02", items: [
       "Round13：边轨贴齐九宫格（随格子定位）+ 窄屏藏置顶钮",
       "Round13：记录页多钟条支持跨日带到今日/清跨日；走秒轻量刷新不闪烁",
@@ -3455,6 +3460,7 @@ const SW_VER = "20260902r7";
     const pausedN = Object.values(runningTimers).filter((x) => x.pausedAt && x.date === state.currentDate).length;
     toast("⏱️ 正计时已启动 · " + trunc(String(taskText || "任务"), 14) + (pausedN ? `（其余 ${pausedN} 钟已暂停）` : ""), "success", 2200);
     haptic(20);
+    try { renderQuickTimerBubble(); } catch (e) {}
     return true;
   }
   // 暂停指定钟：冻结累计，时钟停走（不写入记录）
@@ -3501,30 +3507,23 @@ const SW_VER = "20260902r7";
       const duration = timerElapsedOf(cur);
       delete runningTimers[key];
       save(RUNNING_TIMERS_KEY, runningTimers);
-      // Round7：精确到秒写入 spent（可累加）
-      const addSec = Math.max(1, Math.round(duration / 1000));
-      const rec = getCellRecord(period, cell) || {};
-      if (name) {
-        // 条状记录：用换行分隔，避免一长串「连续串联」
-        const parts = String(rec.actual || "").split(/\n|; /).map((s) => s.trim()).filter(Boolean);
-        if (!parts.includes(name)) parts.push(name);
-        rec.actual = parts.join("\n");
-      } else if (!rec.actual) {
-        rec.actual = cur.taskText;
-      }
-      const prevSec = parseSpentToSec(rec.spent);
-      rec.spent = formatSpentPrecise((prevSec + addSec) * 1000);
-      rec.timerMs = (rec.timerMs || 0) + duration;
-      rec.timerStart = cur.startTime;
-      rec.timerEnd = Date.now();
-      rec.timerAuto = true;
-      setCellRecord(period, cell, rec);
+      // Round14/15：超时溢出继承到后续时辰格（记录对齐格子时长）
+      const chunks = commitTimerWithOverflow(period, cell, name, duration, {
+        timerStart: cur.startTime,
+        fallbackText: cur.taskText,
+      });
       if (!Object.keys(runningTimers).length) _stopTimerTick();
       renderRunningTimerBar();
+      renderQuickTimerBubble && renderQuickTimerBubble();
       renderMandala();
       renderRecord();
       haptic(20);
-      toast("⏱️ 已记录 " + formatSpentPrecise(duration) + " → " + (PERIOD_NAMES[period] || "第" + (period + 1) + "辰") + " 第" + (cell + 1) + "格", "success");
+      if (chunks.length > 1) {
+        const last = chunks[chunks.length - 1];
+        toast("⏱️ 已记录 " + formatSpentPrecise(duration) + " · 溢出继承 " + chunks.length + " 格（至第" + (last.c + 1) + "格）", "success", 3600);
+      } else {
+        toast("⏱️ 已记录 " + formatSpentPrecise(duration) + " → " + (PERIOD_NAMES[period] || "第" + (period + 1) + "辰") + " 第" + (cell + 1) + "格", "success");
+      }
     };
     if (opts.quick && !isUnnamed) {
       doCommit(t.taskText);
@@ -3675,6 +3674,111 @@ const SW_VER = "20260902r7";
     return m5 ? parseInt(m5[1], 10) * 60 : 0;
   }
 
+
+  // Round14/15：下一格子（跨时辰）
+  function nextPeriodCell(period, cell) {
+    let p = period | 0, c = (cell | 0) + 1;
+    if (c >= CELLS_PER_PERIOD) { c = 0; p += 1; }
+    if (p >= PERIOD_COUNT) return null;
+    return { p, c };
+  }
+  // Round14/15：超时溢出写入后续格子（记录对齐时辰格）
+  function commitTimerWithOverflow(startP, startC, name, durationMs, meta) {
+    meta = meta || {};
+    let remainSec = Math.max(1, Math.round(durationMs / 1000));
+    const cap = Math.max(60, Math.round(SECONDS_PER_CELL));
+    let p = startP, c = startC;
+    const chunks = [];
+    let guard = 0;
+    while (remainSec > 0 && guard++ < 40) {
+      const writeSec = Math.min(remainSec, cap);
+      const rec = getCellRecord(p, c) || {};
+      if (name) {
+        const parts = String(rec.actual || "").split(/\n|; /).map((s) => s.trim()).filter(Boolean);
+        const tag = chunks.length ? (name + "（续·溢出）") : name;
+        if (!parts.includes(tag) && !parts.includes(name)) parts.push(tag);
+        else if (chunks.length && !parts.includes(tag)) parts.push(tag);
+        rec.actual = parts.join("\n");
+      } else if (!rec.actual) {
+        rec.actual = meta.fallbackText || "未命名任务";
+      }
+      const prevSec = parseSpentToSec(rec.spent);
+      rec.spent = formatSpentPrecise((prevSec + writeSec) * 1000);
+      rec.timerMs = (rec.timerMs || 0) + writeSec * 1000;
+      if (!chunks.length) {
+        rec.timerStart = meta.timerStart || Date.now();
+        rec.timerAuto = true;
+      }
+      rec.timerEnd = Date.now();
+      if (chunks.length) rec.overflowInherit = true;
+      setCellRecord(p, c, rec);
+      chunks.push({ p, c, sec: writeSec });
+      remainSec -= writeSec;
+      if (remainSec <= 0) break;
+      const nx = nextPeriodCell(p, c);
+      if (!nx) break;
+      p = nx.p; c = nx.c;
+    }
+    return chunks;
+  }
+
+  // Round14/15：应用内快捷球（非系统悬浮窗）——看钟/暂停/结束
+  function renderQuickTimerBubble() {
+    let fab = document.getElementById("quickTimerBubble");
+    const list = Object.values(runningTimers || {}).filter((t) => t && t.date === state.currentDate);
+    if (!list.length) {
+      if (fab) fab.hidden = true;
+      return;
+    }
+    if (!fab) {
+      fab = document.createElement("div");
+      fab.id = "quickTimerBubble";
+      fab.className = "quick-timer-bubble";
+      fab.innerHTML = '<button type="button" class="qtb-main" id="qtbMain" title="快捷计时">⏱</button>'
+        + '<div class="qtb-panel" id="qtbPanel" hidden></div>';
+      document.body.appendChild(fab);
+      fab.querySelector("#qtbMain").addEventListener("click", (e) => {
+        e.stopPropagation();
+        const panel = fab.querySelector("#qtbPanel");
+        panel.hidden = !panel.hidden;
+        if (!panel.hidden) renderQuickTimerBubble();
+      });
+    }
+    fab.hidden = false;
+    const run = list.find((t) => !t.pausedAt) || list[0];
+    const elMs = timerElapsedOf(run);
+    const mm = Math.floor(elMs / 60000), ss = Math.floor((elMs % 60000) / 1000);
+    const main = fab.querySelector("#qtbMain");
+    if (main) {
+      main.textContent = (run.pausedAt ? "⏸" : "⏱") + String(mm).padStart(2, "0") + ":" + String(ss).padStart(2, "0");
+      main.classList.toggle("paused", !!run.pausedAt);
+      main.classList.toggle("running", !run.pausedAt);
+    }
+    const panel = fab.querySelector("#qtbPanel");
+    if (panel && !panel.hidden) {
+      panel.innerHTML = list.map((t) => {
+        const dur = _fmtTimerDur(timerElapsedOf(t));
+        const lab = trunc(String(t.taskText || "任务"), 10);
+        return '<div class="qtb-row">'
+          + '<span class="qtb-lab">' + (t.pausedAt ? "⏸" : "▶") + " " + escapeHtml(lab) + " · " + dur + "</span>"
+          + '<button type="button" data-q="toggle" data-p="' + t.period + '" data-c="' + t.cell + '">' + (t.pausedAt ? "恢复" : "暂停") + "</button>"
+          + '<button type="button" data-q="end" data-p="' + t.period + '" data-c="' + t.cell + '">结束</button>'
+          + "</div>";
+      }).join("")
+        + '<div class="qtb-hint">系统通知栏快捷操作需安装 @capacitor/local-notifications（见 ROUND14.md）</div>';
+      panel.querySelectorAll("button[data-q]").forEach((b) => {
+        b.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const p = parseInt(b.dataset.p, 10), c = parseInt(b.dataset.c, 10);
+          if (b.dataset.q === "toggle") toggleCellTimer(p, c);
+          else if (b.dataset.q === "end") stopCellTimer(p, c);
+          renderQuickTimerBubble();
+          if (state.realm === "record") renderRecord();
+        });
+      });
+    }
+  }
+
   // Round1/Round7：正计时锚点控件——仅记录页使用（计划页已去除）——⏱启动 / ⏸暂停 / ▶恢复 + ■结束命名
   function attachCellTimerControls(cellEl, period, cell, taskTextHint) {
     if (!cellEl) return;
@@ -3692,8 +3796,28 @@ const SW_VER = "20260902r7";
       badge.title = _rtPaused ? "已暂停累计" : "正计时进行中";
       wrap.appendChild(badge);
     }
+    // Round14/15：当前时刻格 —— 青绿「开钟」钮（与普通⏱区分，方便多钟）
+    const isNowCell = !!(cellEl.classList && cellEl.classList.contains("current-cell"));
+    if (!_rt && isNowCell && state.realm === "record") {
+      const nowBtn = document.createElement("button");
+      nowBtn.type = "button";
+      nowBtn.className = "cell-timer-btn cell-timer-now";
+      nowBtn.dataset.timerNow = "1";
+      nowBtn.textContent = "▶";
+      nowBtn.title = "当前格开钟 · 青绿快捷钮（多钟：开新钟会自动暂停其他在跑的钟）";
+      nowBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const hint = taskTextHint || "未命名任务";
+        startCellTimer(period, cell, hint);
+        renderQuickTimerBubble && renderQuickTimerBubble();
+        if (state.realm === "record") renderRecord();
+        else renderMandala();
+      });
+      wrap.appendChild(nowBtn);
+    }
     const timerBtn = document.createElement("button");
-    timerBtn.className = "cell-timer-btn" + (_rt ? (_rtPaused ? " paused" : " running") : "");
+    timerBtn.className = "cell-timer-btn" + (_rt ? (_rtPaused ? " paused" : " running") : "") + ((!_rt && isNowCell) ? " secondary" : "");
     timerBtn.dataset.timerBtn = "1";
     timerBtn.type = "button";
     timerBtn.title = !_rt
@@ -3707,6 +3831,7 @@ const SW_VER = "20260902r7";
       e.preventDefault();
       const hint = taskTextHint || (_rt && _rt.taskText) || "未命名任务";
       toggleCellTimer(period, cell, hint);
+      renderQuickTimerBubble && renderQuickTimerBubble();
       if (state.realm === "record") renderRecord();
       else renderMandala();
     });
@@ -3762,6 +3887,7 @@ const SW_VER = "20260902r7";
     // Round13：优先轻量走秒；结构变化时再全量重绘，避免安卓每秒闪烁
     _timerTick = setInterval(() => {
       if (!_tryLightTimerRefresh()) renderRunningTimerBar();
+      try { renderQuickTimerBubble(); } catch (e) {}
     }, 1000);
   }
   function _stopTimerTick() {
@@ -12011,6 +12137,49 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
           }
         }
       });
+      // Round14/15：depends_on / link 字段 → 导图关联线（解析修复）
+      const allByIdx = new Map();
+      const collect = [];
+      const walkCollect = (n) => { collect.push(n); (n.children || []).forEach(walkCollect); };
+      walkCollect(root);
+      // 主线按原 steps 下标；支线也尝试挂 depends
+      const nodeByStepIdx = new Map(mainNodes);
+      steps.forEach((s, idx) => {
+        if (s.branch === "side") {
+          // 支线节点在父下，按文本匹配最近新建
+          const parent = typeof s.parent_step === "number" ? mainNodes.get(s.parent_step) : null;
+          const kids = parent ? parent.children : [];
+          const hit = kids.find((c) => c.text === s.text && c.type === "side");
+          if (hit) nodeByStepIdx.set(idx, hit);
+        }
+      });
+      steps.forEach((s, idx) => {
+        const from = nodeByStepIdx.get(idx);
+        if (!from || from._isRoot) return;
+        let toId = null;
+        let label = "关联";
+        if (s.link || s.link_to || (s.meta && s.meta.link)) {
+          const ref = s.link || s.link_to || s.meta.link;
+          if (typeof ref === "number" && nodeByStepIdx.has(ref)) toId = nodeByStepIdx.get(ref).id;
+          else if (typeof ref === "string") {
+            const byId = collect.find((n) => n.id === ref);
+            const byText = collect.find((n) => (n.text || "").trim() === String(ref).trim());
+            toId = (byId || byText || {}).id || null;
+          }
+          label = s.linkLabel || s.link_label || "关联";
+        } else if (s.depends_on !== null && s.depends_on !== undefined && s.depends_on !== "") {
+          const dep = typeof s.depends_on === "number" ? s.depends_on : parseInt(s.depends_on, 10);
+          if (!isNaN(dep) && nodeByStepIdx.has(dep)) {
+            toId = nodeByStepIdx.get(dep).id;
+            label = "依赖";
+          }
+        }
+        if (toId && toId !== from.id) {
+          from.meta = from.meta || {};
+          from.meta.link = toId;
+          from.meta.linkLabel = label;
+        }
+      });
       return root;
     }
 
@@ -12713,7 +12882,9 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       const drawn = new Set();
       const walk = (n) => {
         if (n.meta && n.meta.link) {
-          const t = this.findNode(n.meta.link);
+          const t = this.resolveLinkTarget ? this.resolveLinkTarget(n.meta.link) : this.findNode(n.meta.link);
+          // 若按文案解析到节点，回写为稳定 id
+          if (t && t.id !== n.meta.link) n.meta.link = t.id;
           const p = this._nodePos.get(n.id);
           const tp = t && this._nodePos.get(t.id);
           if (p && tp) {
@@ -13022,9 +13193,17 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     // ---------- 查找 ----------
     findNode(id, n) {
       n = n || this.root;
+      if (!id || !n) return null;
       if (n.id === id) return n;
       for (const c of n.children) { const r = this.findNode(id, c); if (r) return r; }
       return null;
+    }
+    // Round14：关联目标 id 失效时按文案兜底解析
+    resolveLinkTarget(ref) {
+      if (!ref) return null;
+      const byId = this.findNode(ref);
+      if (byId) return byId;
+      return this.findNodeByText(String(ref));
     }
     // 按文本匹配节点（用于格子任务 ↔ 导图节点互跳）
     findNodeByText(text, n) {
@@ -15010,7 +15189,7 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
       // 点选=短按；长按武装拖移；长按未拖=编辑；同级轴滑=改序；双指缩放
       let tp = null;
       this._lastTap = null;
-      const TAP_MS = 420, DRAG_PX = 12, LONG_PRESS_MS = 260, SWIPE_PX = 52;
+      const TAP_MS = 420, DRAG_PX = 10, LONG_PRESS_MS = 180, SWIPE_PX = 64;
       const clearLp = () => {
         if (tp && tp.lpTimer) { clearTimeout(tp.lpTimer); tp.lpTimer = null; }
       };
@@ -15021,10 +15200,10 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
           const t = touches[0];
           const hit = document.elementFromPoint(t.clientX, t.clientY);
           if (hit && hit.closest && hit.closest(".mm-float-bar")) return; // 交给浮动条自己处理
+          // Round14：↩ 角标不在 touchstart 跳转（避免抢拖拽）；短按松手再跳
           const jumpEl = hit && hit.closest ? hit.closest("[data-mm-jump]") : null;
-          if (jumpEl) { this.jumpToTask(jumpEl.getAttribute("data-mm-jump")); return; }
           const foldEl = hit && hit.closest ? hit.closest("[data-fold]") : null;
-          if (foldEl) {
+          if (foldEl && !jumpEl) {
             const id = foldEl.getAttribute("data-fold");
             const n = this.findNode(id);
             if (n) { n.collapsed = !n.collapsed; this.pushHistory(); this.render(); }
@@ -15033,14 +15212,21 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
           const nodeEl = hit && hit.closest ? hit.closest("[data-node]") : null;
           if (nodeEl) {
             const id = nodeEl.getAttribute("data-node");
-            tp = { mode: "node", id, x: t.clientX, y: t.clientY, moved: false, armed: false, swiped: false, lpTimer: null };
+            const already = this.selectedId === id;
+            tp = { mode: "node", id, x: t.clientX, y: t.clientY, moved: false, armed: !!already, swiped: false, lpTimer: null, jumpId: jumpEl ? jumpEl.getAttribute("data-mm-jump") : null };
             this.selectNode(id, { center: false, panel: false });
-            tp.lpTimer = setTimeout(() => {
-              if (!tp || tp.mode !== "node" || tp.moved || tp.swiped) return;
-              tp.armed = true;
-              haptic(18);
-              toast("↕ 拖改位置/隶属 · 松手未拖=编辑", "info", 1500);
-            }, LONG_PRESS_MS);
+            // 已选中：立刻可拖；未选中：短长按武装
+            if (!already) {
+              tp.lpTimer = setTimeout(() => {
+                if (!tp || tp.mode !== "node" || tp.moved || tp.swiped) return;
+                tp.armed = true;
+                tp.jumpId = null; // 武装后取消角标跳转
+                haptic(18);
+                toast("↕ 拖节点改位置/隶属 · 松手未拖=编辑", "info", 1400);
+              }, LONG_PRESS_MS);
+            } else {
+              haptic(10);
+            }
           } else {
             tp = { mode: "pan", x: t.clientX, y: t.clientY, ox: this.view.x, oy: this.view.y };
           }
@@ -15090,16 +15276,14 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
               return;
             }
           }
+          // Round14：节点上移动 → 优先拖节点（不再轻易变成平移，解决 task 节点拖不动）
           if (!tp.armed && dist > DRAG_PX && !tp.swiped) {
             clearLp();
-            tp = { mode: "pan", x: tp.x, y: tp.y, ox: this.view.x, oy: this.view.y };
-            this.view.x = tp.ox + (t.clientX - tp.x);
-            this.view.y = tp.oy + (t.clientY - tp.y);
-            this._applyView();
-            return;
+            tp.armed = true;
           }
           if (tp.armed && !tp.moved && dist > 4) {
             tp.moved = true;
+            tp.jumpId = null;
             this._beginDragVisual(tp.id, t.clientX, t.clientY);
             haptic(12);
           }
@@ -15122,6 +15306,11 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
             this.editNode(was.id);
             haptic(15);
           } else {
+            if (was.jumpId && !was.moved) {
+              this.jumpToTask(was.jumpId);
+              tp = null;
+              return;
+            }
             if (this._linkFrom) {
               this.completeLinkTo(was.id);
               tp = null;
@@ -15153,13 +15342,17 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
       // 浮动操作条
       if (els.floatBar) {
         const stopBubble = (e) => { e.stopPropagation(); };
-        els.floatBar.addEventListener("pointerdown", stopBubble);
+        els.floatBar.addEventListener("pointerdown", (e) => { e.stopPropagation(); e.preventDefault && e.pointerType === "touch" && e.preventDefault(); });
         els.floatBar.addEventListener("touchstart", stopBubble, { passive: true });
-        els.floatBar.addEventListener("click", (e) => {
+        const runFloatAction = (e) => {
           e.stopPropagation();
+          e.preventDefault();
           const btn = e.target.closest("[data-a]");
           if (!btn || !this.selectedId) return;
+          if (btn._mmFired && Date.now() - btn._mmFired < 400) return; // 防 click+pointerup 双触发
+          btn._mmFired = Date.now();
           const a = btn.dataset.a;
+          haptic(12);
           if (a === "child") this.addChild(this.selectedId);
           else if (a === "edit") this.editNode(this.selectedId);
           else if (a === "est") this.editEstMin(this.selectedId);
@@ -15177,7 +15370,10 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
           else if (a === "link") this.beginLinkMode(this.selectedId);
           else if (a === "jump") this.jumpToTask(this.selectedId);
           else if (a === "del") this.deleteNode(this.selectedId);
-        });
+          requestAnimationFrame(() => this._updateFloatBar && this._updateFloatBar());
+        };
+        els.floatBar.addEventListener("pointerup", runFloatAction);
+        els.floatBar.addEventListener("click", runFloatAction);
       }
       // 快捷键（dialog 打开时）
       document.addEventListener("keydown", this._keyHandler = (e) => {
@@ -19598,6 +19794,39 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   // Round8：侧条触屏长按拖入时辰格（HTML5 DnD 在多数安卓 WebView 不可用）
   let sdTouch = null; // { btn, src, startX, startY, holdTimer, ghost, axis }
   let sdLongPressed = false;
+  // Round14：格子任务交换/移动——目标格有任务时默认与首条非便利贴交换（可靠「交换」）
+  function swapOrMoveCellTask(srcP, srcC, srcTi, tgtP, tgtC, opts) {
+    opts = opts || {};
+    if (srcP === tgtP && srcC === tgtC) return false;
+    const sourceTasks = getCellTasks(srcP, srcC).slice();
+    const task = sourceTasks[srcTi];
+    if (!task) return false;
+    const targetTasks = getCellTasks(tgtP, tgtC).slice();
+    const forceAppend = !!opts.append;
+    // 找目标格可交换的首条常规任务（非 sticky）
+    let swapIdx = -1;
+    if (!forceAppend && targetTasks.length) {
+      swapIdx = targetTasks.findIndex((t) => t && !t.sticky);
+      if (swapIdx < 0 && targetTasks.length) swapIdx = 0;
+    }
+    if (swapIdx >= 0) {
+      const other = targetTasks[swapIdx];
+      targetTasks[swapIdx] = task;
+      sourceTasks[srcTi] = other;
+      setCellTasks(srcP, srcC, sourceTasks);
+      setCellTasks(tgtP, tgtC, targetTasks);
+      if (!opts.silent) toast("⇄ 已交换 · 第" + (srcC + 1) + "格 ↔ 第" + (tgtC + 1) + "格", "success", 2600);
+      haptic(28);
+      return "swap";
+    }
+    sourceTasks.splice(srcTi, 1);
+    setCellTasks(srcP, srcC, sourceTasks);
+    targetTasks.push(task);
+    setCellTasks(tgtP, tgtC, targetTasks);
+    if (!opts.silent) toast("已移动到第 " + (tgtC + 1) + " 格", "success");
+    haptic(30);
+    return "move";
+  }
   function applySideSourceToCell(src, period, cell, opts) {
     opts = opts || {};
     if (!src) return false;
@@ -19619,18 +19848,13 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     }
     if (src.kind === "cell") {
       if (src.p === period && src.c === cell) return false;
-      const sourceTasks = getCellTasks(src.p, src.c).slice();
-      const task = sourceTasks[src.ti];
-      if (!task) return false;
-      sourceTasks.splice(src.ti, 1);
-      setCellTasks(src.p, src.c, sourceTasks);
-      const targetTasks = getCellTasks(period, cell).slice();
-      targetTasks.push(task);
-      setCellTasks(period, cell, targetTasks);
+      const result = swapOrMoveCellTask(src.p, src.c, src.ti, period, cell, {
+        silent: !!opts.silent,
+        append: !!opts.append,
+      });
+      if (!result) return false;
       renderAll();
       if (!opts.skipSideRefresh) renderSideDrawer();
-      haptic(30);
-      if (!opts.silent) toast("已移动到第 " + (cell + 1) + " 格", "success");
       return true;
     }
     return false;
@@ -19749,18 +19973,14 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       }
       if (draggingTaskSource) {
         const src = draggingTaskSource;
+        draggingTaskSource = null;
         if (src.period === period && src.cell === cell) return;
-        const sourceTasks = getCellTasks(src.period, src.cell).slice();
-        const task = sourceTasks[src.idx];
-        if (!task) return;
-        sourceTasks.splice(src.idx, 1);
-        setCellTasks(src.period, src.cell, sourceTasks);
-        const targetTasks = getCellTasks(period, cell).slice();
-        targetTasks.push(task);
-        setCellTasks(period, cell, targetTasks);
-        renderAll();
-        haptic(30);
-        toast("已移动任务到第 " + (cell + 1) + " 格", "success");
+        // Round14：Shift=追加；默认有任务则交换
+        const append = !!(e.shiftKey);
+        if (swapOrMoveCellTask(src.period, src.cell, src.idx, period, cell, { append })) {
+          renderAll();
+          renderSideDrawer();
+        }
         return;
       }
       const raw = e.dataTransfer.getData("text/plain");
@@ -19769,17 +19989,11 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       try { payload = JSON.parse(raw); } catch (err) { payload = { idx: parseInt(raw, 10) }; }
       if (payload && payload.source === "side" && payload.kind === "cell") {
         if (payload.p === period && payload.c === cell) return;
-        const sourceTasks = getCellTasks(payload.p, payload.c).slice();
-        const task = sourceTasks[payload.ti];
-        if (!task) return;
-        sourceTasks.splice(payload.ti, 1);
-        setCellTasks(payload.p, payload.c, sourceTasks);
-        const targetTasks = getCellTasks(period, cell).slice();
-        targetTasks.push(task);
-        setCellTasks(period, cell, targetTasks);
-        renderAll();
-        renderSideDrawer();
-        toast("已移动到第 " + (cell + 1) + " 格", "success");
+        const append = !!(e.shiftKey);
+        if (swapOrMoveCellTask(payload.p, payload.c, payload.ti, period, cell, { append })) {
+          renderAll();
+          renderSideDrawer();
+        }
         return;
       }
       if (typeof payload.idx !== "number" || isNaN(payload.idx)) return;
@@ -22320,12 +22534,13 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
       const stickBtns = r.kind === "inbox"
         ? ('<button type="button" class="sd-stick-btn" data-stick="' + i + '" data-mode="cur" title="贴到' + escapeHtml(stickHint) + '">贴当前</button>'
           + '<button type="button" class="sd-stick-btn ghost" data-stick="' + i + '" data-mode="next" title="贴到下一空格 · ' + escapeHtml(stickNext.label) + '">贴下一空格</button>')
-        : ('<button type="button" class="sd-stick-btn" data-stick="' + i + '" data-mode="cur" title="移到' + escapeHtml(stickHint) + '">移到当前格</button>');
-      return '<div class="sd-task" draggable="true" data-i="' + i + '" title="一键贴格 · 或长按拖入">'
+        : ('<button type="button" class="sd-stick-btn" data-stick="' + i + '" data-mode="cur" title="移到空格 / 有任务则交换 · ' + escapeHtml(stickHint) + '">移/换当前</button>'
+          + '<button type="button" class="sd-stick-btn ghost sd-swap-btn" data-stick="' + i + '" data-mode="swap" title="与当前格首条任务交换">⇄ 交换</button>');
+      return '<div class="sd-task" draggable="true" data-i="' + i + '" title="拖到格子：空=移入 · 有任务=交换">'
         + '<span class="sd-task-top">' + kindBadge + '<span class="sd-task-text">' + escapeHtml(r.text) + "</span></span>"
         + hierLine + noteLine
         + '<span class="sd-task-meta">' + tagPills + '<span class="sd-task-loc">' + escapeHtml(loc) + "</span></span>"
-        + '<span class="sd-task-actions">' + stickBtns + '<span class="sd-drag-hint">⋮⋮ 长按拖入</span></span>'
+        + '<span class="sd-task-actions">' + stickBtns + '<span class="sd-drag-hint">⋮⋮ 拖入/交换</span></span>'
         + "</div>";
     }).join("");
     const batchBtn = el.sdTasks.querySelector("#sdBatchStickAll");
@@ -22360,6 +22575,19 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
           ? { kind: "inbox", idx: r.idx }
           : { kind: "cell", p: r.p, c: r.c, ti: r.ti };
         haptic(18);
+        if (mode === "swap" && src.kind === "cell") {
+          const tgt = resolveStickTargetCell({ next: false });
+          if (!getCellTasks(tgt.p, tgt.c).length) {
+            toast("当前格为空，无法交换 · 请用「移/换当前」", "info");
+            return;
+          }
+          if (swapOrMoveCellTask(src.p, src.c, src.ti, tgt.p, tgt.c, { append: false })) {
+            jumpToCell(tgt.p, tgt.c);
+            renderAll();
+            renderSideDrawer();
+          }
+          return;
+        }
         stickSideRowToCurrentCell(src, {
           next: mode === "next",
           keepOpen: mode === "next" || r.kind === "inbox",
