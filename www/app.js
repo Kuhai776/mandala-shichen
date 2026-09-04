@@ -110,6 +110,13 @@ const SW_VER = "20260902r7";
       return window.Capacitor.Plugins.LocalNotifications || null;
     } catch (e) { return null; }
   }
+  // Round22：Android 前台服务（常驻通知 + 提升进程优先级；网页/无插件时 null）
+  function getTimerForeground() {
+    try {
+      if (!IS_NATIVE || !window.Capacitor || !window.Capacitor.Plugins) return null;
+      return window.Capacitor.Plugins.TimerForeground || null;
+    } catch (e) { return null; }
+  }
 
   // 统一震动接口：APK 用原生 Haptics，浏览器用 navigator.vibrate
   function haptic(pattern) {
@@ -136,9 +143,12 @@ const SW_VER = "20260902r7";
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
   const APP_VERSION = "2.7.24";
-  const APP_BUILD = 119; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
+  const APP_BUILD = 120; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
   const APP_VERSION_DATE = "2026-09-04";
   const APP_CHANGELOG = [
+    { v: "2.7.24·120", date: "2026-09-04", items: [
+      "Round22：Android 前台服务保活——计时中常驻通知，降低后台被杀概率（非 100%）",
+    ]},
     { v: "2.7.24·119", date: "2026-09-04", items: [
       "Round21：通知栏 MVP 加固——即时贴出/权限中文提示/三键动作/节流修 body",
     ]},
@@ -3761,9 +3771,11 @@ const SW_VER = "20260902r7";
     return chunks;
   }
 
-  // Round16/17/21：通知栏正计时 —— 暂停/恢复/结束（+切钟/记任务；安卓最多 3 键）
+  // Round16/17/21/22：通知栏正计时 —— 暂停/恢复/结束（+切钟/记任务；安卓最多 3 键）
+  // Round22：优先 Android Foreground Service 常驻通知（单一真相源）；无 FGS 时回退 LocalNotifications
   const TIMER_NOTIF_ID = 16115;
   const TIMER_NOTIF_CHANNEL = "mandala_timer";
+  const TIMER_FGS_CHANNEL = "mandala_timer_fgs";
   // 安卓通知最多 3 个 Action：按「在跑/暂停 × 单钟/多钟」拆 4 套，保证「结束」始终可见
   const TIMER_ACTION_RUN = "mandala_timer_run";             // 暂停 · 记任务 · 结束
   const TIMER_ACTION_PAUSE = "mandala_timer_pause";         // 恢复 · 记任务 · 结束
@@ -3771,6 +3783,8 @@ const SW_VER = "20260902r7";
   const TIMER_ACTION_PAUSE_MULTI = "mandala_timer_pause_m"; // 恢复 · 切钟 · 结束
   let _timerNotifReady = false;
   let _timerNotifListenerBound = false;
+  let _timerFgsListenerBound = false;
+  let _timerFgsActive = false;
   let _timerNotifSyncing = false;
   let _timerNotifQueued = false;
   let _timerNotifLastTitle = "";
@@ -3879,23 +3893,86 @@ const SW_VER = "20260902r7";
     return multi ? TIMER_ACTION_RUN_MULTI : TIMER_ACTION_RUN;
   }
 
+  function pickTimerFgsButtons(run, listLen) {
+    const paused = !!(run && run.pausedAt);
+    const multi = (listLen | 0) > 1;
+    if (paused && multi) {
+      return [
+        { id: "resume", title: "恢复" },
+        { id: "next", title: "切钟" },
+        { id: "stop", title: "结束" },
+      ];
+    }
+    if (paused) {
+      return [
+        { id: "resume", title: "恢复" },
+        { id: "add", title: "记任务" },
+        { id: "stop", title: "结束" },
+      ];
+    }
+    if (multi) {
+      return [
+        { id: "pause", title: "暂停" },
+        { id: "next", title: "切钟" },
+        { id: "stop", title: "结束" },
+      ];
+    }
+    return [
+      { id: "pause", title: "暂停" },
+      { id: "add", title: "记任务" },
+      { id: "stop", title: "结束" },
+    ];
+  }
+
+  function handleTimerNotifAction(actionId, period, cell) {
+    try {
+      const p = parseInt(period, 10);
+      const c = parseInt(cell, 10);
+      if (Number.isNaN(p) || Number.isNaN(c)) return;
+      if (!actionId || actionId === "tap") {
+        setRealm("record");
+        jumpToCell(p, c);
+        return;
+      }
+      if (actionId === "pause") {
+        const t = getRunningTimer(p, c);
+        if (t && !t.pausedAt) pauseCellTimer(p, c);
+      } else if (actionId === "resume") {
+        const t = getRunningTimer(p, c);
+        if (t && t.pausedAt) startCellTimer(p, c, t.taskText);
+      } else if (actionId === "next") {
+        cycleNextRunningTimer(p, c);
+      } else if (actionId === "add") {
+        notifQuickAddTask(p, c);
+      } else if (actionId === "stop") {
+        stopCellTimer(p, c);
+      }
+      if (state.realm === "record") renderRecord();
+      else renderMandala();
+      _timerNotifForce = true;
+      syncTimerNotification();
+    } catch (e) { /* 静默 */ }
+  }
+
   async function ensureTimerNotifReady(opts) {
     opts = opts || {};
+    const FGS = getTimerForeground();
     const LN = getLocalNotifications();
-    if (!LN) return null;
+    if (!LN && !FGS) return null;
     try {
       let display = "granted";
-      if (typeof LN.checkPermissions === "function") {
+      // 通知权限：优先用 LocalNotifications（Capacitor 标准 API）；无则假定已授权试 FGS
+      if (LN && typeof LN.checkPermissions === "function") {
         try {
           const cur = await LN.checkPermissions();
           display = (cur && cur.display) || "prompt";
         } catch (e) { display = "prompt"; }
       }
-      if (display !== "granted" && typeof LN.requestPermissions === "function") {
+      if (display !== "granted" && LN && typeof LN.requestPermissions === "function") {
         const res = await LN.requestPermissions();
         display = (res && res.display) || "denied";
       }
-      if (display !== "granted") {
+      if (display !== "granted" && LN) {
         if ((opts.requestPerm || opts.showDeniedToast) && !_timerNotifPermDeniedToast) {
           _timerNotifPermDeniedToast = true;
           try {
@@ -3906,7 +3983,7 @@ const SW_VER = "20260902r7";
         return null;
       }
       _timerNotifPermDeniedToast = false;
-      if (typeof LN.createChannel === "function") {
+      if (LN && typeof LN.createChannel === "function") {
         try {
           await LN.createChannel({
             id: TIMER_NOTIF_CHANNEL,
@@ -3919,7 +3996,7 @@ const SW_VER = "20260902r7";
           });
         } catch (e) { /* 通道已存在或平台不支持 */ }
       }
-      if (typeof LN.registerActionTypes === "function") {
+      if (LN && typeof LN.registerActionTypes === "function") {
         await LN.registerActionTypes({
           types: [
             {
@@ -3957,42 +4034,26 @@ const SW_VER = "20260902r7";
           ],
         });
       }
-      if (!_timerNotifListenerBound && typeof LN.addListener === "function") {
+      if (LN && !_timerNotifListenerBound && typeof LN.addListener === "function") {
         _timerNotifListenerBound = true;
         LN.addListener("localNotificationActionPerformed", (ev) => {
           try {
             const actionId = ev && ev.actionId;
             const extra = (ev.notification && ev.notification.extra) || {};
-            const p = parseInt(extra.period, 10);
-            const c = parseInt(extra.cell, 10);
-            if (Number.isNaN(p) || Number.isNaN(c)) return;
-            if (!actionId || actionId === "tap") {
-              setRealm("record");
-              jumpToCell(p, c);
-              return;
-            }
-            if (actionId === "pause") {
-              const t = getRunningTimer(p, c);
-              if (t && !t.pausedAt) pauseCellTimer(p, c);
-            } else if (actionId === "resume") {
-              const t = getRunningTimer(p, c);
-              if (t && t.pausedAt) startCellTimer(p, c, t.taskText);
-            } else if (actionId === "next") {
-              cycleNextRunningTimer(p, c);
-            } else if (actionId === "add") {
-              notifQuickAddTask(p, c);
-            } else if (actionId === "stop") {
-              stopCellTimer(p, c);
-            }
-            if (state.realm === "record") renderRecord();
-            else renderMandala();
-            _timerNotifForce = true;
-            syncTimerNotification();
+            handleTimerNotifAction(actionId, extra.period, extra.cell);
+          } catch (e) { /* 静默 */ }
+        });
+      }
+      if (FGS && !_timerFgsListenerBound && typeof FGS.addListener === "function") {
+        _timerFgsListenerBound = true;
+        FGS.addListener("action", (ev) => {
+          try {
+            handleTimerNotifAction(ev && ev.actionId, ev && ev.period, ev && ev.cell);
           } catch (e) { /* 静默 */ }
         });
       }
       _timerNotifReady = true;
-      return LN;
+      return FGS || LN;
     } catch (e) {
       _timerNotifReady = false;
       return null;
@@ -4000,8 +4061,17 @@ const SW_VER = "20260902r7";
   }
 
   async function cancelTimerNotification() {
+    const FGS = getTimerForeground();
+    if (FGS && typeof FGS.stop === "function") {
+      try { await FGS.stop(); } catch (e) { /* 静默 */ }
+      _timerFgsActive = false;
+    }
     const LN = getLocalNotifications();
-    if (!LN) return;
+    if (!LN) {
+      _timerNotifLastTitle = "";
+      _timerNotifLastBody = "";
+      return;
+    }
     _timerNotifLastTitle = "";
     _timerNotifLastBody = "";
     try {
@@ -4018,8 +4088,9 @@ const SW_VER = "20260902r7";
 
   async function syncTimerNotification(opts) {
     opts = opts || {};
+    const FGS = getTimerForeground();
     const LN = getLocalNotifications();
-    if (!LN) return; // 网页/桌面/未装插件：优雅 no-op
+    if (!FGS && !LN) return; // 网页/桌面/未装插件：优雅 no-op
     if (_timerNotifSyncing) { _timerNotifQueued = true; return; }
     _timerNotifSyncing = true;
     try {
@@ -4062,6 +4133,47 @@ const SW_VER = "20260902r7";
         if (R && R.shouldSkipNotifSchedule && R.shouldSkipNotifSchedule(_timerNotifLastTitle, title, _timerNotifLastAt, 4500, _timerNotifLastBody, body)) return;
         if (!R && _timerNotifLastTitle === title && _timerNotifLastBody === body && (Date.now() - _timerNotifLastAt) < 4500) return;
       }
+
+      // Round22：优先 FGS 单一常驻通知；取消 LocalNotifications 避免双通知冲突
+      if (FGS && typeof FGS.start === "function") {
+        try {
+          if (LN) {
+            try {
+              if (typeof LN.cancel === "function") await LN.cancel({ notifications: [{ id: TIMER_NOTIF_ID }] });
+            } catch (e) {}
+            try {
+              if (typeof LN.removeDeliveredNotifications === "function") {
+                await LN.removeDeliveredNotifications({ notifications: [{ id: TIMER_NOTIF_ID }] });
+              }
+            } catch (e) {}
+          }
+          const payload = {
+            id: TIMER_NOTIF_ID,
+            title: title,
+            body: body,
+            channelId: TIMER_FGS_CHANNEL,
+            smallIcon: "ic_stat_timer",
+            period: run.period | 0,
+            cell: run.cell | 0,
+            buttons: pickTimerFgsButtons(run, list.length),
+          };
+          if (_timerFgsActive && typeof FGS.update === "function") {
+            await FGS.update(payload);
+          } else {
+            await FGS.start(payload);
+            _timerFgsActive = true;
+          }
+          _timerNotifLastTitle = title;
+          _timerNotifLastBody = body;
+          _timerNotifLastAt = Date.now();
+          return;
+        } catch (e) {
+          _timerFgsActive = false;
+          // 回退 LocalNotifications
+        }
+      }
+
+      if (!LN) return;
       // Round21：不要 schedule.at（会走 AlarmManager）；即时 notify 才能稳定刷新 ongoing
       await LN.schedule({
         notifications: [{

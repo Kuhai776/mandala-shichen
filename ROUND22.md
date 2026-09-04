@@ -1,42 +1,78 @@
-# Round 22 — 下一步（草稿 / 待开做）
+# Round 22（v2.7.24·120）· Android 前台服务保活
 
 日期：2026-09-04  
-承接：Round21（v119）通知栏正计时 MVP 加固  
-状态：**先发 APK 真机验收**，本轮文档化缺口，不急着改码。
+范围：`d:\Downloads\mandala-shichen`  
+承接：Round21（v119）通知栏正计时 MVP → **真正提高后台存活率**
 
 ---
 
-## 用户可先测（v119）
+## 前台服务是什么（给用户）
 
-路径：`apk/mandala-v2.7.24-v119.apk`  
-重点：开钟贴通知、权限拒绝中文提示、三键（结束在第三）、后台约 5s 走秒、杀进程后不再更新（预期限制）。
+**前台服务（Foreground Service）** 是 Android 的一种后台运行方式：
+
+1. 系统要求应用在通知栏挂一条**常驻通知**（本 App：正计时文案 + 暂停/恢复/结束等键）
+2. 进程优先级被提高，比纯 WebView / 普通后台任务**更不容易被系统杀掉**
+3. 因此锁屏、切 App、短时后台时，计时通知更有机会继续刷新
+
+**诚实限制**：仍不是 100%。部分厂商（激进省电 / 强制停用）仍可能冻杀；强制「结束运行」后服务也会停。比「只靠网页定时器 + 本地通知」可靠得多。
 
 ---
 
-## 候选方向 A：前台服务（真正保活）
+## 方案选型
+
+| 选项 | 结论 |
+| --- | --- |
+| `@capawesome-team/capacitor-android-foreground-service` | Cap6 有 6.x，但官方仅支持 **Location / Microphone** 类型，不适合格子正计时 |
+| 自写原生 Service | ✅ 采用：`specialUse` + 本地 Capacitor 插件 `TimerForeground` |
+
+---
+
+## 本轮实现
 
 | 项 | 说明 |
 | --- | --- |
-| 目标 | 锁屏/杀后台后通知仍走秒；进程被系统保活 |
-| 做法 | 原生 `ForegroundService` + 常驻通知；或 Capacitor 社区前台服务插件；JS tick 无法单独扛 OEM 冻杀 |
-| 成本 | 需 AndroidManifest、通知与服务绑定、厂商省电白名单说明；工作量明显大于通知 polish |
-| 风险 | 部分机型仍可冻；Play/用户对常驻服务敏感 |
-
-**建议**：等 v119 真机反馈「杀后台必停」是否痛，再开做。
-
----
-
-## 候选方向 B：通知 polish（轻量）
-
-1. **点通知重开 App**：确认 `LocalNotifications` tap → 拉起 WebView / 回到记录页（部分机型只亮屏不聚焦）
-2. **频道 importance**：旧装机若仍是 DEFAULT，可改 `channelId`（如 `mandala_timer_v2`）让 HIGH 生效（会多一个频道）
-3. **文案/节流**：标题与任务名截断、切钟后 body 立刻刷新
-4. **权限二次引导**：永久拒绝时给「去系统设置」入口
+| `TimerForegroundService` | Java 前台服务；`startForeground` + `FOREGROUND_SERVICE_TYPE_SPECIAL_USE`（API 34+） |
+| `TimerForegroundPlugin` | JS：`start` / `update` / `stop` / `isRunning`；按钮 → `action` 事件 |
+| Manifest | `FOREGROUND_SERVICE`、`FOREGROUND_SERVICE_SPECIAL_USE`、`POST_NOTIFICATIONS`；service + PROPERTY 说明 |
+| `syncTimerNotification` | **有 FGS 时只走 FGS**（取消 LocalNotifications 同 id，避免双通知）；无插件时回退 LN |
+| 操作键 | 与 Round21 一致：单钟暂停/记任务/结束；多钟暂停/切钟/结束（暂停态对应恢复） |
+| 启停规则 | 当日有任意一口钟（含暂停）→ 启/更 FGS；全部结束 → `stop` |
 
 ---
 
-## 建议顺序
+## 怎么用（真机）
 
-1. 用户装 **119** 反馈（可贴出 / 三键 / 走秒 / 杀进程表现）
-2. 若「点通知不回 App」或「无操作键」→ 先做 **B**
-3. 若核心诉求是「后台必走秒」→ 再立项 **A**（Round22 正式实现）
+1. 装 **120** APK，系统设置允许通知。
+2. 记录页开钟 → 通知栏出现常驻「⏱ / 计时中」；下拉可见操作键。
+3. 切到后台 / 锁屏片刻 → 通知应仍在，约 5s 走秒（JS tick 仍负责刷新文案）。
+4. 全部结束钟 → 常驻通知消失、服务停止。
+5. 若仍被某厂商杀掉：到系统设置把本 App 加入「无限制 / 后台运行」白名单（因机而异）。
+
+---
+
+## 版本信号
+
+| 信号 | 值 |
+|------|-----|
+| `APP_BUILD` | **120** |
+| SW | `mandala-v120` |
+| 缓存戳 | `?v=20260904r22` |
+| Android | `versionCode 120` / `versionName 2.7.24.120` |
+| APK | `apk/mandala-v2.7.24-v120.apk` |
+
+## 改动文件
+
+- `android/.../TimerForegroundService.java`（新）
+- `android/.../TimerForegroundPlugin.java`（新）
+- `android/.../MainActivity.java` — 注册插件
+- `android/.../AndroidManifest.xml` — 权限 + service
+- `android/app/build.gradle` — versionCode 120
+- `www/app.js` — FGS 桥接 / sync / 版本 120
+- `www/sw.js` / `www/index.html`
+- `ROUND22.md`
+
+## 后续可增强（未做）
+
+- 原生侧自走秒（不依赖 WebView tick），杀进程后通知仍更新
+- 厂商省电引导页
+- Play 上架时对 `specialUse` 用途说明的材料
