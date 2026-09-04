@@ -136,9 +136,15 @@ const SW_VER = "20260902r7";
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
   const APP_VERSION = "2.7.24";
-  const APP_BUILD = 117; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
-  const APP_VERSION_DATE = "2026-09-03";
+  const APP_BUILD = 119; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
+  const APP_VERSION_DATE = "2026-09-04";
   const APP_CHANGELOG = [
+    { v: "2.7.24·119", date: "2026-09-04", items: [
+      "Round21：通知栏 MVP 加固——即时贴出/权限中文提示/三键动作/节流修 body",
+    ]},
+    { v: "2.7.24·118", date: "2026-09-04", items: [
+      "Round20：新开钟仅暂停时出现 · 导图自由拖 · 节点不透明可读",
+    ]},
     { v: "2.7.24·117", date: "2026-09-03", items: [
       "Round19：多钟切钟顺序一致 · 通知栏口序+下一口 · 溢出/边轨/导图改名同步在跑钟",
     ]},
@@ -3755,17 +3761,23 @@ const SW_VER = "20260902r7";
     return chunks;
   }
 
-  // Round16/17：通知栏正计时 —— 暂停/恢复/结束/切钟/记任务（文案·节流见 MandalaR17）
+  // Round16/17/21：通知栏正计时 —— 暂停/恢复/结束（+切钟/记任务；安卓最多 3 键）
   const TIMER_NOTIF_ID = 16115;
-  const TIMER_ACTION_TYPE = "mandala_timer_actions";
   const TIMER_NOTIF_CHANNEL = "mandala_timer";
+  // 安卓通知最多 3 个 Action：按「在跑/暂停 × 单钟/多钟」拆 4 套，保证「结束」始终可见
+  const TIMER_ACTION_RUN = "mandala_timer_run";             // 暂停 · 记任务 · 结束
+  const TIMER_ACTION_PAUSE = "mandala_timer_pause";         // 恢复 · 记任务 · 结束
+  const TIMER_ACTION_RUN_MULTI = "mandala_timer_run_m";     // 暂停 · 切钟 · 结束
+  const TIMER_ACTION_PAUSE_MULTI = "mandala_timer_pause_m"; // 恢复 · 切钟 · 结束
   let _timerNotifReady = false;
   let _timerNotifListenerBound = false;
   let _timerNotifSyncing = false;
   let _timerNotifQueued = false;
   let _timerNotifLastTitle = "";
+  let _timerNotifLastBody = "";
   let _timerNotifLastAt = 0;
   let _timerNotifForce = false;
+  let _timerNotifPermDeniedToast = false;
   let _notifTickN = 0;
 
   function _r17() { return (typeof window !== "undefined" && window.MandalaR17) || null; }
@@ -3860,38 +3872,89 @@ const SW_VER = "20260902r7";
     return n;
   }
 
-  async function ensureTimerNotifReady() {
+  function pickTimerActionTypeId(run, listLen) {
+    const paused = !!(run && run.pausedAt);
+    const multi = (listLen | 0) > 1;
+    if (paused) return multi ? TIMER_ACTION_PAUSE_MULTI : TIMER_ACTION_PAUSE;
+    return multi ? TIMER_ACTION_RUN_MULTI : TIMER_ACTION_RUN;
+  }
+
+  async function ensureTimerNotifReady(opts) {
+    opts = opts || {};
     const LN = getLocalNotifications();
     if (!LN) return null;
     try {
-      if (typeof LN.requestPermissions === "function") {
-        await LN.requestPermissions();
+      let display = "granted";
+      if (typeof LN.checkPermissions === "function") {
+        try {
+          const cur = await LN.checkPermissions();
+          display = (cur && cur.display) || "prompt";
+        } catch (e) { display = "prompt"; }
       }
+      if (display !== "granted" && typeof LN.requestPermissions === "function") {
+        const res = await LN.requestPermissions();
+        display = (res && res.display) || "denied";
+      }
+      if (display !== "granted") {
+        if ((opts.requestPerm || opts.showDeniedToast) && !_timerNotifPermDeniedToast) {
+          _timerNotifPermDeniedToast = true;
+          try {
+            toast("未获得通知权限，无法在通知栏显示正计时。请到系统设置里允许本应用通知", "warn", 4800);
+          } catch (e) {}
+        }
+        _timerNotifReady = false;
+        return null;
+      }
+      _timerNotifPermDeniedToast = false;
       if (typeof LN.createChannel === "function") {
         try {
           await LN.createChannel({
             id: TIMER_NOTIF_CHANNEL,
             name: "正计时",
             description: "进行中的格子正计时与快捷操作",
-            importance: 3,
+            importance: 4,
             visibility: 1,
-            sound: "",
+            sound: undefined,
             vibration: false,
           });
         } catch (e) { /* 通道已存在或平台不支持 */ }
       }
       if (typeof LN.registerActionTypes === "function") {
         await LN.registerActionTypes({
-          types: [{
-            id: TIMER_ACTION_TYPE,
-            actions: [
-              { id: "pause", title: "暂停", foreground: true },
-              { id: "resume", title: "恢复", foreground: true },
-              { id: "next", title: "切钟", foreground: true },
-              { id: "add", title: "记任务", foreground: true },
-              { id: "stop", title: "结束", foreground: true },
-            ],
-          }],
+          types: [
+            {
+              id: TIMER_ACTION_RUN,
+              actions: [
+                { id: "pause", title: "暂停", foreground: true },
+                { id: "add", title: "记任务", foreground: true },
+                { id: "stop", title: "结束", foreground: true },
+              ],
+            },
+            {
+              id: TIMER_ACTION_PAUSE,
+              actions: [
+                { id: "resume", title: "恢复", foreground: true },
+                { id: "add", title: "记任务", foreground: true },
+                { id: "stop", title: "结束", foreground: true },
+              ],
+            },
+            {
+              id: TIMER_ACTION_RUN_MULTI,
+              actions: [
+                { id: "pause", title: "暂停", foreground: true },
+                { id: "next", title: "切钟", foreground: true },
+                { id: "stop", title: "结束", foreground: true },
+              ],
+            },
+            {
+              id: TIMER_ACTION_PAUSE_MULTI,
+              actions: [
+                { id: "resume", title: "恢复", foreground: true },
+                { id: "next", title: "切钟", foreground: true },
+                { id: "stop", title: "结束", foreground: true },
+              ],
+            },
+          ],
         });
       }
       if (!_timerNotifListenerBound && typeof LN.addListener === "function") {
@@ -3931,6 +3994,7 @@ const SW_VER = "20260902r7";
       _timerNotifReady = true;
       return LN;
     } catch (e) {
+      _timerNotifReady = false;
       return null;
     }
   }
@@ -3939,6 +4003,7 @@ const SW_VER = "20260902r7";
     const LN = getLocalNotifications();
     if (!LN) return;
     _timerNotifLastTitle = "";
+    _timerNotifLastBody = "";
     try {
       if (typeof LN.cancel === "function") {
         await LN.cancel({ notifications: [{ id: TIMER_NOTIF_ID }] });
@@ -3964,11 +4029,12 @@ const SW_VER = "20260902r7";
         return;
       }
       if (opts.requestPerm || !_timerNotifReady) {
-        const ok = await ensureTimerNotifReady();
+        const ok = await ensureTimerNotifReady({ requestPerm: !!opts.requestPerm, showDeniedToast: !!opts.requestPerm });
         if (!ok) return;
       }
       const R = _r17();
       const run = (R && R.pickTimerForNotif) ? R.pickTimerForNotif(list) : (list.find((t) => !t.pausedAt) || list[0]);
+      if (!run) { await cancelTimerNotification(); return; }
       let title, body;
       if (R && R.buildNotifCopy) {
         const copy = R.buildNotifCopy(run, list, PERIOD_NAMES, trunc);
@@ -3994,24 +4060,26 @@ const SW_VER = "20260902r7";
       _timerNotifForce = false;
       if (!force) {
         if (R && R.shouldSkipNotifSchedule && R.shouldSkipNotifSchedule(_timerNotifLastTitle, title, _timerNotifLastAt, 4500, _timerNotifLastBody, body)) return;
-        if (!R && _timerNotifLastTitle === title && (Date.now() - _timerNotifLastAt) < 4500) return;
+        if (!R && _timerNotifLastTitle === title && _timerNotifLastBody === body && (Date.now() - _timerNotifLastAt) < 4500) return;
       }
+      // Round21：不要 schedule.at（会走 AlarmManager）；即时 notify 才能稳定刷新 ongoing
       await LN.schedule({
         notifications: [{
           id: TIMER_NOTIF_ID,
           title: title,
           body: body,
           channelId: TIMER_NOTIF_CHANNEL,
+          smallIcon: "ic_stat_timer",
           ongoing: true,
           autoCancel: false,
           silent: true,
           sound: undefined,
-          actionTypeId: TIMER_ACTION_TYPE,
+          actionTypeId: pickTimerActionTypeId(run, list.length),
           extra: { period: run.period, cell: run.cell, deep: "record-cell" },
-          schedule: { at: new Date(Date.now() + 80) },
         }],
       });
       _timerNotifLastTitle = title;
+      _timerNotifLastBody = body;
       _timerNotifLastAt = Date.now();
     } catch (e) { /* 静默 */ }
     finally {
@@ -4040,15 +4108,20 @@ const SW_VER = "20260902r7";
       badge.title = _rtPaused ? "已暂停累计" : "正计时进行中";
       wrap.appendChild(badge);
     }
-    // Round14/15：当前时刻格 —— 青绿「开钟」钮（与普通⏱区分，方便多钟）
+    // Round20：仅当「有暂停钟且无一在跑」时，在当前时刻格显示青绿「新开钟」——方便切事项；在跑时不刷冗余 ▶
     const isNowCell = !!(cellEl.classList && cellEl.classList.contains("current-cell"));
-    if (!_rt && isNowCell && state.realm === "record") {
+    const _todayTimers = Object.values(runningTimers).filter((t) => t && t.date === state.currentDate);
+    const _hasPausedClock = _todayTimers.some((t) => !!t.pausedAt);
+    const _hasRunningClock = _todayTimers.some((t) => !t.pausedAt);
+    const _showNewClock = !_rt && isNowCell && state.realm === "record" && _hasPausedClock && !_hasRunningClock;
+    if (_showNewClock) {
       const nowBtn = document.createElement("button");
       nowBtn.type = "button";
       nowBtn.className = "cell-timer-btn cell-timer-now";
       nowBtn.dataset.timerNow = "1";
       nowBtn.textContent = "▶";
-      nowBtn.title = "当前格开钟 · 青绿快捷钮（多钟：开新钟会自动暂停其他在跑的钟）";
+      nowBtn.title = "新开钟 · 上一口保持暂停，本格开新事项（方便切换不同事项及时记录）";
+      nowBtn.setAttribute("aria-label", "新开钟");
       nowBtn.style.touchAction = "manipulation";
       const fireNow = (e) => {
         if (nowBtn._fired && Date.now() - nowBtn._fired < 380) return;
@@ -4065,7 +4138,7 @@ const SW_VER = "20260902r7";
       wrap.appendChild(nowBtn);
     }
     const timerBtn = document.createElement("button");
-    timerBtn.className = "cell-timer-btn" + (_rt ? (_rtPaused ? " paused" : " running") : "") + ((!_rt && isNowCell) ? " secondary" : "");
+    timerBtn.className = "cell-timer-btn" + (_rt ? (_rtPaused ? " paused" : " running") : "") + (_showNewClock ? " secondary" : "");
     timerBtn.dataset.timerBtn = "1";
     timerBtn.type = "button";
     timerBtn.style.touchAction = "manipulation";
@@ -12919,12 +12992,12 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       if (n.meta && n.meta.target_dim) {
         const dc = String(n.meta.target_dim).split(".")[0];
         const d = KNOWLEDGE_DIMENSIONS.find((x) => x.code === dc);
-        // 柔和填充 + 同色描边 + 混亮文字（降低认知负荷）
-        if (d) return { fill: this._soft(d.color, .22), text: this._dimText(d.color), stroke: d.color, dim: d };
+        // Round20：提高填充不透明度 + 近白文字，避免玻璃态把字冲淡
+        if (d) return { fill: this._soft(d.color, .78), text: this._dimText(d.color), stroke: d.color, dim: d };
       }
-      if (n.type === "side") return { fill: "rgba(255,169,77,.28)", text: "#ffd9a8", stroke: "#c98a4b" };
-      if (n.type === "child") return { fill: "rgba(77,195,255,.20)", text: "#b5e3fa", stroke: "#4a9bc4" };
-      return { fill: "rgba(124,92,255,0.14)", stroke: "rgba(124,92,255,0.7)", text: "#c9bfff" };
+      if (n.type === "side") return { fill: "rgba(255,169,77,.82)", text: "#fff8ef", stroke: "#e8a85a" };
+      if (n.type === "child") return { fill: "rgba(77,195,255,.78)", text: "#f2fbff", stroke: "#5eb0d8" };
+      return { fill: "rgba(124,92,255,0.82)", stroke: "rgba(168,148,255,0.95)", text: "#ffffff" };
     }
     // hex → 指定透明度的 rgba（柔和填充用）
     _soft(hex, a) {
@@ -12933,12 +13006,12 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       const v = m[1];
       return "rgba(" + parseInt(v.slice(0, 2), 16) + "," + parseInt(v.slice(2, 4), 16) + "," + parseInt(v.slice(4, 6), 16) + "," + a + ")";
     }
-    // hex → 混白 72% 的亮色（浅底上的可读文字）
+    // Round20：混白约 88%，深色底上也够亮可读
     _dimText(hex) {
       const m = /^#?([0-9a-f]{6})$/i.exec(hex || "");
       if (!m) return "#fff";
       const v = m[1];
-      const mix = (c) => Math.round(c + (255 - c) * 0.72);
+      const mix = (c) => Math.round(c + (255 - c) * 0.88);
       return "rgb(" + mix(parseInt(v.slice(0, 2), 16)) + "," + mix(parseInt(v.slice(2, 4), 16)) + "," + mix(parseInt(v.slice(4, 6), 16)) + ")";
     }
     _renderNode(n, depth, anim) {
@@ -13040,14 +13113,14 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         group.appendChild(rb);
       } else {
         const typeLabel = n.type === "side" ? "支线" : (n.type === "child" ? "子步" : "主线");
-        const typeColor = n.type === "side" ? "#ffd9a8" : (n.type === "child" ? "#b5e3fa" : "#c9bfff");
+        const typeColor = n.type === "side" ? "#5c3a12" : (n.type === "child" ? "#0a3a52" : "#2a1a66");
         const db = document.createElementNS("http://www.w3.org/2000/svg", "text");
         db.setAttribute("x", pos.w - 7); db.setAttribute("y", 12);
         db.setAttribute("text-anchor", "end");
         db.setAttribute("fill", typeColor);
         db.setAttribute("font-size", "8.5");
         db.setAttribute("font-weight", "800");
-        db.setAttribute("opacity", "0.85");
+        db.setAttribute("opacity", "0.95");
         db.setAttribute("style", "pointer-events:none");
         db.textContent = typeLabel;
         group.appendChild(db);
@@ -13077,7 +13150,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       text.setAttribute("x", 14); text.setAttribute("y", 24);
       text.setAttribute("fill", col.text);
       text.setAttribute("font-size", "14");
-      text.setAttribute("font-weight", n._isRoot ? 700 : 500);
+      text.setAttribute("font-weight", n._isRoot ? 700 : 650);
       text.setAttribute("style", "pointer-events:none");
       const maxChars = 15;
       const chunks = [];
@@ -14263,6 +14336,17 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       opts = opts || {};
       if (!id || !this.findNode(id)) return;
       this.selectedId = id;
+      // Round20：轻量选中（触屏拖前）——只改 class，避免全量 render 拆掉手指下的 DOM
+      if (opts.light) {
+        if (this.els.g) {
+          this.els.g.querySelectorAll(".mm-node-sel").forEach((g) => g.classList.remove("mm-node-sel"));
+          const el = this.els.g.querySelector(`[data-node="${id}"]`);
+          if (el) el.classList.add("mm-node-sel");
+        }
+        if (opts.panel) this._showNodePanel && this._showNodePanel(id);
+        requestAnimationFrame(() => this._updateFloatBar && this._updateFloatBar());
+        return;
+      }
       this.render();
       if (opts.center !== false) this.centerOn(id);
       if (opts.panel) this._showNodePanel && this._showNodePanel(id);
@@ -14352,6 +14436,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       this._dragId = id;
       this._dragTarget = null;
       this._dragReorder = null; // Round8：{ targetId, before }
+      this._dragFreePos = null;
       const n = this.findNode(id);
       this._dragGhost = document.createElement("div");
       this._dragGhost.className = "mm-drag-ghost";
@@ -14360,6 +14445,7 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       this._dragGhost.style.left = x + "px";
       this._dragGhost.style.top = y + "px";
       this._dragGhost.style.display = "block";
+      if (this.els.floatBar) this.els.floatBar.hidden = true;
     }
     _moveDragVisual(x, y) {
       if (this._dragGhost) {
@@ -14447,6 +14533,16 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       } else if (reorder) {
         this._dragReorder = reorder;
       }
+      // Round20：自由拖时节点本体跟随指针（含 task 节点）；松在异级上才改隶属
+      const nodeEl = this.els.g && this.els.g.querySelector(`[data-node="${this._dragId}"]`);
+      const p0 = this._nodePos.get(this._dragId);
+      if (nodeEl && p0) {
+        const rect = this.els.canvas.getBoundingClientRect();
+        const cx = (x - rect.left - this.view.x) / this.view.scale - p0.w / 2;
+        const cy = (y - rect.top - this.view.y) / this.view.scale - p0.h / 2;
+        nodeEl.setAttribute("transform", `translate(${cx},${cy})`);
+        this._dragFreePos = { x: cx, y: cy };
+      }
     }
     _endDragVisual(x, y) {
       this._clearDragHints();
@@ -14456,18 +14552,21 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
       }
       const did = this._dragId;
       const reorder = this._dragReorder;
+      const freePos = this._dragFreePos;
       const target = (x != null && y != null) ? document.elementFromPoint(x, y) : null;
       if (this._dragGhost) { this._dragGhost.remove(); this._dragGhost = null; }
       const tNode = target && target.closest ? target.closest("[data-node]") : null;
-      const tId = tNode ? tNode.getAttribute("data-node") : null;
+      let tId = tNode ? tNode.getAttribute("data-node") : null;
+      if (tId === did) tId = null;
       this._dragId = null;
       this._dragTarget = null;
       this._dragReorder = null;
+      this._dragFreePos = null;
       // Round8：同级拖放 → 改顺序（主线优先体验）
       if (did && reorder && reorder.targetId) {
         if (this.reorderBefore(did, reorder.targetId, reorder.before)) return;
       }
-      // 拖到异级节点上 → 改隶属（清手动偏移，融入新位置）
+      // Round20：仅当指针明确落在异级节点「内缘」才改隶属；擦边/空白 → 自由摆放
       if (did && tId && tId !== did) {
         const parent = this.findParent(did);
         const tParent = this.findParent(tId);
@@ -14481,25 +14580,37 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
             const before = (this.layout === "lr") ? (cy < tp.y + tp.h / 2) : (cx < tp.x + tp.w / 2);
             if (this.reorderBefore(did, tId, before)) return;
           }
+        } else {
+          const tp = this._nodePos.get(tId);
+          let deepInside = false;
+          if (tp && x != null && y != null) {
+            const rect = this.els.canvas.getBoundingClientRect();
+            const cx = (x - rect.left - this.view.x) / this.view.scale;
+            const cy = (y - rect.top - this.view.y) / this.view.scale;
+            const pad = Math.min(14, Math.min(tp.w, tp.h) * 0.2);
+            deepInside = cx >= tp.x + pad && cx <= tp.x + tp.w - pad && cy >= tp.y + pad && cy <= tp.y + tp.h - pad;
+          }
+          if (deepInside) {
+            const n = this.findNode(did);
+            if (n && n.meta) { n.meta.dx = 0; n.meta.dy = 0; }
+            this.reparent(did, tId);
+            return;
+          }
         }
-        const n = this.findNode(did);
-        if (n && n.meta) { n.meta.dx = 0; n.meta.dy = 0; }
-        this.reparent(did, tId);
-        return;
       }
-      // v94 自由摆放：拖到空白处松手 → 节点落在指针处（相对自动布局记偏移，连线自动跟随）
-      if (did && x != null && y != null && !tId) {
+      // v94/Round20 自由摆放：拖到空白或擦边松手 → 节点落在指针处（含 task 节点）
+      if (did && x != null && y != null) {
         const n = this.findNode(did);
         const p = this._nodePos.get(did);
-        if (n && p) {
+        if (n && p && !n._isRoot) {
           const rect = this.els.canvas.getBoundingClientRect();
           // 若松在浮动条/面板上，不当作空白摆放
           if (target && (target.closest(".mm-float-bar") || target.closest(".mm-node-panel") || target.closest(".mm-toolbar"))) {
             this.render();
             return;
           }
-          const cx = (x - rect.left - this.view.x) / this.view.scale;
-          const cy = (y - rect.top - this.view.y) / this.view.scale;
+          const cx = freePos ? freePos.x : ((x - rect.left - this.view.x) / this.view.scale - p.w / 2);
+          const cy = freePos ? freePos.y : ((y - rect.top - this.view.y) / this.view.scale - p.h / 2);
           const curDx = (n.meta && n.meta.dx) || 0, curDy = (n.meta && n.meta.dy) || 0;
           const ndx = curDx + (cx - p.x), ndy = curDy + (cy - p.y);
           if (Math.abs(ndx - curDx) > 2 || Math.abs(ndy - curDy) > 2) {
@@ -14510,12 +14621,13 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
             this.pushHistory();
             this.save();
             this.render();
-            this.centerOn(did);
             haptic(12);
-            toast("📍 已摆放（12px 网格）· 同级拖=改顺序 · 拖到异级=改隶属", "info", 2400);
+            toast("📍 已自由摆放 · 拖到节点内缘=改隶属 · 同级轴滑=改序", "info", 2200);
+            return;
           }
         }
       }
+      if (did) this.render();
     }
 
     // ---------- 搜索 ----------
@@ -15448,11 +15560,12 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
               this.completeLinkTo(id);
               return;
             }
-            this.selectedId = id;
-            this._showNodePanel(id);
-            this.render();
-            this._updateFloatBar && this._updateFloatBar();
-            this._dragging = { id, moved: false, startX: e.clientX, startY: e.clientY };
+            const nHit = this.findNode(id);
+            // Round20：轻量选中，拖动手势不被全量 render 打断
+            this.selectNode(id, { center: false, panel: true, light: true });
+            if (nHit && !nHit._isRoot) {
+              this._dragging = { id, moved: false, startX: e.clientX, startY: e.clientY };
+            }
           }
           return;
         }
@@ -15496,11 +15609,11 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
         const nodeEl = e.target.closest ? e.target.closest("[data-node]") : null;
         if (nodeEl) this.editNode(nodeEl.getAttribute("data-node"));
       });
-      // ================= Round12 触屏（安卓优先加深）=================
-      // 点选=短按；长按武装拖移；长按未拖=编辑；同级轴滑=改序；双指缩放
+      // ================= Round12/20 触屏（安卓优先加深）=================
+      // Round20：按下即可拖自由摆放（含 task）；轻量选中不拆 DOM；长按未拖=编辑；同级轴滑=改序；双指缩放
       let tp = null;
       this._lastTap = null;
-      const TAP_MS = 420, DRAG_PX = 10, LONG_PRESS_MS = 180, SWIPE_PX = 64;
+      const TAP_MS = 420, DRAG_PX = 8, LONG_PRESS_MS = 420, SWIPE_PX = 72;
       const clearLp = () => {
         if (tp && tp.lpTimer) { clearTimeout(tp.lpTimer); tp.lpTimer = null; }
       };
@@ -15523,21 +15636,25 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
           const nodeEl = hit && hit.closest ? hit.closest("[data-node]") : null;
           if (nodeEl) {
             const id = nodeEl.getAttribute("data-node");
-            const already = this.selectedId === id;
-            tp = { mode: "node", id, x: t.clientX, y: t.clientY, moved: false, armed: !!already, swiped: false, lpTimer: null, jumpId: jumpEl ? jumpEl.getAttribute("data-mm-jump") : null };
-            this.selectNode(id, { center: false, panel: false });
-            // 已选中：立刻可拖；未选中：短长按武装
-            if (!already) {
-              tp.lpTimer = setTimeout(() => {
-                if (!tp || tp.mode !== "node" || tp.moved || tp.swiped) return;
-                tp.armed = true;
-                tp.jumpId = null; // 武装后取消角标跳转
-                haptic(18);
-                toast("↕ 拖节点改位置/隶属 · 松手未拖=编辑", "info", 1400);
-              }, LONG_PRESS_MS);
-            } else {
-              haptic(10);
+            const nHit = this.findNode(id);
+            // 根节点：只选中，不拖自由摆放
+            if (nHit && nHit._isRoot) {
+              this.selectNode(id, { center: false, panel: false, light: true });
+              tp = { mode: "pan", x: t.clientX, y: t.clientY, ox: this.view.x, oy: this.view.y };
+              return;
             }
+            // Round20：立刻可拖（armed），轻量选中避免 render 打断手势
+            tp = { mode: "node", id, x: t.clientX, y: t.clientY, moved: false, armed: true, swiped: false, lpTimer: null, jumpId: jumpEl ? jumpEl.getAttribute("data-mm-jump") : null };
+            this.selectNode(id, { center: false, panel: false, light: true });
+            haptic(8);
+            // 长按未拖 → 编辑
+            tp.lpTimer = setTimeout(() => {
+              if (!tp || tp.mode !== "node" || tp.moved || tp.swiped) return;
+              tp.jumpId = null;
+              haptic(18);
+              toast("松手编辑 · 拖移=自由摆放", "info", 1200);
+              tp.wantEdit = true;
+            }, LONG_PRESS_MS);
           } else {
             tp = { mode: "pan", x: t.clientX, y: t.clientY, ox: this.view.x, oy: this.view.y };
           }
@@ -15572,11 +15689,11 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
           const t = touches[0];
           const dx = t.clientX - tp.x, dy = t.clientY - tp.y;
           const dist = Math.abs(dx) + Math.abs(dy);
-          // Round12：未长按 · 沿布局主轴滑动 → 同级改序（左右布局用上下滑，上下布局用左右滑）
-          if (!tp.armed && !tp.swiped && !tp.moved && dist > SWIPE_PX) {
+          // 同级轴滑改序：要求明显主轴滑动且尚未进入拖移
+          if (!tp.moved && !tp.swiped && dist > SWIPE_PX) {
             const lr = this.layout === "lr";
-            const axisOk = lr ? (Math.abs(dy) > Math.abs(dx) * 1.25) : (Math.abs(dx) > Math.abs(dy) * 1.25);
-            if (axisOk) {
+            const axisOk = lr ? (Math.abs(dy) > Math.abs(dx) * 1.6) : (Math.abs(dx) > Math.abs(dy) * 1.6);
+            if (axisOk && dist > SWIPE_PX + 12) {
               clearLp();
               tp.swiped = true;
               const dir = lr ? (dy < 0 ? -1 : 1) : (dx < 0 ? -1 : 1);
@@ -15587,16 +15704,14 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
               return;
             }
           }
-          // Round14：节点上移动 → 优先拖节点（不再轻易变成平移，解决 task 节点拖不动）
-          if (!tp.armed && dist > DRAG_PX && !tp.swiped) {
+          // Round20：位移超过阈值 → 自由拖（含 task 节点）
+          if (tp.armed && !tp.moved && dist > DRAG_PX) {
             clearLp();
-            tp.armed = true;
-          }
-          if (tp.armed && !tp.moved && dist > 4) {
             tp.moved = true;
+            tp.wantEdit = false;
             tp.jumpId = null;
             this._beginDragVisual(tp.id, t.clientX, t.clientY);
-            haptic(12);
+            haptic(10);
           }
           if (tp.moved) this._moveDragVisual(t.clientX, t.clientY);
         }
@@ -15609,11 +15724,10 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
         if (was.mode === "node") {
           if (was.moved && t) {
             this._endDragVisual(t.clientX, t.clientY);
-            haptic(20);
+            haptic(16);
           } else if (was.swiped || was.mode === "done") {
             /* 已改序 */
-          } else if (was.armed && !was.moved) {
-            // Round12：长按未拖 → 直接编辑（安卓更自然）
+          } else if (was.wantEdit && !was.moved) {
             this.editNode(was.id);
             haptic(15);
           } else {

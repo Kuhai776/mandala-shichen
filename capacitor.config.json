@@ -25,6 +25,7 @@
       "showSpinner": false
     },
     "LocalNotifications": {
+      "smallIcon": "ic_stat_timer",
       "iconColor": "#7c5cff"
     }
   }
