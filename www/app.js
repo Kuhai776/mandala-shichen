@@ -143,9 +143,14 @@ const SW_VER = "20260902r7";
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
   const APP_VERSION = "2.7.24";
-  const APP_BUILD = 121; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
+  const APP_BUILD = 122; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
   const APP_VERSION_DATE = "2026-09-04";
   const APP_CHANGELOG = [
+    { v: "2.7.24·122", date: "2026-09-04", items: [
+      "Round24：记录页多钟条显式 暂停/恢复/下一钟/结束 + 暂停态「新开钟」琥珀钮",
+      "Round24：导图节点与分支中点「+」加子节点（安卓大触控）",
+      "Round24：修复标签切换；竖屏工具栏换行，横屏横滑；导图画板安全区自适应",
+    ]},
     { v: "2.7.24·121", date: "2026-09-04", items: [
       "Round23：通知栏走秒≈1s（JS tick + FGS 原生自走秒）",
       "Round23：暂停态通知三键 恢复|下一钟|结束（可新开钟切事项）",
@@ -2803,7 +2808,14 @@ const SW_VER = "20260902r7";
       if (i === state.activePeriod) tab.classList.add("active");
       if (i === currentPeriod && isToday(state.currentDate)) tab.classList.add("current");
       tab.textContent = `${PERIOD_GLYPHS[i]} ${secondsToHHMM(range.start)}`;
-      tab.addEventListener("click", () => { state.activePeriod = i; haptic(15); renderAll(); });
+      const goPeriod = (e) => {
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        state.activePeriod = i; haptic(15); renderAll();
+      };
+      tab.addEventListener("click", goPeriod);
+      tab.addEventListener("pointerup", (e) => { if (e.pointerType === "touch") goPeriod(e); });
+      tab.style.touchAction = "manipulation";
+      tab.style.pointerEvents = "auto";
       el.periodTabs.appendChild(tab);
     }
     const activeTab = el.periodTabs.querySelector(".period-tab.active");
@@ -3817,6 +3829,41 @@ const SW_VER = "20260902r7";
     return true;
   }
 
+
+  /** Round24：暂停态「新开钟」——上一口保持暂停，在当前时刻格（或下一空格）开新事项 */
+  function startFreshNewClock(hintText) {
+    if (!isToday(state.currentDate)) {
+      toast("请先切到今日再开新钟", "info", 1800);
+      return false;
+    }
+    const g = getCurrentGlobalCell();
+    let targetP = g >= 0 ? Math.floor(g / CELLS_PER_PERIOD) : (state.activePeriod | 0);
+    let targetC = g >= 0 ? (g % CELLS_PER_PERIOD) : 0;
+    let guard = 0;
+    while (getRunningTimer(targetP, targetC) && guard++ < PERIOD_COUNT * CELLS_PER_PERIOD) {
+      const nc = nextPeriodCell(targetP, targetC);
+      if (!nc) break;
+      targetP = nc.p;
+      targetC = nc.c;
+    }
+    if (getRunningTimer(targetP, targetC)) {
+      toast("所有格子都有钟，请先结束一口", "warn", 2200);
+      return false;
+    }
+    const tasks = getCellTasks(targetP, targetC) || [];
+    const hintTask = tasks.find((t) => t && !t.sticky && String(t.text || "").trim());
+    const hint = (hintText && String(hintText).trim()) || (hintTask && hintTask.text) || "未命名任务";
+    startCellTimer(targetP, targetC, hint);
+    toast("▶ 已新开钟 · " + trunc(String(hint), 14) + "（上一口保持暂停）", "success", 2200);
+    try {
+      if (state.realm !== "record") setRealm("record");
+      jumpToCell(targetP, targetC);
+      if (state.realm === "record") renderRecord();
+    } catch (e) { /* 静默 */ }
+    haptic(18);
+    return true;
+  }
+
   /** Round23：通知/条内「下一钟」——优先恢复其他已有钟；否则在当前时刻格（或下一格）新开钟（对齐 Round20） */
   function startNextOrNewClock(curP, curC) {
     const cur = getRunningTimer(curP, curC);
@@ -4285,7 +4332,7 @@ const SW_VER = "20260902r7";
       badge.title = _rtPaused ? "已暂停累计" : "正计时进行中";
       wrap.appendChild(badge);
     }
-    // Round20：仅当「有暂停钟且无一在跑」时，在当前时刻格显示青绿「新开钟」——方便切事项；在跑时不刷冗余 ▶
+    // Round24：仅当「有暂停钟且无一在跑」时显示琥珀「新开钟」文案钮（在跑不刷冗余启动）
     const isNowCell = !!(cellEl.classList && cellEl.classList.contains("current-cell"));
     const _todayTimers = Object.values(runningTimers).filter((t) => t && t.date === state.currentDate);
     const _hasPausedClock = _todayTimers.some((t) => !!t.pausedAt);
@@ -4294,10 +4341,10 @@ const SW_VER = "20260902r7";
     if (_showNewClock) {
       const nowBtn = document.createElement("button");
       nowBtn.type = "button";
-      nowBtn.className = "cell-timer-btn cell-timer-now";
+      nowBtn.className = "cell-timer-btn cell-timer-now cell-timer-now-label";
       nowBtn.dataset.timerNow = "1";
-      nowBtn.textContent = "▶";
-      nowBtn.title = "新开钟 · 上一口保持暂停，本格开新事项（方便切换不同事项及时记录）";
+      nowBtn.textContent = "新开钟";
+      nowBtn.title = "新开钟 · 上一口保持暂停，本格开新事项";
       nowBtn.setAttribute("aria-label", "新开钟");
       nowBtn.style.touchAction = "manipulation";
       const fireNow = (e) => {
@@ -4618,6 +4665,7 @@ const SW_VER = "20260902r7";
     strip.dataset.sig = _timerSig(todayTimers, staleTimers);
     const runN = todayTimers.filter((t) => !t.pausedAt).length;
     const pauseN = todayTimers.length - runN;
+    const showNewClock = pauseN > 0 && runN === 0;
     const chip = (t, stale) => {
       const paused = !!t.pausedAt;
       const active = !stale && !paused;
@@ -4628,22 +4676,24 @@ const SW_VER = "20260902r7";
         + "<span>" + escapeHtml(trunc(t.taskText || "未命名", 10)) + "</span>"
         + '<span class="rcs-clock">' + _fmtTimerClock(t) + "</span>"
         + (stale
-          ? ('<button type="button" data-rcs="bring" data-date="' + escapeHtml(t.date || "") + '" data-p="' + t.period + '" data-c="' + t.cell + '" title="带到今日续计">→今</button>')
-          : ('<button type="button" data-rcs="toggle" data-p="' + t.period + '" data-c="' + t.cell + '" title="' + (paused ? "恢复" : "暂停") + '">' + (paused ? "▶" : "⏸") + "</button>"
-            + '<button type="button" data-rcs="next" data-p="' + t.period + '" data-c="' + t.cell + '" title="暂停并开始下一钟">⏭</button>'
-            + '<button type="button" data-rcs="stop" data-p="' + t.period + '" data-c="' + t.cell + '" title="结束·命名">■</button>'))
+          ? ('<button type="button" class="rcs-btn" data-rcs="bring" data-date="' + escapeHtml(t.date || "") + '" data-p="' + t.period + '" data-c="' + t.cell + '" title="带到今日续计">→今</button>')
+          : ('<button type="button" class="rcs-btn" data-rcs="toggle" data-p="' + t.period + '" data-c="' + t.cell + '" title="' + (paused ? "恢复" : "暂停") + '">' + (paused ? "恢复" : "暂停") + "</button>"
+            + '<button type="button" class="rcs-btn" data-rcs="next" data-p="' + t.period + '" data-c="' + t.cell + '" title="下一钟/新开钟">下一钟</button>'
+            + '<button type="button" class="rcs-btn rcs-end" data-rcs="stop" data-p="' + t.period + '" data-c="' + t.cell + '" title="结束·命名">结束</button>'))
         + "</div>";
     };
     strip.innerHTML =
       '<div class="rcs-sum">⏱ 多钟协作 · <b class="run">' + runN + " 在跑</b>"
       + (pauseN ? ' · <b class="pause">' + pauseN + " 暂停</b>" : "")
       + (staleTimers.length ? ' · <b class="stale">' + staleTimers.length + " 跨日</b>" : "")
+      + (showNewClock ? ' · <b class="newc">可新开钟</b>' : "")
       + "</div>"
       + '<div class="rcs-chips">'
       + todayTimers.map((t) => chip(t, false)).join("")
       + staleTimers.map((t) => chip(t, true)).join("")
       + "</div>"
       + '<div class="rcs-ops">'
+      + (showNewClock ? '<button type="button" class="rcs-newclock" data-rcs="new-clock">▶ 新开钟</button>' : "")
       + (runN ? '<button type="button" data-rcs="pause-all">⏸ 全暂停</button>' : "")
       + (todayTimers.length ? '<button type="button" data-rcs="stop-all">■ 全结束</button>' : "")
       + (staleTimers.length ? '<button type="button" data-rcs="bring-today" class="accent">📅 带到今日</button>' : "")
@@ -4692,6 +4742,10 @@ const SW_VER = "20260902r7";
           bringStaleTimersToToday();
         } else if (act === "discard-stale") {
           discardStaleTimers();
+        } else if (act === "new-clock") {
+          startFreshNewClock();
+          if (state.realm === "record") renderRecord();
+          else renderMandala();
         }
       });
     }
@@ -6075,7 +6129,7 @@ const SW_VER = "20260902r7";
         // 附件计数徽章
         const badge = document.createElement("div");
         badge.className = "attach-badge";
-        badge.style.cssText = "position:absolute;top:4px;right:4px;background:rgba(248,113,113,0.18);color:#f87171;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px;border:1px solid rgba(248,113,113,0.4);";
+        badge.style.cssText = "position:absolute;top:4px;left:4px;background:rgba(248,113,113,0.18);color:#f87171;font-size:10px;font-weight:700;padding:1px 5px;border-radius:8px;border:1px solid rgba(248,113,113,0.4);z-index:2;";
         badge.textContent = "📎" + list.length;
         cellEl.style.position = "relative";
         cellEl.appendChild(badge);
@@ -13153,6 +13207,27 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         dot.setAttribute("fill", isSide ? "#ffa94d" : (isChild ? "#4dc3ff" : "#7c5cff"));
         dot.setAttribute("opacity", "0.85");
         this.els.g.appendChild(dot);
+        // Round24：分支中点「+」→ 给父节点加同级子分支
+        {
+          const mx = (sx + tx) / 2, my = (sy + ty) / 2;
+          const bag = document.createElementNS("http://www.w3.org/2000/svg", "g");
+          bag.setAttribute("data-mm-add", n.id);
+          bag.setAttribute("class", "mm-add-btn mm-add-branch");
+          bag.style.cursor = "pointer";
+          const bc = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+          bc.setAttribute("cx", mx); bc.setAttribute("cy", my); bc.setAttribute("r", 12);
+          bc.setAttribute("fill", "rgba(245,158,11,.95)");
+          bc.setAttribute("stroke", "#fff"); bc.setAttribute("stroke-width", "1.5");
+          bag.appendChild(bc);
+          const bt = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          bt.setAttribute("x", mx); bt.setAttribute("y", my + 4.5);
+          bt.setAttribute("text-anchor", "middle");
+          bt.setAttribute("font-size", "15"); bt.setAttribute("font-weight", "800");
+          bt.setAttribute("fill", "#1a1200"); bt.setAttribute("pointer-events", "none");
+          bt.textContent = "+";
+          bag.appendChild(bt);
+          this.els.g.appendChild(bag);
+        }
         this._renderEdges(c, anim, (dep || 0) + 1);
       });
     }
@@ -13405,6 +13480,35 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
         f.textContent = n.collapsed ? `+${n.children.length}` : "−";
         fold.appendChild(f);
         group.appendChild(fold);
+      }
+      // Round24：节点右侧「+」加子节点（含根→主线；安卓大触控）
+      {
+        const addG = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        addG.setAttribute("data-mm-add", n.id);
+        addG.setAttribute("class", "mm-add-btn");
+        addG.style.cursor = "pointer";
+        const ac = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        ac.setAttribute("cx", pos.w + 16);
+        ac.setAttribute("cy", pos.h / 2);
+        ac.setAttribute("r", 14);
+        ac.setAttribute("fill", "#f59e0b");
+        ac.setAttribute("stroke", "#fff");
+        ac.setAttribute("stroke-width", "2");
+        addG.appendChild(ac);
+        const at = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        at.setAttribute("x", pos.w + 16);
+        at.setAttribute("y", pos.h / 2 + 5);
+        at.setAttribute("text-anchor", "middle");
+        at.setAttribute("font-size", "18");
+        at.setAttribute("font-weight", "800");
+        at.setAttribute("fill", "#1a1200");
+        at.setAttribute("pointer-events", "none");
+        at.textContent = "+";
+        addG.appendChild(at);
+        const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+        title.textContent = n._isRoot ? "添加主线" : "添加子节点";
+        addG.appendChild(title);
+        group.appendChild(addG);
       }
       // 根节点省略折叠
       this.els.g.appendChild(group);
@@ -15739,6 +15843,13 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
           }
           return;
         }
+        const addEl = e.target.closest ? e.target.closest("[data-mm-add]") : null;
+        if (addEl) {
+          e.stopPropagation();
+          const id = addEl.getAttribute("data-mm-add");
+          if (id) { this.addChild(id); haptic(14); }
+          return;
+        }
         const foldEl = e.target.closest ? e.target.closest("[data-fold]") : null;
         if (foldEl) {
           const id = foldEl.getAttribute("data-fold");
@@ -15796,6 +15907,12 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
           if (hit && hit.closest && hit.closest(".mm-float-bar")) return; // 交给浮动条自己处理
           // Round14：↩ 角标不在 touchstart 跳转（避免抢拖拽）；短按松手再跳
           const jumpEl = hit && hit.closest ? hit.closest("[data-mm-jump]") : null;
+          const addEl = hit && hit.closest ? hit.closest("[data-mm-add]") : null;
+          if (addEl && !jumpEl) {
+            const id = addEl.getAttribute("data-mm-add");
+            if (id) { this.addChild(id); haptic(14); }
+            return;
+          }
           const foldEl = hit && hit.closest ? hit.closest("[data-fold]") : null;
           if (foldEl && !jumpEl) {
             const id = foldEl.getAttribute("data-fold");
@@ -16662,12 +16779,20 @@ const DATA=${data};const root=DATA.root;const w=document.getElementById('w');con
   if (el.realmSwitcher) {
     el.realmSwitcher.dataset.active = "plan";
     el.realmSwitcher.querySelectorAll(".realm-tab").forEach((tab) => {
-      tab.addEventListener("click", () => {
+      const go = (e) => {
+        if (e) { e.preventDefault(); e.stopPropagation(); }
         const target = tab.dataset.realm;
+        if (!target) return;
         const order = ["plan", "record", "review"];
         const reverse = order.indexOf(target) < order.indexOf(state.realm);
         setRealm(target, reverse);
+      };
+      tab.addEventListener("click", go);
+      tab.addEventListener("pointerup", (e) => {
+        if (e.pointerType === "touch") go(e);
       });
+      tab.style.touchAction = "manipulation";
+      tab.style.pointerEvents = "auto";
     });
     // 上下滑切换三才（在切换器条上）
     let sX = 0, sY = 0, sT = 0, tracking = false;
@@ -16929,15 +17054,21 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
   el.closeSettings.addEventListener("click", () => el.settingsDialog.close());
   el.settingsDialog.addEventListener("click", (e) => { if (e.target === el.settingsDialog) el.settingsDialog.close(); });
 
-  document.querySelectorAll(".settings-tab").forEach((tab) => {
-    tab.addEventListener("click", () => {
+  // Round24：设置标签委托 + null 防护（避免点不到/点崩）
+  const settingsTabsHost = document.querySelector(".settings-tabs") || el.settingsDialog;
+  if (settingsTabsHost) {
+    settingsTabsHost.addEventListener("click", (e) => {
+      const tab = e.target.closest && e.target.closest(".settings-tab");
+      if (!tab) return;
       const target = tab.dataset.tab;
-      document.querySelectorAll(".settings-tab").forEach((t) => t.classList.remove("active"));
-      document.querySelectorAll(".settings-panel").forEach((p) => p.classList.remove("active"));
-      tab.classList.add("active");
-      document.querySelector(`.settings-panel[data-panel="${target}"]`).classList.add("active");
+      if (!target) return;
+      e.preventDefault();
+      document.querySelectorAll(".settings-tab").forEach((t) => t.classList.toggle("active", t === tab));
+      document.querySelectorAll(".settings-panel").forEach((p) => {
+        p.classList.toggle("active", p.dataset.panel === target);
+      });
     });
-  });
+  }
 
   // ---------- 强调色交互 ----------
   function renderAccentPresets() {

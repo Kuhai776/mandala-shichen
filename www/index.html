@@ -86,11 +86,11 @@
       } catch (e) { console.warn("[polyfill] dialog 降级失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260904r23" />
+  <link rel="stylesheet" href="styles.css?v=20260904r24" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
   <script src="lib/mermaid.min.js"></script>
-  <script src="lib/r17-helpers.js?v=20260904r23"></script>
+  <script src="lib/r17-helpers.js?v=20260904r24"></script>
 </head>
 <body>
   <!-- 顶部状态栏 -->
@@ -213,8 +213,8 @@
           <button class="tool-btn record-tool-btn" id="clearDayRecordBtn" title="清空今日所有记录">🗑 清全日</button>
           <button class="tool-btn record-tool-btn go-review-btn" id="goReviewFromRecord" title="跳转到复盘页">📊 去复盘</button>
         </div>
-        <div class="record-timer-hint" id="recordTimerHint" title="多时钟：任意时刻最多一口钟在跑；开新钟自动暂停旧钟；■ 结束会弹命名并写入本格">
-          ⏱ 正计时：格子右上 <b>⏱启动</b> → <b>⏸暂停</b> → <b>■结束·命名</b> · 来了别的事就开新钟
+        <div class="record-timer-hint" id="recordTimerHint" title="多时钟：任意时刻最多一口钟在跑；暂停后出现「新开钟」可切事项；■ 结束会弹命名并写入本格">
+          ⏱ 正计时：<b>⏱启动</b> → <b>暂停</b> → 暂停后点琥珀 <b>新开钟</b> 切事项 · 条内可 <b>恢复/下一钟/结束</b>
         </div>
         <!-- Round11：记录页内嵌多钟条（开/停/切下一钟/结束命名） -->
         <div class="record-clock-strip" id="recordClockStrip" hidden></div>
@@ -1943,6 +1943,6 @@
     </div>
   </aside>
 
-  <script src="app.js?v=20260904r23" defer></script>
+  <script src="app.js?v=20260904r24" defer></script>
 </body>
 </html>

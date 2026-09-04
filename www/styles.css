@@ -11818,3 +11818,177 @@ body.sd-touch-dragging .side-handle { opacity: 0; pointer-events: none; }
 #sdTaskLabel {
   font-variant-numeric: tabular-nums;
 }
+
+
+/* ============================================================
+ * Round24：记录页新开钟 · 多钟条文案钮 · 导图+ · 工具栏横竖 · 画板安全区
+ * ============================================================ */
+.cell.timing, .cell.timing-paused, .realm-record .cell {
+  overflow: visible;
+}
+.cell-timer-controls {
+  z-index: 12 !important;
+  pointer-events: auto !important;
+}
+.cell-timer-controls .cell-timer-btn,
+.cell-timer-controls .cell-timer-end {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+.cell-timer-btn.cell-timer-now-label {
+  width: auto !important;
+  min-width: 52px;
+  height: 28px !important;
+  padding: 0 8px !important;
+  border-radius: 999px !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  letter-spacing: .2px;
+  white-space: nowrap;
+  background: linear-gradient(135deg, #f59e0b, #fbbf24) !important;
+  color: #1a1200 !important;
+  box-shadow: 0 2px 10px rgba(251,191,36,.55);
+}
+.rcs-sum b.newc { color: #fbbf24; }
+.rcs-chip {
+  border-radius: 14px !important;
+  flex-wrap: wrap;
+  max-width: 100%;
+  gap: 6px !important;
+}
+.rcs-chip .rcs-btn {
+  width: auto !important;
+  min-width: 44px;
+  height: 32px !important;
+  padding: 0 10px !important;
+  border-radius: 999px !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  background: rgba(255,255,255,.28) !important;
+  color: #fff !important;
+  border: none;
+  touch-action: manipulation;
+}
+.rcs-chip .rcs-btn.rcs-end { background: rgba(239,68,68,.85) !important; }
+.rcs-ops .rcs-newclock {
+  min-height: 40px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 800;
+  border: none;
+  cursor: pointer;
+  touch-action: manipulation;
+  background: linear-gradient(135deg, #f59e0b, #fbbf24);
+  color: #1a1200;
+  box-shadow: 0 3px 12px rgba(251,191,36,.45);
+}
+.period-tab, .realm-tab, .settings-tab, .iv-tab, .qa-vs-tab, .pc-tab {
+  pointer-events: auto !important;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  position: relative;
+  z-index: 3;
+}
+.mm-add-btn circle { filter: drop-shadow(0 2px 6px rgba(0,0,0,.35)); }
+.mm-add-btn:active circle { fill: #fbbf24; }
+
+/* 主工具栏：竖屏换行堆叠，横屏可横滑 */
+@media (orientation: portrait), (max-width: 720px) {
+  .toolbar {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    overflow-x: visible !important;
+    gap: 6px !important;
+    align-items: stretch;
+  }
+  .toolbar-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    border-right: none !important;
+    padding-right: 0 !important;
+    margin-right: 0 !important;
+    width: 100%;
+  }
+  .toolbar .tool-btn {
+    flex: 1 1 calc(50% - 6px);
+    min-height: 40px;
+    justify-content: center;
+  }
+  .mm-toolbar {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    overflow-x: visible !important;
+    max-height: none;
+    gap: 6px !important;
+    justify-content: flex-start !important;
+  }
+  .mm-toolbar .mm-tb, .mm-tb {
+    flex: 1 1 calc(33.33% - 6px);
+    min-height: 44px;
+    min-width: 0 !important;
+  }
+  .mm-float-bar.mm-float-dock {
+    flex-wrap: wrap !important;
+    overflow-x: visible !important;
+    max-height: 42vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .mm-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+  }
+  .mm-canvas {
+    inset: 0;
+    top: 0; right: 0; bottom: 0; left: 0;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+    box-sizing: border-box;
+  }
+  .mm-dialog, .mm-wrap {
+    height: 100%;
+    max-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .mm-head { flex: 0 0 auto; }
+  .mm-hint {
+    bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 64px)) !important;
+  }
+  .mm-stats {
+    bottom: max(8px, env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .toolbar {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .toolbar-group { width: auto; flex-wrap: nowrap; }
+  .toolbar .tool-btn { flex: 0 0 auto; }
+  .mm-toolbar {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+  }
+  .mm-toolbar .mm-tb { flex: 0 0 auto; }
+  .mm-float-bar.mm-float-dock {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+  }
+}
+@media (pointer: coarse), (max-width: 720px) {
+  .cell-timer-btn.cell-timer-now-label {
+    min-width: 58px; height: 34px !important; font-size: 12px !important;
+  }
+  .record-clock-strip .rcs-chip .rcs-btn {
+    min-width: 48px; height: 36px !important; font-size: 12.5px !important;
+  }
+  .rcs-ops .rcs-newclock { min-height: 44px; font-size: 14px; }
+}
