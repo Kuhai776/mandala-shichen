@@ -143,9 +143,13 @@ const SW_VER = "20260902r7";
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
   const APP_VERSION = "2.7.24";
-  const APP_BUILD = 120; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
+  const APP_BUILD = 121; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
   const APP_VERSION_DATE = "2026-09-04";
   const APP_CHANGELOG = [
+    { v: "2.7.24·121", date: "2026-09-04", items: [
+      "Round23：通知栏走秒≈1s（JS tick + FGS 原生自走秒）",
+      "Round23：暂停态通知三键 恢复|下一钟|结束（可新开钟切事项）",
+    ]},
     { v: "2.7.24·120", date: "2026-09-04", items: [
       "Round22：Android 前台服务保活——计时中常驻通知，降低后台被杀概率（非 100%）",
     ]},
@@ -3771,16 +3775,17 @@ const SW_VER = "20260902r7";
     return chunks;
   }
 
-  // Round16/17/21/22：通知栏正计时 —— 暂停/恢复/结束（+切钟/记任务；安卓最多 3 键）
+  // Round16/17/21/22/23：通知栏正计时 —— 暂停/恢复/结束（+切钟/下一钟/记任务；安卓最多 3 键）
   // Round22：优先 Android Foreground Service 常驻通知（单一真相源）；无 FGS 时回退 LocalNotifications
+  // Round23：走秒≈1s；暂停态三键 恢复|下一钟|结束（对齐 Round20 暂停可新开钟）
   const TIMER_NOTIF_ID = 16115;
   const TIMER_NOTIF_CHANNEL = "mandala_timer";
   const TIMER_FGS_CHANNEL = "mandala_timer_fgs";
   // 安卓通知最多 3 个 Action：按「在跑/暂停 × 单钟/多钟」拆 4 套，保证「结束」始终可见
   const TIMER_ACTION_RUN = "mandala_timer_run";             // 暂停 · 记任务 · 结束
-  const TIMER_ACTION_PAUSE = "mandala_timer_pause";         // 恢复 · 记任务 · 结束
+  const TIMER_ACTION_PAUSE = "mandala_timer_pause";         // 恢复 · 下一钟 · 结束
   const TIMER_ACTION_RUN_MULTI = "mandala_timer_run_m";     // 暂停 · 切钟 · 结束
-  const TIMER_ACTION_PAUSE_MULTI = "mandala_timer_pause_m"; // 恢复 · 切钟 · 结束
+  const TIMER_ACTION_PAUSE_MULTI = "mandala_timer_pause_m"; // 恢复 · 下一钟 · 结束
   let _timerNotifReady = false;
   let _timerNotifListenerBound = false;
   let _timerFgsListenerBound = false;
@@ -3809,6 +3814,58 @@ const SW_VER = "20260902r7";
     startCellTimer(next.period, next.cell, next.taskText);
     const ord = list.findIndex((t) => t === next || (t.period === next.period && t.cell === next.cell));
     toast("⏭ 已切至 " + ((ord < 0 ? 1 : ord + 1) + "/" + list.length) + " · " + trunc(String(next.taskText || "任务"), 14), "success", 1800);
+    return true;
+  }
+
+  /** Round23：通知/条内「下一钟」——优先恢复其他已有钟；否则在当前时刻格（或下一格）新开钟（对齐 Round20） */
+  function startNextOrNewClock(curP, curC) {
+    const cur = getRunningTimer(curP, curC);
+    if (cur && !cur.pausedAt) pauseCellTimer(curP, curC);
+    const list = Object.values(runningTimers || {}).filter((t) => t && t.date === state.currentDate);
+    const R = _r17();
+    let nxt = (R && R.pickNextTimer) ? R.pickNextTimer(list, curP, curC) : null;
+    if (nxt && nxt.period === curP && nxt.cell === curC) nxt = null;
+    if (!nxt) nxt = list.find((x) => x.pausedAt && !(x.period === curP && x.cell === curC)) || null;
+    if (nxt) {
+      startCellTimer(nxt.period, nxt.cell, nxt.taskText);
+      toast("⏭ 下一钟 · " + trunc(String(nxt.taskText || "任务"), 14), "success", 1800);
+      return true;
+    }
+    // 无其他暂停钟 → 新开钟：优先「当前时刻格」，若该格已有钟则下一格
+    if (!isToday(state.currentDate)) {
+      toast("没有可切换的下一钟", "info", 1800);
+      return false;
+    }
+    const g = getCurrentGlobalCell();
+    let targetP = curP | 0, targetC = curC | 0;
+    if (g >= 0) {
+      targetP = Math.floor(g / CELLS_PER_PERIOD);
+      targetC = g % CELLS_PER_PERIOD;
+    }
+    if (getRunningTimer(targetP, targetC)) {
+      const nc = nextPeriodCell(targetP, targetC);
+      if (!nc) {
+        toast("没有可切换的下一钟", "info", 1800);
+        return false;
+      }
+      targetP = nc.p;
+      targetC = nc.c;
+    }
+    if (getRunningTimer(targetP, targetC)) {
+      const t = getRunningTimer(targetP, targetC);
+      startCellTimer(targetP, targetC, t.taskText);
+      toast("⏭ 下一钟 · " + trunc(String(t.taskText || "任务"), 14), "success", 1800);
+      return true;
+    }
+    const tasks = getCellTasks(targetP, targetC) || [];
+    const hintTask = tasks.find((t) => t && !t.sticky && String(t.text || "").trim());
+    const hint = (hintTask && hintTask.text) || "未命名任务";
+    startCellTimer(targetP, targetC, hint);
+    toast("▶ 已新开钟 · " + trunc(String(hint), 14), "success", 2000);
+    try {
+      setRealm("record");
+      jumpToCell(targetP, targetC);
+    } catch (e) { /* 静默 */ }
     return true;
   }
 
@@ -3896,17 +3953,11 @@ const SW_VER = "20260902r7";
   function pickTimerFgsButtons(run, listLen) {
     const paused = !!(run && run.pausedAt);
     const multi = (listLen | 0) > 1;
-    if (paused && multi) {
-      return [
-        { id: "resume", title: "恢复" },
-        { id: "next", title: "切钟" },
-        { id: "stop", title: "结束" },
-      ];
-    }
+    // Round23：暂停态一律 恢复|下一钟|结束（可新开钟切事项；不再用「记任务」占第三键）
     if (paused) {
       return [
         { id: "resume", title: "恢复" },
-        { id: "add", title: "记任务" },
+        { id: "next", title: "下一钟" },
         { id: "stop", title: "结束" },
       ];
     }
@@ -3941,7 +3992,15 @@ const SW_VER = "20260902r7";
         const t = getRunningTimer(p, c);
         if (t && t.pausedAt) startCellTimer(p, c, t.taskText);
       } else if (actionId === "next") {
-        cycleNextRunningTimer(p, c);
+        const t = getRunningTimer(p, c);
+        // 在跑多钟：切钟轮转；暂停态：下一钟/新开钟
+        if (t && !t.pausedAt) {
+          const list = Object.values(runningTimers || {}).filter((x) => x && x.date === state.currentDate);
+          if (list.length > 1) cycleNextRunningTimer(p, c);
+          else startNextOrNewClock(p, c);
+        } else {
+          startNextOrNewClock(p, c);
+        }
       } else if (actionId === "add") {
         notifQuickAddTask(p, c);
       } else if (actionId === "stop") {
@@ -4011,7 +4070,7 @@ const SW_VER = "20260902r7";
               id: TIMER_ACTION_PAUSE,
               actions: [
                 { id: "resume", title: "恢复", foreground: true },
-                { id: "add", title: "记任务", foreground: true },
+                { id: "next", title: "下一钟", foreground: true },
                 { id: "stop", title: "结束", foreground: true },
               ],
             },
@@ -4027,7 +4086,7 @@ const SW_VER = "20260902r7";
               id: TIMER_ACTION_PAUSE_MULTI,
               actions: [
                 { id: "resume", title: "恢复", foreground: true },
-                { id: "next", title: "切钟", foreground: true },
+                { id: "next", title: "下一钟", foreground: true },
                 { id: "stop", title: "结束", foreground: true },
               ],
             },
@@ -4129,9 +4188,10 @@ const SW_VER = "20260902r7";
       }
       const force = _timerNotifForce || !!opts.force || !!opts.requestPerm;
       _timerNotifForce = false;
+      // Round23：默认节流 ~0.9s，保证走秒标题能每秒刷；标题变则不跳过
       if (!force) {
-        if (R && R.shouldSkipNotifSchedule && R.shouldSkipNotifSchedule(_timerNotifLastTitle, title, _timerNotifLastAt, 4500, _timerNotifLastBody, body)) return;
-        if (!R && _timerNotifLastTitle === title && _timerNotifLastBody === body && (Date.now() - _timerNotifLastAt) < 4500) return;
+        if (R && R.shouldSkipNotifSchedule && R.shouldSkipNotifSchedule(_timerNotifLastTitle, title, _timerNotifLastAt, 900, _timerNotifLastBody, body)) return;
+        if (!R && _timerNotifLastTitle === title && _timerNotifLastBody === body && (Date.now() - _timerNotifLastAt) < 900) return;
       }
 
       // Round22：优先 FGS 单一常驻通知；取消 LocalNotifications 避免双通知冲突
@@ -4147,6 +4207,7 @@ const SW_VER = "20260902r7";
               }
             } catch (e) {}
           }
+          const elMs = timerElapsedOf(run);
           const payload = {
             id: TIMER_NOTIF_ID,
             title: title,
@@ -4156,6 +4217,10 @@ const SW_VER = "20260902r7";
             period: run.period | 0,
             cell: run.cell | 0,
             buttons: pickTimerFgsButtons(run, list.length),
+            // Round23：原生自走秒（WebView 被冻时仍刷新标题）
+            paused: !!run.pausedAt,
+            elapsedMs: elMs | 0,
+            taskLabel: trunc(String(run.taskText || "任务"), 16),
           };
           if (_timerFgsActive && typeof FGS.update === "function") {
             await FGS.update(payload);
@@ -4330,9 +4395,10 @@ const SW_VER = "20260902r7";
     _notifTickN = 0;
     _timerTick = setInterval(() => {
       if (!_tryLightTimerRefresh()) renderRunningTimerBar();
-      // Round17：走秒每秒刷新 UI；通知栏约每 5 秒或强制时再写（降 Android 重刷）
+      // Round23：在跑时每秒强制刷通知（标题含 mm:ss）；暂停态约 15s 保活文案
       _notifTickN++;
-      if (_notifTickN % 5 === 0) {
+      const hasRunning = Object.values(runningTimers || {}).some((t) => t && t.date === state.currentDate && !t.pausedAt);
+      if (hasRunning || (_notifTickN % 15 === 0)) {
         try { _timerNotifForce = true; syncTimerNotification(); } catch (e) {}
       }
     }, 1000);
@@ -4610,15 +4676,7 @@ const SW_VER = "20260902r7";
           if (state.realm === "record") renderRecord();
           else renderMandala();
         } else if (act === "next") {
-          const t = getRunningTimer(p, c);
-          if (t && !t.pausedAt) pauseCellTimer(p, c);
-          const list = Object.values(runningTimers).filter((x) => x && x.date === state.currentDate);
-          const Rn = _r17();
-          let nxt = (Rn && Rn.pickNextTimer) ? Rn.pickNextTimer(list, p, c) : null;
-          if (nxt && nxt.period === p && nxt.cell === c) nxt = null;
-          if (!nxt) nxt = list.find((x) => x.pausedAt && !(x.period === p && x.cell === c)) || null;
-          if (nxt) startCellTimer(nxt.period, nxt.cell, nxt.taskText);
-          else toast("没有可切换的下一钟", "info", 1800);
+          startNextOrNewClock(p, c);
           if (state.realm === "record") renderRecord();
           else renderMandala();
         } else if (act === "stop") {

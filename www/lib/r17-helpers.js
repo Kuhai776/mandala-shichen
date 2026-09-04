@@ -55,9 +55,9 @@
     };
   }
 
-  /** 标题未变且距上次调度不足 gapMs → 跳过（降 Android 重刷） */
+  /** 标题未变且距上次调度不足 gapMs → 跳过（降 Android 重刷）；默认 900ms 以支持走秒 */
   function shouldSkipNotifSchedule(prevTitle, nextTitle, lastAt, gapMs, prevBody, nextBody) {
-    gapMs = gapMs == null ? 4500 : gapMs;
+    gapMs = gapMs == null ? 900 : gapMs;
     if (!nextTitle) return true;
     if (prevTitle !== nextTitle) return false;
     if (prevBody != null && nextBody != null && prevBody !== nextBody) return false;
