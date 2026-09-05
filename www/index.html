@@ -86,11 +86,11 @@
       } catch (e) { console.warn("[polyfill] dialog 降级失败:", e); }
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260904r24" />
+  <link rel="stylesheet" href="styles.css?v=20260905r26" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' fill='%231a1a2e'/%3E%3Cg fill='none' stroke='%237c5cff' stroke-width='4'%3E%3Crect x='32' y='32' width='128' height='128' rx='8'/%3E%3Cline x1='75' y1='32' x2='75' y2='160'/%3E%3Cline x1='117' y1='32' x2='117' y2='160'/%3E%3Cline x1='32' y1='75' x2='160' y2='75'/%3E%3Cline x1='32' y1='117' x2='160' y2='117'/%3E%3C/g%3E%3Ccircle cx='96' cy='96' r='6' fill='%237c5cff'/%3E%3C/svg%3E" />
   <script src="lib/mermaid.min.js"></script>
-  <script src="lib/r17-helpers.js?v=20260904r24"></script>
+  <script src="lib/r17-helpers.js?v=20260905r26"></script>
 </head>
 <body>
   <!-- 顶部状态栏 -->
@@ -213,8 +213,8 @@
           <button class="tool-btn record-tool-btn" id="clearDayRecordBtn" title="清空今日所有记录">🗑 清全日</button>
           <button class="tool-btn record-tool-btn go-review-btn" id="goReviewFromRecord" title="跳转到复盘页">📊 去复盘</button>
         </div>
-        <div class="record-timer-hint" id="recordTimerHint" title="多时钟：任意时刻最多一口钟在跑；暂停后出现「新开钟」可切事项；■ 结束会弹命名并写入本格">
-          ⏱ 正计时：<b>⏱启动</b> → <b>暂停</b> → 暂停后点琥珀 <b>新开钟</b> 切事项 · 条内可 <b>恢复/下一钟/结束</b>
+        <div class="record-timer-hint" id="recordTimerHint" title="最多一口在跑；暂停后「新事项」同格另开；通知栏 恢复|新事项|结束；■ 命名写入">
+          ⏱ <b>启动</b> → <b>暂停</b> → <b>新事项</b>（同格）· 条/通知 <b>恢复|新事项|结束</b>
         </div>
         <!-- Round11：记录页内嵌多钟条（开/停/切下一钟/结束命名） -->
         <div class="record-clock-strip" id="recordClockStrip" hidden></div>
@@ -1357,23 +1357,26 @@
           <span class="mm-logo">🧠</span>
           <div class="mm-title-text">
             <span class="mm-task-title" id="mmTaskTitle">孵化思维导图</span>
-            <small class="mm-task-sub" id="mmTaskSub">点选 · 长按拖/编辑 · 估时/微移 · 底栏调整</small>
+            <small class="mm-task-sub" id="mmTaskSub">缩放/关在顶栏 · 点选 · 长按拖</small>
           </div>
         </div>
         <div class="mm-toolbar">
-          <button type="button" class="tool-btn mm-tb" id="mmUndo" title="撤销 (Ctrl+Z)">↩</button>
-          <button type="button" class="tool-btn mm-tb" id="mmRedo" title="重做 (Ctrl+Y)">↪</button>
-          <span class="mm-sep"></span>
+          <div class="mm-tb-primary">
+            <button type="button" class="tool-btn mm-tb" id="mmZoomOut" title="缩小 (−)">−</button>
+            <span class="mm-zoom-label" id="mmZoomLabel">100%</span>
+            <button type="button" class="tool-btn mm-tb" id="mmZoomIn" title="放大 (+)">＋</button>
+            <button type="button" class="tool-btn mm-tb" id="mmFit" title="适应画布 (0)">⛶</button>
+            <button type="button" class="tool-btn mm-tb" id="mmUndo" title="撤销 (Ctrl+Z)">↩</button>
+            <button type="button" class="tool-btn mm-tb" id="mmRedo" title="重做 (Ctrl+Y)">↪</button>
+            <button type="button" class="icon-btn mm-tb-close" id="mmClose" aria-label="关闭">✕</button>
+          </div>
+          <div class="mm-tb-secondary">
           <button type="button" class="tool-btn mm-tb" id="mmLayout" title="切换布局方向（左右 ↔ 上下）">⇄ 布局</button>
           <button type="button" class="tool-btn mm-tb" id="mmOutlineToggle" title="显示/隐藏文本大纲">☰ 大纲</button>
           <button type="button" class="tool-btn mm-tb" id="mmLibraryBtn" title="打开导图库（新建/打开/重命名/删除/导出多张导图）">📚 导图库</button>
           <span class="mm-sep"></span>
           <input type="search" id="mmSearch" class="mm-search" placeholder="🔍 搜索节点…" autocomplete="off" />
           <span class="mm-sep"></span>
-          <button type="button" class="tool-btn mm-tb" id="mmZoomOut" title="缩小 (−)">−</button>
-          <span class="mm-zoom-label" id="mmZoomLabel">100%</span>
-          <button type="button" class="tool-btn mm-tb" id="mmZoomIn" title="放大 (+)">＋</button>
-          <button type="button" class="tool-btn mm-tb" id="mmFit" title="适应画布 (0)">⛶</button>
           <button type="button" class="tool-btn mm-tb" id="mmResetLayout" title="清除全部手动摆放偏移，恢复自动布局">⟳</button>
           <span class="mm-sep"></span>
           <button type="button" class="tool-btn mm-tb" id="mmExportPng" title="导出当前思维导图为图片">🖼 图片</button>
@@ -1389,7 +1392,7 @@
           <button type="button" class="tool-btn mm-tb" id="mmExportInbox" title="把导图节点转为收集箱任务（自动附带维度/建议标签）">📥 转任务</button>
           <button type="button" class="tool-btn mm-tb" id="mmImportArticle" title="粘贴文章正文或输入链接，自动复现为可编辑思维导图">🔗 导入文章</button>
           <button type="button" class="tool-btn mm-tb mm-save" id="mmSave" title="保存思维导图到导图库（可随时回看编辑）">💾 保存</button>
-          <button type="button" class="icon-btn" id="mmClose" aria-label="关闭">✕</button>
+          </div>
         </div>
       </div>
       <div class="mm-body">
@@ -1397,7 +1400,7 @@
           <svg id="mmSvg" xmlns="http://www.w3.org/2000/svg">
             <g id="mmCanvasG"></g>
           </svg>
-          <div class="mm-hint" id="mmHint">安卓：点选 · 长按拖/松手编辑 · 估时·微移 · 主轴滑改序</div>
+          <div class="mm-hint" id="mmHint" hidden>点选 · 长按拖 · 顶栏缩放/关</div>
           <div class="mm-stats" id="mmStats"></div>
           <div class="mm-legend" id="mmLegend"></div>
           <div class="mm-node-panel" id="mmNodePanel" hidden></div>
@@ -1943,6 +1946,6 @@
     </div>
   </aside>
 
-  <script src="app.js?v=20260904r24" defer></script>
+  <script src="app.js?v=20260905r26" defer></script>
 </body>
 </html>

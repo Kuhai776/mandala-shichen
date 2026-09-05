@@ -11992,3 +11992,283 @@ body.sd-touch-dragging .side-handle { opacity: 0; pointer-events: none; }
   }
   .rcs-ops .rcs-newclock { min-height: 44px; font-size: 14px; }
 }
+
+
+/* ============================================================
+ * Round25：同格新事项 · 边轨切时辰淡紫 · 导图横屏工具栏 · 弱化边界
+ * ============================================================ */
+.cell-timer-btn.cell-timer-now-label {
+  background: linear-gradient(135deg, #a78bfa, #c4b5fd) !important;
+  color: #1a1030 !important;
+  box-shadow: 0 2px 10px rgba(167,139,250,.45);
+}
+.rcs-ops .rcs-newclock {
+  background: linear-gradient(135deg, #a78bfa, #c4b5fd) !important;
+  color: #1a1030 !important;
+  box-shadow: 0 3px 12px rgba(167,139,250,.4);
+}
+.rcs-sum b.newc { color: #c4b5fd; }
+
+body.sd-period-pan-left .mandala-grid,
+body.sd-period-pan-right .mandala-grid,
+body.sd-period-pan-left .record-grid,
+body.sd-period-pan-right .record-grid {
+  box-shadow: inset 0 0 0 2px rgba(167,139,250,.35), 0 0 24px rgba(124,92,255,.18);
+  transition: box-shadow .28s ease;
+}
+body.sd-period-pan-left .period-tabs,
+body.sd-period-pan-right .period-tabs,
+.period-tabs.period-pan-glow {
+  background: linear-gradient(90deg, rgba(124,92,255,.12), rgba(167,139,250,.08), transparent);
+}
+body.sd-period-pan-left::after,
+body.sd-period-pan-right::after {
+  content: "";
+  position: fixed;
+  top: 0; bottom: 0;
+  width: 36px;
+  pointer-events: none;
+  z-index: 90;
+  opacity: .55;
+  transition: opacity .3s ease;
+}
+body.sd-period-pan-left::after {
+  left: 0;
+  background: linear-gradient(90deg, rgba(124,92,255,.28), transparent);
+}
+body.sd-period-pan-right::after {
+  right: 0;
+  background: linear-gradient(270deg, rgba(124,92,255,.28), transparent);
+}
+
+.realm-record .cell-content-item.task-bar {
+  border-radius: 10px;
+  background: rgba(124,92,255,.08);
+  border: 1px solid rgba(124,92,255,.18);
+  margin-bottom: 4px;
+}
+.realm-record .cell-content-item.task-bar.dragging-item {
+  opacity: .4;
+  transform: scale(.96);
+}
+
+.mm-toolbar {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.mm-tb-primary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  flex: 0 0 auto;
+}
+.mm-tb-secondary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  min-width: 0;
+}
+.mm-tb-secondary::-webkit-scrollbar { display: none; }
+.mm-tb-close {
+  margin-left: auto;
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: 10px;
+  background: rgba(248,113,113,.15);
+  color: #fca5a5;
+  border: 1px solid rgba(248,113,113,.35);
+}
+.mm-legend.mm-chrome-hidden,
+.mm-chrome-hidden { display: none !important; }
+.mm-canvas {
+  background: var(--bg-primary, #0f0f1e) !important; /* Round25：去掉点阵边界装饰 */
+}
+.mm-hint {
+  display: block !important;
+  font-size: 11px;
+  color: #c4b5fd;
+  background: rgba(30,20,50,.72) !important;
+  border: 1px solid rgba(167,139,250,.25);
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .mm-head { flex-direction: row !important; align-items: center; gap: 8px; padding: 4px 8px !important; }
+  .mm-title { flex: 0 1 auto; max-width: 28vw; }
+  .mm-toolbar { flex-direction: row !important; flex-wrap: nowrap !important; overflow: visible !important; align-items: center; }
+  .mm-tb-primary { flex: 0 0 auto; order: 2; }
+  .mm-tb-secondary {
+    flex: 1 1 auto;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    order: 1;
+    max-width: 55vw;
+  }
+  .mm-tb-primary .mm-tb, .mm-tb-primary .mm-tb-close {
+    min-height: 40px; min-width: 40px;
+  }
+  .mm-hint { bottom: 8px !important; left: 8px; }
+  .mm-stats { opacity: .55; max-width: 40vw; }
+}
+@media (orientation: portrait), (max-width: 720px) {
+  .mm-tb-primary { width: 100%; }
+  .mm-tb-secondary { width: 100%; flex-wrap: wrap !important; }
+  .mm-hint { display: block !important; bottom: max(64px, env(safe-area-inset-bottom, 0px) + 48px) !important; }
+}
+
+
+/* ============================================================
+ * Round26：新事项可见性 · 条拖丝滑 · 边轨滞回 · 导图工具常驻
+ * ============================================================ */
+.cell-timer-btn.cell-timer-now-label {
+  min-width: 64px !important;
+  height: 34px !important;
+  padding: 0 10px !important;
+  font-size: 12.5px !important;
+  font-weight: 800 !important;
+  letter-spacing: .02em;
+  animation: r26-newpulse 1.8s ease-in-out infinite;
+}
+@keyframes r26-newpulse {
+  0%, 100% { box-shadow: 0 2px 10px rgba(167,139,250,.4); }
+  50% { box-shadow: 0 3px 16px rgba(167,139,250,.7); }
+}
+.rcs-chip .rcs-btn.rcs-new {
+  background: linear-gradient(135deg, #a78bfa, #c4b5fd) !important;
+  color: #1a1030 !important;
+  font-weight: 800 !important;
+}
+.rcs-ops .rcs-newclock {
+  min-height: 42px;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: .03em;
+}
+
+.realm-record .cell-content-item.task-bar,
+.realm-plan .cell-content-item.task-bar {
+  transition: transform .18s cubic-bezier(.22,.68,0,1.2), opacity .18s ease, box-shadow .2s ease, background .2s ease;
+  will-change: transform;
+}
+.realm-record .cell-content-item.task-bar.dragging-item,
+.realm-plan .cell-content-item.task-bar.dragging-item {
+  opacity: .35;
+  transform: scale(.94);
+  box-shadow: none;
+}
+.kb-drag-ghost.silk-ghost,
+.sd-drag-ghost.silk-ghost {
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-weight: 650;
+  letter-spacing: .01em;
+  background: linear-gradient(135deg, rgba(124,92,255,.92), rgba(167,139,250,.88));
+  color: #fff;
+  box-shadow: 0 10px 28px rgba(80,50,160,.35), 0 2px 6px rgba(0,0,0,.2);
+  pointer-events: none;
+  z-index: 9999;
+  backdrop-filter: blur(6px);
+  transition: none;
+}
+.cell.drag-over {
+  outline: 2px solid rgba(167,139,250,.65) !important;
+  outline-offset: -2px;
+  box-shadow: inset 0 0 0 1px rgba(196,181,253,.35), 0 0 18px rgba(124,92,255,.2);
+  transition: box-shadow .16s ease, outline-color .16s ease;
+}
+
+body.sd-period-pan-left::after,
+body.sd-period-pan-right::after {
+  width: 44px;
+  opacity: .42;
+  transition: opacity .25s ease;
+}
+body.sd-period-pan-left .mandala-grid,
+body.sd-period-pan-right .mandala-grid,
+body.sd-period-pan-left .record-grid,
+body.sd-period-pan-right .record-grid {
+  transition: box-shadow .22s ease, transform .22s cubic-bezier(.22,.68,0,1.1);
+}
+
+/* 导图：主工具栏始终可达（缩放/关置顶固定） */
+.mm-head {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: var(--bg-primary, #0f0f1e);
+  padding-top: max(4px, env(safe-area-inset-top, 0px));
+}
+.mm-tb-primary {
+  position: relative;
+  z-index: 2;
+  flex-shrink: 0;
+  background: rgba(20,16,36,.92);
+  border-radius: 10px;
+  padding: 2px 4px;
+  border: 1px solid rgba(167,139,250,.22);
+}
+.mm-tb-close {
+  margin-left: auto !important;
+  min-width: 44px !important;
+  min-height: 44px !important;
+  font-size: 18px;
+  background: rgba(248,113,113,.22) !important;
+  color: #fecaca !important;
+  border: 1px solid rgba(248,113,113,.45) !important;
+}
+.mm-stats, .mm-hint { pointer-events: none; }
+.mm-legend, .mm-chrome-hidden { display: none !important; }
+.mm-canvas {
+  background: var(--bg-primary, #0f0f1e) !important;
+  background-image: none !important;
+}
+@media (orientation: landscape) and (max-height: 560px) {
+  .mm-head {
+    flex-direction: row !important;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 6px !important;
+    flex-wrap: nowrap;
+  }
+  .mm-title { flex: 0 1 auto; max-width: 22vw; min-width: 0; }
+  .mm-task-sub { display: none; }
+  .mm-toolbar {
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    overflow: visible !important;
+    align-items: center;
+    gap: 6px !important;
+  }
+  .mm-tb-primary {
+    order: 1 !important;
+    flex: 0 0 auto !important;
+  }
+  .mm-tb-secondary {
+    order: 2 !important;
+    flex: 1 1 auto;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    max-width: none;
+    min-width: 0;
+  }
+  .mm-tb-primary .mm-tb,
+  .mm-tb-primary .mm-tb-close {
+    min-height: 42px;
+    min-width: 42px;
+  }
+}
+@media (orientation: portrait), (max-width: 720px) {
+  .mm-tb-primary {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .mm-tb-close { margin-left: auto !important; }
+  .mm-tb-secondary { width: 100%; max-height: 28vh; overflow-y: auto; }
+}

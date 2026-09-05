@@ -143,9 +143,19 @@ const SW_VER = "20260902r7";
   // ---------- 应用版本号 ----------
   // 每次功能更迭时升级此版本号，同步更新 CHANGELOG 内容
   const APP_VERSION = "2.7.24";
-  const APP_BUILD = 122; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
-  const APP_VERSION_DATE = "2026-09-04";
+  const APP_BUILD = 124; // 构建号：与 android versionCode 同步，版本徽标直接显示（用户可自证当前版本）
+  const APP_VERSION_DATE = "2026-09-05";
   const APP_CHANGELOG = [
+    { v: "2.7.24·124", date: "2026-09-05", items: [
+      "Round26：同格「新事项」文案收紧 · 暂停格/条钮更显眼 · 通知栏三键与条内一致",
+      "Round26：记录/计划任务条拖丝滑对等 · 边轨切时辰阈值防抖减抖",
+      "Round26：导图主工具栏横竖常驻（缩放/关）· 画板装饰再藏",
+    ]},
+    { v: "2.7.24·123", date: "2026-09-05", items: [
+      "Round25：同格「新事项计时」——暂停后本时辰格内独立新钟，不跳下一时辰",
+      "Round25：记录页任务条状可拖（含触屏）· 边轨拖拽左右切时辰淡紫动效",
+      "Round25：导图横屏提示/工具栏置前 · 弱化边界装饰 · 更顺滑",
+    ]},
     { v: "2.7.24·122", date: "2026-09-04", items: [
       "Round24：记录页多钟条显式 暂停/恢复/下一钟/结束 + 暂停态「新开钟」琥珀钮",
       "Round24：导图节点与分支中点「+」加子节点（安卓大触控）",
@@ -3051,7 +3061,90 @@ const SW_VER = "20260902r7";
           item.addEventListener("dragend", () => {
             item.classList.remove("dragging-item");
             draggingTaskSource = null;
+            document.querySelectorAll(".cell.drag-over").forEach((c) => c.classList.remove("drag-over"));
           });
+
+          // Round26：计划页任务条触屏长按拖（与记录页对等丝滑）
+          (function bindPlanTaskTouch(itemEl, p0, c0, i0) {
+            let ts = null;
+            itemEl.addEventListener("touchstart", (ev) => {
+              if (ev.target.closest(".task-checkbox, button, input")) return;
+              if (!ev.touches || ev.touches.length !== 1) return;
+              const t = ev.touches[0];
+              ts = { startX: t.clientX, startY: t.clientY, holdTimer: null, ghost: null };
+              ts.holdTimer = setTimeout(() => {
+                if (!ts) return;
+                const ghost = document.createElement("div");
+                ghost.className = "kb-drag-ghost sd-drag-ghost silk-ghost";
+                ghost.textContent = (taskText(getCellTasks(p0, c0)[i0]) || "任务").slice(0, 28);
+                document.body.appendChild(ghost);
+                ts.ghost = ghost;
+                draggingTaskSource = { period: p0, cell: c0, idx: i0 };
+                itemEl.classList.add("dragging-item");
+                document.body.classList.add("kb-touch-dragging");
+                haptic(18);
+                ghost.style.left = t.clientX + "px";
+                ghost.style.top = t.clientY + "px";
+                sdHighlightCellAt(t.clientX, t.clientY);
+                showDragHint(t.clientX, t.clientY, "拖到格子 · 贴边切时辰");
+              }, 220);
+            }, { passive: true });
+            itemEl.addEventListener("touchmove", (ev) => {
+              if (!ts) return;
+              const t = ev.touches[0];
+              if (ts.ghost) {
+                ev.preventDefault();
+                if (ts._raf) cancelAnimationFrame(ts._raf);
+                const gx = t.clientX, gy = t.clientY;
+                ts._raf = requestAnimationFrame(() => {
+                  if (!ts || !ts.ghost) return;
+                  ts.ghost.style.transform = "translate(-50%,-50%)";
+                  ts.ghost.style.left = gx + "px";
+                  ts.ghost.style.top = gy + "px";
+                });
+                trySdPeriodPanAt(gx, gy);
+                const cell = sdHighlightCellAt(gx, gy);
+                let hint = "拖到格子 · 贴边切时辰";
+                if (cell) {
+                  const p = parseInt(cell.dataset.period, 10);
+                  const c = parseInt(cell.dataset.cell, 10);
+                  hint = "移到 " + (!isNaN(p) && PERIOD_NAMES[p] || "") + (!isNaN(c) ? " 第" + (c + 1) + "格" : "");
+                }
+                showDragHint(gx, gy, hint);
+                return;
+              }
+              const dx = Math.abs(t.clientX - ts.startX), dy = Math.abs(t.clientY - ts.startY);
+              if (ts.holdTimer && (dx > 12 || dy > 12)) {
+                clearTimeout(ts.holdTimer); ts.holdTimer = null;
+              }
+            }, { passive: false });
+            const endTouch = (ev) => {
+              if (!ts) return;
+              const st = ts; ts = null;
+              if (st.holdTimer) clearTimeout(st.holdTimer);
+              if (st._raf) cancelAnimationFrame(st._raf);
+              if (!st.ghost) return;
+              const t = (ev.changedTouches && ev.changedTouches[0]) || null;
+              const x = t ? t.clientX : 0, y = t ? t.clientY : 0;
+              st.ghost.remove();
+              itemEl.classList.remove("dragging-item");
+              document.body.classList.remove("kb-touch-dragging");
+              hideDragHint();
+              const targetCell = sdHighlightCellAt(x, y);
+              document.querySelectorAll(".cell.drag-over").forEach((c) => c.classList.remove("drag-over"));
+              const src = draggingTaskSource;
+              draggingTaskSource = null;
+              if (!targetCell || !src) return;
+              const tP = parseInt(targetCell.dataset.period, 10);
+              const tC = parseInt(targetCell.dataset.cell, 10);
+              if (isNaN(tP) || isNaN(tC)) return;
+              if (src.period === tP && src.cell === tC) return;
+              swapOrMoveCellTask(src.period, src.cell, src.idx, tP, tC);
+              renderAll();
+            };
+            itemEl.addEventListener("touchend", endTouch);
+            itemEl.addEventListener("touchcancel", endTouch);
+          })(item, period, cell, idx);
 
           // 双击任务条 → 从收集箱安排的移回收集箱（取消安排动作）
           item.addEventListener("click", (e) => {
@@ -3465,9 +3558,43 @@ const SW_VER = "20260902r7";
   let runningTimers = load(RUNNING_TIMERS_KEY, {});
   let _timerTick = null;
 
-  function timerKeyOf(date, p, c) { return date + "_" + p + "_" + c; }
+  /** Round25：同格可多口独立事项钟；键 = date_p_c 或 date_p_c#matterId */
+  function timerKeyOf(date, p, c, matterId) {
+    const base = date + "_" + p + "_" + c;
+    return matterId ? base + "#" + matterId : base;
+  }
+  function listCellTimers(period, cell, date) {
+    date = date != null ? date : state.currentDate;
+    const prefix = date + "_" + period + "_" + cell;
+    return Object.keys(runningTimers).filter((k) => k === prefix || k.startsWith(prefix + "#"))
+      .map((k) => {
+        const t = runningTimers[k];
+        if (!t) return null;
+        t._key = k;
+        if (!t.matterId && k.indexOf("#") > 0) t.matterId = k.split("#").slice(1).join("#");
+        return t;
+      }).filter(Boolean);
+  }
+  function findTimerKey(t) {
+    if (!t) return null;
+    if (t._key && runningTimers[t._key] === t) return t._key;
+    for (const k of Object.keys(runningTimers)) {
+      if (runningTimers[k] === t) return k;
+    }
+    return timerKeyOf(t.date || state.currentDate, t.period, t.cell, t.matterId || null);
+  }
   function getRunningTimer(period, cell) {
-    return runningTimers[timerKeyOf(state.currentDate, period, cell)] || null;
+    const list = listCellTimers(period, cell);
+    if (!list.length) return null;
+    const run = list.find((x) => !x.pausedAt);
+    if (run) return run;
+    return list.slice().sort((a, b) => (b.pausedAt || 0) - (a.pausedAt || 0))[0];
+  }
+  function getTimerByKey(key) {
+    if (!key) return null;
+    const t = runningTimers[key];
+    if (t) t._key = key;
+    return t || null;
   }
   // 计时器当前总时长（ms）：running 累加实时段，paused 返回已累计
   function timerElapsedOf(t) {
@@ -3486,14 +3613,16 @@ const SW_VER = "20260902r7";
       }
     });
   }
-  // 启动正计时：先自动暂停其他在跑的钟（A 在跑 → B 开钟时 A 冻结保留累计），再启动新钟
-  function startCellTimer(period, cell, taskText) {
-    const key = timerKeyOf(state.currentDate, period, cell);
-    if (runningTimers[key] && !runningTimers[key].pausedAt) { toast("该格子已在计时中", "info"); return false; }
-    if (runningTimers[key] && runningTimers[key].pausedAt) {
-      // 暂停中的钟 → 恢复（先暂停其他）
+  // 启动正计时：先自动暂停其他在跑的钟；opts.forceNew = 同格新事项（不恢复旧钟、不跳时辰）
+  function startCellTimer(period, cell, taskText, opts) {
+    opts = opts || {};
+    const forceNew = !!opts.forceNew;
+    const existing = getRunningTimer(period, cell);
+    if (!forceNew && existing && !existing.pausedAt) { toast("该格子已在计时中", "info"); return false; }
+    if (!forceNew && existing && existing.pausedAt) {
+      const key = findTimerKey(existing);
       _pauseAllRunning(key);
-      const t = runningTimers[key];
+      const t = existing;
       t.startTime = Date.now();
       t.pausedAt = null;
       save(RUNNING_TIMERS_KEY, runningTimers);
@@ -3505,24 +3634,39 @@ const SW_VER = "20260902r7";
       try { _timerNotifForce = true; syncTimerNotification({ requestPerm: true }); } catch (e) {}
       return true;
     }
+    const siblings = listCellTimers(period, cell);
+    const matterId = (siblings.length || forceNew)
+      ? ("m" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5))
+      : null;
+    const key = timerKeyOf(state.currentDate, period, cell, matterId);
     _pauseAllRunning(key);
-    runningTimers[key] = { startTime: Date.now(), taskText: String(taskText || "未命名任务"), period, cell, date: state.currentDate, accumMs: 0 };
+    runningTimers[key] = {
+      startTime: Date.now(),
+      taskText: String(taskText || "未命名任务"),
+      period, cell,
+      date: state.currentDate,
+      accumMs: 0,
+      matterId: matterId || undefined,
+      _key: key,
+    };
     save(RUNNING_TIMERS_KEY, runningTimers);
     _startTimerTick();
     renderRunningTimerBar();
     renderMandala();
     const pausedN = Object.values(runningTimers).filter((x) => x.pausedAt && x.date === state.currentDate).length;
-    toast("⏱️ 正计时已启动 · " + trunc(String(taskText || "任务"), 14) + (pausedN ? `（其余 ${pausedN} 钟已暂停）` : ""), "success", 2200);
+    const label = forceNew ? "▶ 新事项" : "⏱️ 正计时已启动";
+    toast(label + " · " + trunc(String(taskText || "任务"), 14) + (pausedN ? `（其余 ${pausedN} 钟已暂停）` : ""), "success", 2200);
     haptic(20);
     try { _timerNotifForce = true; syncTimerNotification({ requestPerm: true }); } catch (e) {}
     return true;
   }
   // 暂停指定钟：冻结累计，时钟停走（不写入记录）
   // Round7：暂停后可一键切换到下一口已暂停钟，或跳过保持全停
-  function pauseCellTimer(period, cell) {
-    const key = timerKeyOf(state.currentDate, period, cell);
-    const t = runningTimers[key];
-    if (!t || t.pausedAt) return false;
+  function pauseCellTimer(period, cell, keyOrNull) {
+    let key = keyOrNull || null;
+    let t = key ? getTimerByKey(key) : getRunningTimer(period, cell);
+    if (t && !key) key = findTimerKey(t);
+    if (!t || t.pausedAt || !key) return false;
     t.accumMs = (t.accumMs || 0) + (Date.now() - t.startTime);
     t.pausedAt = Date.now();
     save(RUNNING_TIMERS_KEY, runningTimers);
@@ -3543,14 +3687,14 @@ const SW_VER = "20260902r7";
     }
     if (next) {
       toast("⏸ 已暂停 · " + trunc(String(t.taskText || ""), 12) + "（累计 " + formatSpentPrecise(timerElapsedOf(t)) + "）", "info", 5200, {
-        label: "开始下一钟",
+        label: "恢复其他钟",
         onClick: () => {
           startCellTimer(next.period, next.cell, next.taskText);
           if (state.realm === "record") renderRecord();
         },
       });
     } else {
-      toast("⏸ 已暂停 · " + trunc(String(t.taskText || ""), 14) + "（累计 " + formatSpentPrecise(timerElapsedOf(t)) + "）", "info", 2200);
+      toast("⏸ 已暂停 · " + trunc(String(t.taskText || ""), 14) + " · 点「新事项」同格另开", "info", 2400);
     }
     try { _timerNotifForce = true; syncTimerNotification(); } catch (e) {}
     return true;
@@ -3560,9 +3704,10 @@ const SW_VER = "20260902r7";
   // 弹窗里钟保持原状态不动（该跑跑该停停），提交时取实时时长
   function stopCellTimer(period, cell, opts) {
     opts = opts || {};
-    const key = timerKeyOf(state.currentDate, period, cell);
-    const t = runningTimers[key];
-    if (!t) return null;
+    let key = opts.key || null;
+    let t = key ? getTimerByKey(key) : getRunningTimer(period, cell);
+    if (t && !key) key = findTimerKey(t);
+    if (!t || !key) return null;
     const isUnnamed = !t.taskText || t.taskText === "未命名任务";
     const doCommit = (nameOverride) => {
       const cur = runningTimers[key];
@@ -3830,31 +3975,34 @@ const SW_VER = "20260902r7";
   }
 
 
-  /** Round24：暂停态「新开钟」——上一口保持暂停，在当前时刻格（或下一空格）开新事项 */
-  function startFreshNewClock(hintText) {
+  /** Round25：同格「新事项计时」——上一口保持暂停，在同一时辰格内开独立新钟（绝不跳下一时辰） */
+  function startFreshNewClock(hintText, periodHint, cellHint) {
     if (!isToday(state.currentDate)) {
-      toast("请先切到今日再开新钟", "info", 1800);
+      toast("请先切到今日", "info", 1600);
       return false;
     }
     const g = getCurrentGlobalCell();
-    let targetP = g >= 0 ? Math.floor(g / CELLS_PER_PERIOD) : (state.activePeriod | 0);
-    let targetC = g >= 0 ? (g % CELLS_PER_PERIOD) : 0;
-    let guard = 0;
-    while (getRunningTimer(targetP, targetC) && guard++ < PERIOD_COUNT * CELLS_PER_PERIOD) {
-      const nc = nextPeriodCell(targetP, targetC);
-      if (!nc) break;
-      targetP = nc.p;
-      targetC = nc.c;
-    }
-    if (getRunningTimer(targetP, targetC)) {
-      toast("所有格子都有钟，请先结束一口", "warn", 2200);
-      return false;
+    let targetP = (periodHint != null && !isNaN(periodHint)) ? (periodHint | 0)
+      : (g >= 0 ? Math.floor(g / CELLS_PER_PERIOD) : (state.activePeriod | 0));
+    let targetC = (cellHint != null && !isNaN(cellHint)) ? (cellHint | 0)
+      : (g >= 0 ? (g % CELLS_PER_PERIOD) : 0);
+    // 若传入/当前格无上下文，优先落在「最近暂停钟」的同格
+    if (periodHint == null || cellHint == null) {
+      const paused = Object.values(runningTimers).filter((t) => t && t.date === state.currentDate && t.pausedAt);
+      if (paused.length) {
+        paused.sort((a, b) => (b.pausedAt || 0) - (a.pausedAt || 0));
+        targetP = paused[0].period | 0;
+        targetC = paused[0].cell | 0;
+      } else if (g >= 0) {
+        targetP = Math.floor(g / CELLS_PER_PERIOD);
+        targetC = g % CELLS_PER_PERIOD;
+      }
     }
     const tasks = getCellTasks(targetP, targetC) || [];
     const hintTask = tasks.find((t) => t && !t.sticky && String(t.text || "").trim());
-    const hint = (hintText && String(hintText).trim()) || (hintTask && hintTask.text) || "未命名任务";
-    startCellTimer(targetP, targetC, hint);
-    toast("▶ 已新开钟 · " + trunc(String(hint), 14) + "（上一口保持暂停）", "success", 2200);
+    const hint = (hintText && String(hintText).trim()) || (hintTask && hintTask.text) || "未命名事项";
+    const ok = startCellTimer(targetP, targetC, hint, { forceNew: true });
+    if (!ok) return false;
     try {
       if (state.realm !== "record") setRealm("record");
       jumpToCell(targetP, targetC);
@@ -3875,45 +4023,15 @@ const SW_VER = "20260902r7";
     if (!nxt) nxt = list.find((x) => x.pausedAt && !(x.period === curP && x.cell === curC)) || null;
     if (nxt) {
       startCellTimer(nxt.period, nxt.cell, nxt.taskText);
-      toast("⏭ 下一钟 · " + trunc(String(nxt.taskText || "任务"), 14), "success", 1800);
+      toast("⏭ 切换事项 · " + trunc(String(nxt.taskText || "任务"), 14), "success", 1800);
       return true;
     }
-    // 无其他暂停钟 → 新开钟：优先「当前时刻格」，若该格已有钟则下一格
+    // Round25：无其他暂停钟 → 同格新事项计时（不跳时辰）
     if (!isToday(state.currentDate)) {
-      toast("没有可切换的下一钟", "info", 1800);
+      toast("没有可切换的钟", "info", 1800);
       return false;
     }
-    const g = getCurrentGlobalCell();
-    let targetP = curP | 0, targetC = curC | 0;
-    if (g >= 0) {
-      targetP = Math.floor(g / CELLS_PER_PERIOD);
-      targetC = g % CELLS_PER_PERIOD;
-    }
-    if (getRunningTimer(targetP, targetC)) {
-      const nc = nextPeriodCell(targetP, targetC);
-      if (!nc) {
-        toast("没有可切换的下一钟", "info", 1800);
-        return false;
-      }
-      targetP = nc.p;
-      targetC = nc.c;
-    }
-    if (getRunningTimer(targetP, targetC)) {
-      const t = getRunningTimer(targetP, targetC);
-      startCellTimer(targetP, targetC, t.taskText);
-      toast("⏭ 下一钟 · " + trunc(String(t.taskText || "任务"), 14), "success", 1800);
-      return true;
-    }
-    const tasks = getCellTasks(targetP, targetC) || [];
-    const hintTask = tasks.find((t) => t && !t.sticky && String(t.text || "").trim());
-    const hint = (hintTask && hintTask.text) || "未命名任务";
-    startCellTimer(targetP, targetC, hint);
-    toast("▶ 已新开钟 · " + trunc(String(hint), 14), "success", 2000);
-    try {
-      setRealm("record");
-      jumpToCell(targetP, targetC);
-    } catch (e) { /* 静默 */ }
-    return true;
+    return startFreshNewClock(null, curP, curC);
   }
 
   function notifQuickAddTask(period, cell) {
@@ -4000,11 +4118,11 @@ const SW_VER = "20260902r7";
   function pickTimerFgsButtons(run, listLen) {
     const paused = !!(run && run.pausedAt);
     const multi = (listLen | 0) > 1;
-    // Round23：暂停态一律 恢复|下一钟|结束（可新开钟切事项；不再用「记任务」占第三键）
+    // Round25：暂停态 恢复|新事项|结束（同格新事项，非下一时辰）
     if (paused) {
       return [
         { id: "resume", title: "恢复" },
-        { id: "next", title: "下一钟" },
+        { id: "next", title: "新事项" },
         { id: "stop", title: "结束" },
       ];
     }
@@ -4040,13 +4158,13 @@ const SW_VER = "20260902r7";
         if (t && t.pausedAt) startCellTimer(p, c, t.taskText);
       } else if (actionId === "next") {
         const t = getRunningTimer(p, c);
-        // 在跑多钟：切钟轮转；暂停态：下一钟/新开钟
+        // 在跑多钟：切钟轮转；暂停态：同格新事项
         if (t && !t.pausedAt) {
           const list = Object.values(runningTimers || {}).filter((x) => x && x.date === state.currentDate);
           if (list.length > 1) cycleNextRunningTimer(p, c);
-          else startNextOrNewClock(p, c);
+          else startFreshNewClock(null, p, c);
         } else {
-          startNextOrNewClock(p, c);
+          startFreshNewClock(null, p, c);
         }
       } else if (actionId === "add") {
         notifQuickAddTask(p, c);
@@ -4117,7 +4235,7 @@ const SW_VER = "20260902r7";
               id: TIMER_ACTION_PAUSE,
               actions: [
                 { id: "resume", title: "恢复", foreground: true },
-                { id: "next", title: "下一钟", foreground: true },
+                { id: "next", title: "新事项", foreground: true },
                 { id: "stop", title: "结束", foreground: true },
               ],
             },
@@ -4133,7 +4251,7 @@ const SW_VER = "20260902r7";
               id: TIMER_ACTION_PAUSE_MULTI,
               actions: [
                 { id: "resume", title: "恢复", foreground: true },
-                { id: "next", title: "下一钟", foreground: true },
+                { id: "next", title: "新事项", foreground: true },
                 { id: "stop", title: "结束", foreground: true },
               ],
             },
@@ -4332,28 +4450,29 @@ const SW_VER = "20260902r7";
       badge.title = _rtPaused ? "已暂停累计" : "正计时进行中";
       wrap.appendChild(badge);
     }
-    // Round24：仅当「有暂停钟且无一在跑」时显示琥珀「新开钟」文案钮（在跑不刷冗余启动）
+    // Round26：暂停且无一在跑 → 本格显示「新事项」（优先本格有暂停钟，否则当前格）
     const isNowCell = !!(cellEl.classList && cellEl.classList.contains("current-cell"));
     const _todayTimers = Object.values(runningTimers).filter((t) => t && t.date === state.currentDate);
-    const _hasPausedClock = _todayTimers.some((t) => !!t.pausedAt);
     const _hasRunningClock = _todayTimers.some((t) => !t.pausedAt);
-    const _showNewClock = !_rt && isNowCell && state.realm === "record" && _hasPausedClock && !_hasRunningClock;
+    const _cellPaused = listCellTimers(period, cell).some((t) => !!t.pausedAt);
+    const _anyPaused = _todayTimers.some((t) => !!t.pausedAt);
+    const _showNewClock = state.realm === "record" && !_hasRunningClock && _anyPaused && (_cellPaused || isNowCell);
     if (_showNewClock) {
       const nowBtn = document.createElement("button");
       nowBtn.type = "button";
       nowBtn.className = "cell-timer-btn cell-timer-now cell-timer-now-label";
       nowBtn.dataset.timerNow = "1";
-      nowBtn.textContent = "新开钟";
-      nowBtn.title = "新开钟 · 上一口保持暂停，本格开新事项";
-      nowBtn.setAttribute("aria-label", "新开钟");
+      nowBtn.textContent = "新事项";
+      nowBtn.title = "同格新事项 · 上一口保持暂停（不跳时辰）";
+      nowBtn.setAttribute("aria-label", "新事项");
       nowBtn.style.touchAction = "manipulation";
       const fireNow = (e) => {
         if (nowBtn._fired && Date.now() - nowBtn._fired < 380) return;
         nowBtn._fired = Date.now();
         e.stopPropagation();
         e.preventDefault();
-        const hint = taskTextHint || "未命名任务";
-        startCellTimer(period, cell, hint);
+        const hint = taskTextHint || "未命名事项";
+        startFreshNewClock(hint, period, cell);
         if (state.realm === "record") renderRecord();
         else renderMandala();
       };
@@ -4632,8 +4751,10 @@ const SW_VER = "20260902r7";
     if (!barOk && !(strip && !strip.hidden && strip.dataset.sig === sig)) return false;
     const patchChip = (root, t, stale) => {
       if (!root) return;
+      const tk = findTimerKey(t);
       root.querySelectorAll(stale ? ".timer-chip.stale, .rcs-chip.stale" : ".timer-chip:not(.stale), .rcs-chip:not(.stale)").forEach((chip) => {
-        if (parseInt(chip.dataset.p, 10) !== t.period || parseInt(chip.dataset.c, 10) !== t.cell) return;
+        if (tk && chip.dataset.key && chip.dataset.key !== tk) return;
+        if (!chip.dataset.key && (parseInt(chip.dataset.p, 10) !== t.period || parseInt(chip.dataset.c, 10) !== t.cell)) return;
         if (stale && (chip.dataset.date || "") !== (t.date || "")) return;
         const clock = chip.querySelector(".timer-clock, .rcs-clock");
         if (clock) clock.textContent = _fmtTimerClock(t);
@@ -4669,31 +4790,36 @@ const SW_VER = "20260902r7";
     const chip = (t, stale) => {
       const paused = !!t.pausedAt;
       const active = !stale && !paused;
+      const tk = findTimerKey(t) || "";
       return '<div class="rcs-chip' + (paused ? " paused" : "") + (stale ? " stale" : "") + (active ? " active-run" : "") + '"'
-        + ' data-p="' + t.period + '" data-c="' + t.cell + '"'
+        + ' data-p="' + t.period + '" data-c="' + t.cell + '" data-key="' + escapeHtml(tk) + '"'
         + (stale ? ' data-date="' + escapeHtml(t.date || "") + '"' : "") + ">"
         + "<span>" + (stale ? "📅" : (paused ? "⏸" : "⏱")) + "</span>"
         + "<span>" + escapeHtml(trunc(t.taskText || "未命名", 10)) + "</span>"
         + '<span class="rcs-clock">' + _fmtTimerClock(t) + "</span>"
         + (stale
-          ? ('<button type="button" class="rcs-btn" data-rcs="bring" data-date="' + escapeHtml(t.date || "") + '" data-p="' + t.period + '" data-c="' + t.cell + '" title="带到今日续计">→今</button>')
-          : ('<button type="button" class="rcs-btn" data-rcs="toggle" data-p="' + t.period + '" data-c="' + t.cell + '" title="' + (paused ? "恢复" : "暂停") + '">' + (paused ? "恢复" : "暂停") + "</button>"
-            + '<button type="button" class="rcs-btn" data-rcs="next" data-p="' + t.period + '" data-c="' + t.cell + '" title="下一钟/新开钟">下一钟</button>'
-            + '<button type="button" class="rcs-btn rcs-end" data-rcs="stop" data-p="' + t.period + '" data-c="' + t.cell + '" title="结束·命名">结束</button>'))
+          ? ('<button type="button" class="rcs-btn" data-rcs="bring" data-date="' + escapeHtml(t.date || "") + '" data-p="' + t.period + '" data-c="' + t.cell + '" data-key="' + escapeHtml(tk) + '" title="带到今日续计">→今</button>')
+          : ('<button type="button" class="rcs-btn" data-rcs="toggle" data-p="' + t.period + '" data-c="' + t.cell + '" data-key="' + escapeHtml(tk) + '" title="' + (paused ? "恢复" : "暂停") + '">' + (paused ? "恢复" : "暂停") + "</button>"
+            + (paused
+              ? ('<button type="button" class="rcs-btn rcs-new" data-rcs="next" data-p="' + t.period + '" data-c="' + t.cell + '" data-key="' + escapeHtml(tk) + '" title="同格新事项">新事项</button>')
+              : (todayTimers.length > 1
+                ? ('<button type="button" class="rcs-btn" data-rcs="cycle" data-p="' + t.period + '" data-c="' + t.cell + '" data-key="' + escapeHtml(tk) + '" title="切换其他钟">切钟</button>')
+                : ('<button type="button" class="rcs-btn rcs-new" data-rcs="next" data-p="' + t.period + '" data-c="' + t.cell + '" data-key="' + escapeHtml(tk) + '" title="同格新事项（先暂停本口）">新事项</button>')))
+            + '<button type="button" class="rcs-btn rcs-end" data-rcs="stop" data-p="' + t.period + '" data-c="' + t.cell + '" data-key="' + escapeHtml(tk) + '" title="结束·命名">结束</button>'))
         + "</div>";
     };
     strip.innerHTML =
       '<div class="rcs-sum">⏱ 多钟协作 · <b class="run">' + runN + " 在跑</b>"
       + (pauseN ? ' · <b class="pause">' + pauseN + " 暂停</b>" : "")
       + (staleTimers.length ? ' · <b class="stale">' + staleTimers.length + " 跨日</b>" : "")
-      + (showNewClock ? ' · <b class="newc">可新开钟</b>' : "")
+      + (showNewClock ? ' · <b class="newc">可开新事项</b>' : "")
       + "</div>"
       + '<div class="rcs-chips">'
       + todayTimers.map((t) => chip(t, false)).join("")
       + staleTimers.map((t) => chip(t, true)).join("")
       + "</div>"
       + '<div class="rcs-ops">'
-      + (showNewClock ? '<button type="button" class="rcs-newclock" data-rcs="new-clock">▶ 新开钟</button>' : "")
+      + (showNewClock ? '<button type="button" class="rcs-newclock" data-rcs="new-clock">▶ 新事项</button>' : "")
       + (runN ? '<button type="button" data-rcs="pause-all">⏸ 全暂停</button>' : "")
       + (todayTimers.length ? '<button type="button" data-rcs="stop-all">■ 全结束</button>' : "")
       + (staleTimers.length ? '<button type="button" data-rcs="bring-today" class="accent">📅 带到今日</button>' : "")
@@ -4719,19 +4845,26 @@ const SW_VER = "20260902r7";
         const act = btn.dataset.rcs;
         const p = parseInt(btn.dataset.p, 10), c = parseInt(btn.dataset.c, 10);
         if (act === "toggle") {
-          const t = getRunningTimer(p, c);
+          const tk = btn.dataset.key || "";
+          const t = tk ? getTimerByKey(tk) : getRunningTimer(p, c);
           if (!t) return;
-          if (t.pausedAt) startCellTimer(p, c);
-          else pauseCellTimer(p, c);
+          if (t.pausedAt) startCellTimer(p, c, t.taskText);
+          else pauseCellTimer(p, c, tk || findTimerKey(t));
+          if (state.realm === "record") renderRecord();
+          else renderMandala();
+        } else if (act === "cycle") {
+          cycleNextRunningTimer(p, c);
           if (state.realm === "record") renderRecord();
           else renderMandala();
         } else if (act === "next") {
-          startNextOrNewClock(p, c);
+          const cur = btn.dataset.key ? getTimerByKey(btn.dataset.key) : getRunningTimer(p, c);
+          if (cur && !cur.pausedAt) pauseCellTimer(p, c, findTimerKey(cur));
+          startFreshNewClock(null, p, c);
           if (state.realm === "record") renderRecord();
           else renderMandala();
         } else if (act === "stop") {
           e.preventDefault();
-          stopCellTimer(p, c, { quick: !!e.shiftKey });
+          stopCellTimer(p, c, { quick: !!e.shiftKey, key: btn.dataset.key || null });
         } else if (act === "bring") {
           openBringTimerCellPicker(btn.dataset.date, p, c);
         } else if (act === "pause-all") {
@@ -4816,9 +4949,9 @@ const SW_VER = "20260902r7";
     }
     // 多钟：静默按原名写入（快速执行）
     list.forEach((t) => {
-      const key = timerKeyOf(t.date, t.period, t.cell);
+      const key = findTimerKey(t);
       const duration = timerElapsedOf(t);
-      delete runningTimers[key];
+      if (key) delete runningTimers[key];
       const spentMin = Math.max(1, Math.round(duration / 60000));
       const rec = getCellRecord(t.period, t.cell) || {};
       const name = (t.taskText && t.taskText !== "未命名任务") ? t.taskText : "";
@@ -4862,8 +4995,13 @@ const SW_VER = "20260902r7";
   function bringOneTimerToToday(fromDate, period, cell, opts) {
     opts = opts || {};
     const today = dateToStr(new Date());
-    const oldKey = timerKeyOf(fromDate, period, cell);
-    const t = runningTimers[oldKey];
+    let oldKey = opts.key || null;
+    let t = oldKey ? runningTimers[oldKey] : null;
+    if (!t) {
+      const prefix = fromDate + "_" + period + "_" + cell;
+      oldKey = Object.keys(runningTimers).find((k) => k === prefix || k.startsWith(prefix + "#")) || timerKeyOf(fromDate, period, cell);
+      t = runningTimers[oldKey];
+    }
     if (!t || t.date === today) {
       if (!opts.silent) toast("不是跨日钟", "info");
       return false;
@@ -4874,8 +5012,14 @@ const SW_VER = "20260902r7";
     }
     const toP = (opts.toPeriod != null && !isNaN(opts.toPeriod)) ? opts.toPeriod : period;
     const toC = (opts.toCell != null && !isNaN(opts.toCell)) ? opts.toCell : cell;
-    const newKey = timerKeyOf(today, toP, toC);
-    const exist = runningTimers[newKey];
+    const matterId = t.matterId || (oldKey && oldKey.indexOf("#") > 0 ? oldKey.split("#").slice(1).join("#") : null);
+    const newKey = timerKeyOf(today, toP, toC, matterId);
+    // 若目标键冲突且不是自己，换新 matterId
+    let finalKey = newKey;
+    if (runningTimers[finalKey] && finalKey !== oldKey) {
+      finalKey = timerKeyOf(today, toP, toC, "m" + Date.now().toString(36));
+    }
+    const exist = runningTimers[finalKey];
     const name = t.taskText || "任务";
     if (exist && exist !== t) {
       exist.accumMs = (exist.accumMs || 0) + (t.accumMs || 0);
@@ -4888,7 +5032,9 @@ const SW_VER = "20260902r7";
       t.cell = toC;
       t._staleCrossDay = false;
       t.pausedAt = Date.now();
-      runningTimers[newKey] = t;
+      if (matterId) t.matterId = matterId;
+      t._key = finalKey;
+      runningTimers[finalKey] = t;
     }
     save(RUNNING_TIMERS_KEY, runningTimers);
     const moved = (toP !== period || toC !== cell);
@@ -6056,7 +6202,91 @@ const SW_VER = "20260902r7";
           item.addEventListener("dragend", () => {
             item.classList.remove("dragging-item");
             draggingTaskSource = null;
+            document.querySelectorAll(".cell.drag-over").forEach((c) => c.classList.remove("drag-over"));
           });
+
+          // Round25：记录页任务条触屏长按拖到其他格（对齐计划页）
+          (function bindRecordTaskTouch(itemEl, p0, c0, i0) {
+            let ts = null;
+            itemEl.addEventListener("touchstart", (ev) => {
+              if (ev.target.closest(".task-checkbox, .task-note-edit-btn, button, input")) return;
+              if (!ev.touches || ev.touches.length !== 1) return;
+              const t = ev.touches[0];
+              ts = { startX: t.clientX, startY: t.clientY, holdTimer: null, ghost: null };
+              ts.holdTimer = setTimeout(() => {
+                if (!ts) return;
+                const ghost = document.createElement("div");
+                ghost.className = "kb-drag-ghost sd-drag-ghost silk-ghost";
+                ghost.textContent = (taskText(getCellTasks(p0, c0)[i0]) || "任务").slice(0, 28);
+                document.body.appendChild(ghost);
+                ts.ghost = ghost;
+                draggingTaskSource = { period: p0, cell: c0, idx: i0 };
+                itemEl.classList.add("dragging-item");
+                document.body.classList.add("kb-touch-dragging");
+                haptic(18);
+                ghost.style.left = t.clientX + "px";
+                ghost.style.top = t.clientY + "px";
+                sdHighlightCellAt(t.clientX, t.clientY);
+                showDragHint(t.clientX, t.clientY, "拖到格子 · 贴边切时辰");
+              }, 220);
+            }, { passive: true });
+            itemEl.addEventListener("touchmove", (ev) => {
+              if (!ts) return;
+              const t = ev.touches[0];
+              if (ts.ghost) {
+                ev.preventDefault();
+                if (ts._raf) cancelAnimationFrame(ts._raf);
+                const gx = t.clientX, gy = t.clientY;
+                ts._raf = requestAnimationFrame(() => {
+                  if (!ts || !ts.ghost) return;
+                  ts.ghost.style.transform = "translate(-50%,-50%)";
+                  ts.ghost.style.left = gx + "px";
+                  ts.ghost.style.top = gy + "px";
+                });
+                trySdPeriodPanAt(gx, gy);
+                const cell = sdHighlightCellAt(gx, gy);
+                let hint = "拖到格子 · 贴边切时辰";
+                if (cell) {
+                  const p = parseInt(cell.dataset.period, 10);
+                  const c = parseInt(cell.dataset.cell, 10);
+                  hint = "移到 " + (!isNaN(p) && PERIOD_NAMES[p] || "") + (!isNaN(c) ? " 第" + (c + 1) + "格" : "");
+                }
+                showDragHint(gx, gy, hint);
+                return;
+              }
+              const dx = Math.abs(t.clientX - ts.startX), dy = Math.abs(t.clientY - ts.startY);
+              if (ts.holdTimer && (dx > 12 || dy > 12)) {
+                clearTimeout(ts.holdTimer); ts.holdTimer = null;
+              }
+            }, { passive: false });
+            const endTouch = (ev) => {
+              if (!ts) return;
+              const st = ts; ts = null;
+              if (st.holdTimer) clearTimeout(st.holdTimer);
+              if (st._raf) cancelAnimationFrame(st._raf);
+              if (!st.ghost) return;
+              const t = (ev.changedTouches && ev.changedTouches[0]) || null;
+              const x = t ? t.clientX : 0, y = t ? t.clientY : 0;
+              st.ghost.remove();
+              itemEl.classList.remove("dragging-item");
+              document.body.classList.remove("kb-touch-dragging");
+              hideDragHint();
+              const targetCell = sdHighlightCellAt(x, y);
+              document.querySelectorAll(".cell.drag-over").forEach((c) => c.classList.remove("drag-over"));
+              const src = draggingTaskSource;
+              draggingTaskSource = null;
+              if (!targetCell || !src) return;
+              const tP = parseInt(targetCell.dataset.period, 10);
+              const tC = parseInt(targetCell.dataset.cell, 10);
+              if (isNaN(tP) || isNaN(tC)) return;
+              if (src.period === tP && src.cell === tC) return;
+              swapOrMoveCellTask(src.period, src.cell, src.idx, tP, tC);
+              renderAll();
+            };
+            itemEl.addEventListener("touchend", endTouch);
+            itemEl.addEventListener("touchcancel", endTouch);
+          })(item, period, cell, idx);
+
           planList.appendChild(item);
         });
         cellEl.appendChild(planList);
@@ -13149,7 +13379,11 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     }
     _applyView() {
       const { x, y, scale } = this.view;
-      this.els.g.setAttribute("transform", `translate(${x},${y}) scale(${scale})`);
+      if (this.els.g) {
+        // Round25：松手时轻微 easing，拖拽/平移中不卡顿
+        this.els.g.style.transition = (this._panning || this._dragging || this._dragId) ? "none" : "transform .12s ease-out";
+        this.els.g.setAttribute("transform", `translate(${x},${y}) scale(${scale})`);
+      }
       if (this.els.zoomLabel) this.els.zoomLabel.textContent = Math.round(scale * 100) + "%";
     }
     _edgePath(px, py, cx, cy) {
@@ -13647,8 +13881,10 @@ ${KNOWLEDGE_DIMENSIONS.map((d) => "   " + d.code + " → " + d.subs.map((s) => s
     }
     _renderLegend() {
       if (!this.els.legend) return;
-      const dimDots = KNOWLEDGE_DIMENSIONS.map((d) => `<span class="mm-leg-item"><span class="mm-leg-dot" style="background:${d.color}"></span>${d.code}</span>`).join("");
-      this.els.legend.innerHTML = `<span class="mm-leg-title">图例</span>${dimDots}<span class="mm-leg-item"><span class="mm-leg-dot" style="background:rgba(124,92,255,0.5);border:1px solid #7c5cff;"></span>主线</span><span class="mm-leg-item"><span class="mm-leg-dot" style="background:#ffa94d"></span>支线</span><span class="mm-leg-item"><span class="mm-leg-dot" style="background:#4dc3ff"></span>子步</span><span class="mm-leg-item" title="青绿描边 + ↩ 角标 = 该节点已安排到今日时间格子，点 ↩ 直达"><span class="mm-leg-dot" style="background:rgba(45,212,191,.25);border:1.5px solid #2dd4bf;"></span>↩ 已上格子</span>`;
+      // Round25：默认隐藏边界/图例装饰，减少画板杂讯
+      this.els.legend.hidden = true;
+      this.els.legend.innerHTML = "";
+      this.els.legend.classList.add("mm-chrome-hidden");
     }
     _countNodes(n) { return 1 + n.children.reduce((s, c) => s + this._countNodes(c), 0); }
     _sumMin(n) { return (n.meta && n.meta.est_min) || 0 + n.children.reduce((s, c) => s + this._sumMin(c), 0); }
@@ -20639,6 +20875,60 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     }
     return ok;
   }
+
+  // Round26：边轨拖拽贴边切时辰 — 进入阈值 + 退出滞回 + 冷却，减连切抖动
+  let _sdPeriodPanAt = 0;
+  let _sdPeriodPanArmed = true;
+  let _sdPeriodPanDir = 0;
+  function flashPeriodPan(dir) {
+    try {
+      document.body.classList.remove("sd-period-pan-left", "sd-period-pan-right");
+      void document.body.offsetWidth;
+      document.body.classList.add(dir < 0 ? "sd-period-pan-left" : "sd-period-pan-right");
+      clearTimeout(flashPeriodPan._t);
+      flashPeriodPan._t = setTimeout(() => {
+        document.body.classList.remove("sd-period-pan-left", "sd-period-pan-right");
+      }, 360);
+      const tabs = document.querySelector(".period-tabs") || document.getElementById("periodTabs");
+      if (tabs) {
+        tabs.classList.add("period-pan-glow");
+        clearTimeout(flashPeriodPan._t2);
+        flashPeriodPan._t2 = setTimeout(() => tabs.classList.remove("period-pan-glow"), 360);
+      }
+    } catch (e) { /* 静默 */ }
+  }
+  function trySdPeriodPanAt(x, y) {
+    const w = window.innerWidth || 360;
+    const enter = Math.max(32, Math.min(52, w * 0.085));
+    const exit = Math.max(48, Math.min(78, w * 0.13));
+    let zone = 0;
+    if (x <= enter) zone = -1;
+    else if (x >= w - enter) zone = 1;
+    if (!zone) {
+      if (x > exit && x < w - exit) {
+        _sdPeriodPanArmed = true;
+        _sdPeriodPanDir = 0;
+      }
+      return false;
+    }
+    if (!_sdPeriodPanArmed && zone === _sdPeriodPanDir) return false;
+    if (Date.now() - _sdPeriodPanAt < 780) return false;
+    _sdPeriodPanAt = Date.now();
+    _sdPeriodPanArmed = false;
+    _sdPeriodPanDir = zone;
+    const next = (state.activePeriod + zone + PERIOD_COUNT) % PERIOD_COUNT;
+    state.activePeriod = next;
+    try {
+      if (typeof renderPeriodTabs === "function") renderPeriodTabs();
+      if (state.realm === "record") renderRecord();
+      else renderMandala();
+    } catch (e) { /* 静默 */ }
+    flashPeriodPan(zone);
+    haptic(10);
+    showDragHint(x, y, (zone < 0 ? "← " : "→ ") + (PERIOD_NAMES[next] || ("第" + (next + 1) + "辰")));
+    return true;
+  }
+
   function moveSdGhost(st, x, y) {
     if (!st || !st.ghost) return;
     st.ghost.style.left = x + "px";
@@ -20668,6 +20958,13 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
     return targetCell;
   }
 
+  if (!window._sdDragPeriodPanBound) {
+    window._sdDragPeriodPanBound = true;
+    document.addEventListener("dragover", (e) => {
+      if (!draggingSideSource && !draggingTaskSource) return;
+      trySdPeriodPanAt(e.clientX, e.clientY);
+    }, true);
+  }
   function attachDragHandlers(cellEl, period, cell) {
     // 格子接收：任务条 / 侧条待办 / 收集箱卡片
     cellEl.addEventListener("dragover", (e) => {
@@ -23393,8 +23690,9 @@ ${review && review.userNotes ? review.userNotes : "（无）"}
         if (sdTouch.ghost) {
           e.preventDefault();
           moveSdGhost(sdTouch, t.clientX, t.clientY);
+          trySdPeriodPanAt(t.clientX, t.clientY);
           const cell = sdHighlightCellAt(t.clientX, t.clientY);
-          let hint = "拖到时辰格子松手";
+          let hint = "拖到格子 · 贴边可切时辰";
           if (cell) {
             const p = parseInt(cell.dataset.period, 10);
             const c = parseInt(cell.dataset.cell, 10);
